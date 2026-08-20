@@ -36,6 +36,7 @@ import { InstallPwaButton } from './components/InstallPwaButton';
 import { AdminPanel } from './components/AdminPanel';
 import { TransactionAuditLog } from './components/TransactionAuditLog';
 import { SystemErrorsMonitor } from './components/SystemErrorsMonitor';
+import { SecurityDashboard } from './components/SecurityDashboard';
 import { useErrorReporter } from './hooks/useErrorReporter';
 import { AuthProvider } from './contexts/AuthContext';
 import { ThemeProvider } from './contexts/ThemeContext';
@@ -268,6 +269,7 @@ function Playall365InnerApp() {
             <div className="flex items-center space-x-2 overflow-x-auto pb-1 font-mono text-xs scrollbar-none">
               {[
                 { id: 'simulator', label: 'HTTP / API Simulator', icon: Zap },
+                { id: 'security', label: 'Security & HMAC Guard', icon: ShieldCheck },
                 { id: 'errors', label: `Firestore Errors (${systemErrors.length})`, icon: ShieldAlert, badge: newErrorsCount > 0 ? newErrorsCount : undefined },
                 { id: 'latency', label: 'Latency SLA Monitor', icon: Activity },
                 { id: 'cache', label: 'Cache & State Sync', icon: Layers },
@@ -317,6 +319,10 @@ function Playall365InnerApp() {
                   currentWallet={currentWallet}
                   onLedgerMutated={refreshState}
                 />
+              )}
+
+              {workbenchSubTab === 'security' && (
+                <SecurityDashboard />
               )}
 
               {workbenchSubTab === 'errors' && (

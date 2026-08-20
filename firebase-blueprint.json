@@ -94,6 +94,48 @@
         "createdAt": { "type": "string", "format": "date-time" }
       },
       "required": ["id", "userId", "title", "message", "type", "isRead"]
+    },
+    "SecurityEvent": {
+      "title": "SecurityEvent",
+      "description": "Real-time security telemetry for HMAC validation, signature tampering, timestamp replay attacks, and rate limits",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string", "maxLength": 128 },
+        "eventType": { "type": "string", "enum": ["HMAC_VALIDATED", "INVALID_SIGNATURE", "EXPIRED_TIMESTAMP", "PAYLOAD_TAMPERED", "RATE_LIMIT_EXCEEDED", "IP_BLOCKED", "REPLAY_ATTACK"] },
+        "providerId": { "type": "string", "maxLength": 100 },
+        "endpoint": { "type": "string", "maxLength": 150 },
+        "ipAddress": { "type": "string", "maxLength": 64 },
+        "country": { "type": "string", "maxLength": 10 },
+        "status": { "type": "string", "enum": ["ALLOWED", "BLOCKED", "FLAGGED", "CHALLENGED"] },
+        "signatureReceived": { "type": "string", "maxLength": 256 },
+        "signatureExpected": { "type": "string", "maxLength": 256 },
+        "timestampReceived": { "type": "number" },
+        "clockSkewMs": { "type": "number" },
+        "payloadPreview": { "type": "string", "maxLength": 2000 },
+        "message": { "type": "string", "maxLength": 500 },
+        "severity": { "type": "string", "enum": ["INFO", "WARNING", "HIGH", "CRITICAL"] },
+        "createdAt": { "type": "string", "format": "date-time" }
+      },
+      "required": ["id", "eventType", "providerId", "endpoint", "ipAddress", "status", "severity", "createdAt"]
+    },
+    "IpRateLimit": {
+      "title": "IpRateLimit",
+      "description": "Edge IP rate-limiting and throttle statistics",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string", "maxLength": 64 },
+        "ip": { "type": "string", "maxLength": 64 },
+        "providerId": { "type": "string", "maxLength": 100 },
+        "country": { "type": "string", "maxLength": 10 },
+        "requestCount": { "type": "number" },
+        "rps": { "type": "number" },
+        "limitRps": { "type": "number" },
+        "violationsCount": { "type": "number" },
+        "status": { "type": "string", "enum": ["NORMAL", "THROTTLED", "BLOCKED", "WHITELISTED"] },
+        "lastSeenAt": { "type": "string", "format": "date-time" },
+        "blockedUntil": { "type": "string", "format": "date-time" }
+      },
+      "required": ["id", "ip", "requestCount", "rps", "status"]
     }
   },
   "firestore": {
@@ -116,6 +158,14 @@
     "/users/{userId}/notifications/{notificationId}": {
       "schema": { "$ref": "#/entities/Notification" },
       "description": "Real-time user notifications subcollection"
+    },
+    "/security_events/{eventId}": {
+      "schema": { "$ref": "#/entities/SecurityEvent" },
+      "description": "Real-time HMAC signature verification and security attack logs"
+    },
+    "/ip_rate_limits/{ipId}": {
+      "schema": { "$ref": "#/entities/IpRateLimit" },
+      "description": "Edge IP rate limiting and threshold telemetry"
     }
   }
 }

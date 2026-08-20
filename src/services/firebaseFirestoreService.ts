@@ -16,6 +16,7 @@ import {
   getDoc,
   getDocs,
   updateDoc,
+  deleteDoc,
   query,
   where,
   orderBy,
@@ -515,6 +516,353 @@ class FirebaseFirestoreService {
     });
     return res.updatedWallet;
   }
+
+  /**
+   * Listen to real-time Security Events from Firestore
+   */
+  public subscribeToSecurityEvents(
+    onUpdate: (events: SecurityEventRecord[]) => void,
+    maxLimit = 100
+  ): Unsubscribe {
+    const eventsCol = collection(db, 'security_events');
+    const q = query(eventsCol, orderBy('createdAt', 'desc'), limit(maxLimit));
+    const path = 'security_events';
+
+    return onSnapshot(
+      q,
+      (snapshot) => {
+        const events: SecurityEventRecord[] = snapshot.docs.map((docSnap) => {
+          const data = docSnap.data();
+          return {
+            id: docSnap.id,
+            eventType: data.eventType || 'HMAC_VALIDATED',
+            providerId: data.providerId || 'pragmatic_play',
+            endpoint: data.endpoint || '/api/seamless/bet',
+            ipAddress: data.ipAddress || '127.0.0.1',
+            country: data.country || 'BD',
+            status: data.status || 'ALLOWED',
+            signatureReceived: data.signatureReceived || '',
+            signatureExpected: data.signatureExpected || '',
+            timestampReceived: data.timestampReceived || Date.now(),
+            clockSkewMs: data.clockSkewMs || 0,
+            payloadPreview: data.payloadPreview || '{}',
+            message: data.message || 'HMAC Signature verified',
+            severity: data.severity || 'INFO',
+            createdAt: data.createdAt || new Date().toISOString()
+          };
+        });
+        onUpdate(events);
+      },
+      (error) => {
+        console.warn(`Firestore security events listener: ${error.message}`);
+        handleFirestoreError(error, OperationType.LIST, path);
+      }
+    );
+  }
+
+  /**
+   * Listen to real-time Edge IP Rate Limits from Firestore
+   */
+  public subscribeToIpRateLimits(
+    onUpdate: (limits: IpRateLimitRecord[]) => void
+  ): Unsubscribe {
+    const limitsCol = collection(db, 'ip_rate_limits');
+    const path = 'ip_rate_limits';
+
+    return onSnapshot(
+      limitsCol,
+      (snapshot) => {
+        const limitsList: IpRateLimitRecord[] = snapshot.docs.map((docSnap) => {
+          const data = docSnap.data();
+          return {
+            id: docSnap.id,
+            ip: data.ip || docSnap.id.replace(/_/g, '.'),
+            providerId: data.providerId || 'pragmatic_play',
+            country: data.country || 'US',
+            requestCount: typeof data.requestCount === 'number' ? data.requestCount : 0,
+            rps: typeof data.rps === 'number' ? data.rps : 0,
+            limitRps: typeof data.limitRps === 'number' ? data.limitRps : 100,
+            violationsCount: typeof data.violationsCount === 'number' ? data.violationsCount : 0,
+            status: data.status || 'NORMAL',
+            lastSeenAt: data.lastSeenAt || new Date().toISOString(),
+            blockedUntil: data.blockedUntil
+          };
+        });
+        onUpdate(limitsList);
+      },
+      (error) => {
+        console.warn(`Firestore IP rate limits listener: ${error.message}`);
+        handleFirestoreError(error, OperationType.LIST, path);
+      }
+    );
+  }
+
+  /**
+   * Record a new Security Event in Firestore
+   */
+  public async recordSecurityEvent(
+    event: Omit<SecurityEventRecord, 'id' | 'createdAt'> & { id?: string }
+  ): Promise<SecurityEventRecord> {
+    const eventId = event.id || `SEC_${Date.now()}_${Math.random().toString(36).substring(2, 7)}`;
+    const docRef = doc(db, 'security_events', eventId);
+    const path = `security_events/${eventId}`;
+    const createdAt = new Date().toISOString();
+
+    const record: SecurityEventRecord = {
+      id: eventId,
+      eventType: event.eventType,
+      providerId: event.providerId,
+      endpoint: event.endpoint,
+      ipAddress: event.ipAddress,
+      country: event.country,
+      status: event.status,
+      signatureReceived: event.signatureReceived || '',
+      signatureExpected: event.signatureExpected || '',
+      timestampReceived: event.timestampReceived || Date.now(),
+      clockSkewMs: event.clockSkewMs || 0,
+      payloadPreview: event.payloadPreview || '{}',
+      message: event.message,
+      severity: event.severity,
+      createdAt
+    };
+
+    try {
+      await setDoc(docRef, record);
+      return record;
+    } catch (error) {
+      handleFirestoreError(error, OperationType.CREATE, path);
+    }
+  }
+
+  /**
+   * Record or update IP Rate Limit stats in Firestore
+   */
+  public async recordOrUpdateIpRateLimit(
+    data: Partial<IpRateLimitRecord> & { ip: string }
+  ): Promise<void> {
+    const docId = data.ip.replace(/\./g, '_').replace(/:/g, '_');
+    const docRef = doc(db, 'ip_rate_limits', docId);
+    const path = `ip_rate_limits/${docId}`;
+
+    try {
+      await setDoc(
+        docRef,
+        {
+          id: docId,
+          ip: data.ip,
+          providerId: data.providerId || 'pragmatic_play',
+          country: data.country || 'US',
+          requestCount: data.requestCount ?? 1,
+          rps: data.rps ?? 1,
+          limitRps: data.limitRps ?? 100,
+          violationsCount: data.violationsCount ?? 0,
+          status: data.status || 'NORMAL',
+          lastSeenAt: new Date().toISOString(),
+          ...(data.blockedUntil ? { blockedUntil: data.blockedUntil } : {})
+        },
+        { merge: true }
+      );
+    } catch (error) {
+      handleFirestoreError(error, OperationType.WRITE, path);
+    }
+  }
+
+  /**
+   * Change status of an IP in Firestore (e.g. Block, Unblock, Whitelist)
+   */
+  public async updateIpStatus(
+    ip: string,
+    status: 'NORMAL' | 'THROTTLED' | 'BLOCKED' | 'WHITELISTED',
+    blockedUntil?: string
+  ): Promise<void> {
+    const docId = ip.replace(/\./g, '_').replace(/:/g, '_');
+    const docRef = doc(db, 'ip_rate_limits', docId);
+    const path = `ip_rate_limits/${docId}`;
+
+    try {
+      await updateDoc(docRef, {
+        status,
+        ...(blockedUntil ? { blockedUntil } : { blockedUntil: null }),
+        lastSeenAt: new Date().toISOString()
+      });
+    } catch (error) {
+      handleFirestoreError(error, OperationType.UPDATE, path);
+    }
+  }
+
+  /**
+   * Delete a security event document
+   */
+  public async deleteSecurityEvent(eventId: string): Promise<void> {
+    const docRef = doc(db, 'security_events', eventId);
+    const path = `security_events/${eventId}`;
+    try {
+      await deleteDoc(docRef);
+    } catch (error) {
+      handleFirestoreError(error, OperationType.DELETE, path);
+    }
+  }
+
+  /**
+   * Seed initial realistic security events and IP stats if collection is empty
+   */
+  public async seedInitialSecurityData(): Promise<void> {
+    try {
+      const eventsSnap = await getDocs(query(collection(db, 'security_events'), limit(1)));
+      if (!eventsSnap.empty) {
+        return; // Already populated
+      }
+
+      const sampleEvents: Array<Omit<SecurityEventRecord, 'id' | 'createdAt'>> = [
+        {
+          eventType: 'HMAC_VALIDATED',
+          providerId: 'pragmatic_play',
+          endpoint: '/api/seamless/bet',
+          ipAddress: '154.21.89.44',
+          country: 'MT',
+          status: 'ALLOWED',
+          signatureReceived: 'e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855',
+          signatureExpected: 'e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855',
+          timestampReceived: Date.now() - 12000,
+          clockSkewMs: 142,
+          payloadPreview: '{"user_id":"u_sakib_01","amount":250.0,"game_id":"vs20sweetbonanza"}',
+          message: 'SHA-256 HMAC signature valid & timestamp within 5000ms SLA window',
+          severity: 'INFO'
+        },
+        {
+          eventType: 'INVALID_SIGNATURE',
+          providerId: 'pragmatic_play',
+          endpoint: '/api/seamless/bet',
+          ipAddress: '185.220.101.5',
+          country: 'RU',
+          status: 'BLOCKED',
+          signatureReceived: '9f86d081884c7d659a2feaa0c55ad015a3bf4f1b2b0b822cd15d6c15b0f00a08',
+          signatureExpected: '4a6b241315b6d194c599175402fe3e4d9f6580f4f9f72782b8a245f8f5319803',
+          timestampReceived: Date.now() - 45000,
+          clockSkewMs: 820,
+          payloadPreview: '{"user_id":"u_sakib_01","amount":999999.0,"game_id":"vs20sweetbonanza"}',
+          message: 'Cryptographic signature mismatch: Tampered request payload detected',
+          severity: 'CRITICAL'
+        },
+        {
+          eventType: 'EXPIRED_TIMESTAMP',
+          providerId: 'evolution',
+          endpoint: '/api/seamless/win',
+          ipAddress: '194.26.29.112',
+          country: 'NL',
+          status: 'BLOCKED',
+          signatureReceived: '2c26b46b68ffc68ff99b453c1d30413413422d706483bfa0f98a5e886266e7ae',
+          signatureExpected: '2c26b46b68ffc68ff99b453c1d30413413422d706483bfa0f98a5e886266e7ae',
+          timestampReceived: Date.now() - 360000,
+          clockSkewMs: 360000,
+          payloadPreview: '{"user_id":"u_alex_02","amount":1500.0,"round_id":"RND_77189"}',
+          message: 'Replay attack prevented: Request timestamp expired (>300s skew)',
+          severity: 'HIGH'
+        },
+        {
+          eventType: 'RATE_LIMIT_EXCEEDED',
+          providerId: 'custom_provider',
+          endpoint: '/api/seamless/auth',
+          ipAddress: '45.154.255.89',
+          country: 'UA',
+          status: 'FLAGGED',
+          signatureReceived: 'a87265b78f9024c6e7f8e6580912f2010839e9921bdfc66',
+          signatureExpected: 'a87265b78f9024c6e7f8e6580912f2010839e9921bdfc66',
+          timestampReceived: Date.now() - 95000,
+          clockSkewMs: 210,
+          payloadPreview: '{"user_id":"u_maria_03","session_token":"tok_test_991"}',
+          message: 'IP burst exceeded 120 req/sec threshold (HTTP 429 Too Many Requests)',
+          severity: 'WARNING'
+        }
+      ];
+
+      for (const ev of sampleEvents) {
+        await this.recordSecurityEvent(ev);
+      }
+
+      const sampleIps: Array<Partial<IpRateLimitRecord> & { ip: string }> = [
+        {
+          ip: '154.21.89.44',
+          providerId: 'pragmatic_play',
+          country: 'MT',
+          requestCount: 4120,
+          rps: 42,
+          limitRps: 150,
+          violationsCount: 0,
+          status: 'NORMAL'
+        },
+        {
+          ip: '185.220.101.5',
+          providerId: 'malicious_bot',
+          country: 'RU',
+          requestCount: 940,
+          rps: 94,
+          limitRps: 50,
+          violationsCount: 18,
+          status: 'BLOCKED',
+          blockedUntil: new Date(Date.now() + 86400000).toISOString()
+        },
+        {
+          ip: '194.26.29.112',
+          providerId: 'evolution',
+          country: 'NL',
+          requestCount: 1820,
+          rps: 28,
+          limitRps: 100,
+          violationsCount: 2,
+          status: 'THROTTLED'
+        },
+        {
+          ip: '103.14.28.1',
+          providerId: 'spribe',
+          country: 'BD',
+          requestCount: 6500,
+          rps: 75,
+          limitRps: 200,
+          violationsCount: 0,
+          status: 'WHITELISTED'
+        }
+      ];
+
+      for (const ipRec of sampleIps) {
+        await this.recordOrUpdateIpRateLimit(ipRec);
+      }
+    } catch (e) {
+      console.warn('Initial security data seeding notice:', e);
+    }
+  }
+}
+
+export interface SecurityEventRecord {
+  id: string;
+  eventType: 'HMAC_VALIDATED' | 'INVALID_SIGNATURE' | 'EXPIRED_TIMESTAMP' | 'PAYLOAD_TAMPERED' | 'RATE_LIMIT_EXCEEDED' | 'IP_BLOCKED' | 'REPLAY_ATTACK';
+  providerId: string;
+  endpoint: string;
+  ipAddress: string;
+  country: string;
+  status: 'ALLOWED' | 'BLOCKED' | 'FLAGGED' | 'CHALLENGED';
+  signatureReceived?: string;
+  signatureExpected?: string;
+  timestampReceived?: number;
+  clockSkewMs?: number;
+  payloadPreview?: string;
+  message: string;
+  severity: 'INFO' | 'WARNING' | 'HIGH' | 'CRITICAL';
+  createdAt: string;
+}
+
+export interface IpRateLimitRecord {
+  id: string;
+  ip: string;
+  providerId: string;
+  country: string;
+  requestCount: number;
+  rps: number;
+  limitRps: number;
+  violationsCount: number;
+  status: 'NORMAL' | 'THROTTLED' | 'BLOCKED' | 'WHITELISTED';
+  lastSeenAt: string;
+  blockedUntil?: string;
 }
 
 export const firebaseFirestore = new FirebaseFirestoreService();

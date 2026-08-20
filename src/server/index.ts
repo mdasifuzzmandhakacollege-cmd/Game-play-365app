@@ -5,6 +5,9 @@
 
 import express, { Request, Response, NextFunction } from 'express';
 import dotenv from 'dotenv';
+import path from 'path';
+import fs from 'fs';
+import { fileURLToPath } from 'url';
 import { validateHmacSignature, AuthenticatedRequest } from './middleware/hmac';
 import { SeamlessWalletService, IDbPool } from './services/walletService';
 import { SeamlessWalletController } from './controllers/seamlessWalletController';
@@ -15,8 +18,12 @@ import { getPromotionDetailsHandler, claimCheckInHandler, spinWheelHandler } fro
 
 dotenv.config();
 
+const __filename = fileURLToPath(import.meta.url);
+const __dirname = path.dirname(__filename);
+
 const app = express();
-const PORT = process.env.PORT || 3000;
+const PORT = Number(process.env.PORT) || 8080;
+const HOST = '0.0.0.0';
 
 // ----------------------------------------------------------------------------
 // 1. Raw Body Middleware for HMAC SHA-256 Signature Verification
@@ -90,7 +97,21 @@ promoRouter.post('/checkin', claimCheckInHandler);
 promoRouter.post('/spin', spinWheelHandler);
 app.use('/api/promo', promoRouter);
 
-// Health check endpoint (for load balancers & Kubernetes probes)
+// ----------------------------------------------------------------------------
+// 7. Serve Static Frontend Bundle (dist directory) in Production
+// ----------------------------------------------------------------------------
+const distPath = path.resolve(process.cwd(), 'dist');
+if (fs.existsSync(distPath)) {
+  app.use(express.static(distPath));
+  app.get('*', (req: Request, res: Response) => {
+    if (req.path.startsWith('/api')) {
+      return res.status(404).json({ code: 'NOT_FOUND', message: 'API route not found' });
+    }
+    res.sendFile(path.join(distPath, 'index.html'));
+  });
+}
+
+// Health check endpoint (for load balancers & Kubernetes / Cloud Run probes)
 app.get('/health', (_req: Request, res: Response) => {
   res.status(200).json({ status: 'HEALTHY', uptime: process.uptime(), timestamp: Date.now() });
 });
@@ -106,8 +127,8 @@ app.use((err: any, _req: Request, res: Response, _next: NextFunction) => {
 });
 
 if (process.env.NODE_ENV !== 'test') {
-  app.listen(PORT, () => {
-    console.log(`[Seamless Wallet Core] Server listening on port ${PORT}`);
+  app.listen(PORT, HOST, () => {
+    console.log(`[Seamless Wallet Core] Server successfully listening on http://${HOST}:${PORT}`);
   });
 }
 

@@ -72,6 +72,22 @@ service cloud.firestore {
       allow update: if true;
       allow delete: if isSignedIn();
     }
+
+    // Real-Time Security Events (HMAC verifications, invalid signatures, replay attacks)
+    match /security_events/{eventId} {
+      allow read: if true;
+      allow create: if true;
+      allow update: if true;
+      allow delete: if true;
+    }
+
+    // Edge IP Rate Limiting & Threat Mitigation Collection
+    match /ip_rate_limits/{ipId} {
+      allow read: if true;
+      allow create: if true;
+      allow update: if true;
+      allow delete: if true;
+    }
   }
 }
 
