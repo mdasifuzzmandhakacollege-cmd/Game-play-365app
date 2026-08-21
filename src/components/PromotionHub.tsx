@@ -1,3 +1,11 @@
+/**
+ * @file PromotionHub.tsx
+ * @description Master Promotional & Reward Center for Playall 365.
+ * Structured with harmonious visual proportion, balanced hierarchy, responsive mobile layout,
+ * 7-Day Streak Tracker, Provably Fair Lucky Fortune Wheel, Rich Campaign Cards,
+ * and Instant Bonus/Wagering Ledger integration.
+ */
+
 import React, { useState } from 'react';
 import {
   Gift,
@@ -7,56 +15,253 @@ import {
   Crown,
   Check,
   Lock,
-  Target
+  Target,
+  Zap,
+  Flame,
+  Clock,
+  ChevronRight,
+  TrendingUp,
+  ShieldCheck,
+  Award,
+  HelpCircle,
+  Coins,
+  ArrowUpRight,
+  Percent,
+  CheckCircle2,
+  X,
+  Share2,
+  Users
 } from 'lucide-react';
 import { UserEntity, WalletEntity } from '../server/types/seamless';
 import { DAILY_CHECKIN_REWARDS, WHEEL_PRIZES } from '../shared/gameplayConfig';
 import { seamlessEngine } from '../services/simulatedWalletEngine';
+import { notificationService } from '../services/notificationService';
+import { soundEngine } from '../services/soundEngine';
+import { useWalletGame } from '../contexts/WalletGameContext';
 import { WageringRequirements } from './WageringRequirements';
 import { DailyMissions } from './DailyMissions';
+import { motion, AnimatePresence } from 'framer-motion';
 
 interface PromotionHubProps {
   currentUser: UserEntity;
   currentWallet?: WalletEntity;
   currency: 'BDT' | 'USD';
   onRewardClaimed: () => void;
+  onOpenCashier?: () => void;
 }
+
+interface PromoOffer {
+  id: string;
+  category: 'WELCOME' | 'CASHBACK' | 'SPORTS' | 'VIP' | 'SLOTS';
+  title: string;
+  subtitle: string;
+  bonusAmount: string;
+  badge: string;
+  badgeColor: string;
+  accentGradient: string;
+  turnover: string;
+  minDeposit: string;
+  maxBonus: string;
+  validity: string;
+  eligibleGames: string;
+  description: string;
+  terms: string[];
+  claimCode: string;
+}
+
+const PROMOTIONAL_OFFERS: PromoOffer[] = [
+  {
+    id: 'welcome-300',
+    category: 'WELCOME',
+    title: '৩০০% মেগা ফার্স্ট ডিপোজিট বোনাস',
+    subtitle: 'নতুন ইউজারদের জন্য স্পেশাল ট্রিপল ওয়েলকাম অফার',
+    bonusAmount: '৳ ৩০,০০০ পর্যন্ত',
+    badge: 'HOT WELCOME',
+    badgeColor: 'bg-gradient-to-r from-amber-500 to-yellow-400 text-slate-950',
+    accentGradient: 'from-amber-500/20 via-yellow-500/10 to-transparent border-amber-500/40',
+    turnover: '১৫x টার্নওভার',
+    minDeposit: '৳ ৫০০',
+    maxBonus: '৳ ৩০,০০০ + ১০০ ফ্রি স্পিন',
+    validity: '৩০ দিন',
+    eligibleGames: 'সকল স্লটস ও ক্র্যাশ গেমস (Spribe Aviator, JILI, PG Soft)',
+    description: 'প্রথম ডিপোজিটে পান তাৎক্ষণিক ৩০০% বোনাস এবং ১০০টি ফ্রি স্পিন। সহজ টার্নওভার পূরণ করেই সরাসরি রিয়াল ব্যালেন্সে কনভার্ট করুন।',
+    terms: [
+      'এই অফারটি শুধুমাত্র নতুন নিবন্ধিত অ্যাকাউন্ট ও প্রথম ডিপোজিটের জন্য প্রযোজ্য।',
+      'সর্বনিম্ন ডিপোজিট ৳৫০০ অথবা $৫।',
+      'বোনাস তোলার পূর্বে (Deposit + Bonus) ১৫ গুণ (15x) টার্নওভার সম্পন্ন করতে হবে।',
+      'টার্নওভার সম্পন্ন করার সর্বোচ্চ সময়সীমা ৩০ দিন।'
+    ],
+    claimCode: 'WELCOME300'
+  },
+  {
+    id: 'daily-live-cashback',
+    category: 'CASHBACK',
+    title: '১০% দৈনিক আনলিমিটেড লাইভ ক্যাসিনো রিবেট',
+    subtitle: 'প্রতিদিনের লাইভ গেমিংয়ে তাৎক্ষণিক রিফান্ড',
+    bonusAmount: '১০% আনলিমিটেড',
+    badge: 'DAILY CASHBACK',
+    badgeColor: 'bg-emerald-500/20 text-emerald-400 border border-emerald-500/40',
+    accentGradient: 'from-emerald-500/20 via-teal-500/10 to-transparent border-emerald-500/40',
+    turnover: '১x রোলওভার',
+    minDeposit: 'কোনো লিমিট নেই',
+    maxBonus: 'আনলিমিটেড ক্যাশব্যাক',
+    validity: 'প্রতিদিন রাত ১২:০০',
+    eligibleGames: 'Evolution Gaming, Pragmatic Live, Sexy Baccarat, Roulette',
+    description: 'লাইভ ক্যাসিনোর প্রতিটি রাউন্ডে জয় বা পরাজয় যাই হোক, প্রতিদিন পাবেন ১০% সরাসরি ক্যাশব্যাক কোনো জটিল শর্ত ছাড়াই।',
+    terms: [
+      'প্রতিদিন স্বয়ংক্রিয়ভাবে রাত ১২:০০ টায় ক্যাশব্যাক গণনা ও ওয়ালেটে ক্রেডিট করা হয়।',
+      'শুধুমাত্র ১ গুণ (1x) রোলওভার খেলেই সম্পূর্ণ টাকা উইথড্র করা যাবে।',
+      'কোনো সর্বোচ্চ বোনাস সীমা নেই।'
+    ],
+    claimCode: 'LIVEREBATE10'
+  },
+  {
+    id: 'sports-insurance',
+    category: 'SPORTS',
+    title: '১০০% স্পোর্টস ফার্স্ট বেট ইন্স্যুরেন্স',
+    subtitle: 'ক্রিকেট ও ফুটবলে নো-রিস্ক প্রিমিয়াম বেটিং',
+    bonusAmount: '৳ ৫,০০০ রিফান্ড',
+    badge: 'SPORTS SHIELD',
+    badgeColor: 'bg-cyan-500/20 text-cyan-400 border border-cyan-500/40',
+    accentGradient: 'from-cyan-500/20 via-blue-500/10 to-transparent border-cyan-500/40',
+    turnover: '৩x টার্নওভার',
+    minDeposit: '৳ ১,০০০',
+    maxBonus: '৳ ৫,০০০ পর্যন্ত শতভাগ ফেরত',
+    validity: '১৪ দিন',
+    eligibleGames: 'IPL 2026, BPL, UEFA Champions League, Premier League',
+    description: 'স্পোর্টসবুকে আপনার প্রথম প্রেডিকশন ভুল হলেও সম্পূর্ণ টাকা বোনাস হিসেবে রিফান্ড পেয়ে যাবেন।',
+    terms: [
+      'ন্যূনতম ১.৫০ বা তার বেশি অডস (Odds)-এর স্পোর্টস বেটে প্রযোজ্য।',
+      'যদি বেট লস হয়, তবে সর্বোচ্চ ৳৫,০০০ পর্যন্ত শতভাগ ক্যাশব্যাক প্রদান করা হবে।',
+      'বোনাস ব্যালেন্স দিয়ে যেকোনো স্পোর্টস ম্যাচে ৩x টার্নওভার সম্পন্ন করতে হবে।'
+    ],
+    claimCode: 'SPORTS100'
+  },
+  {
+    id: 'weekly-vip-lossback',
+    category: 'VIP',
+    title: '১৫% সাপ্তাহিক ভিআইপি লস-ব্যাক ভল্ট',
+    subtitle: 'ভিআইপি টায়ার মেম্বারদের জন্য এক্সক্লুসিভ রিওয়ার্ড',
+    bonusAmount: '৳ ১,০০,০০০ পর্যন্ত',
+    badge: 'VIP EXCLUSIVE',
+    badgeColor: 'bg-purple-500/20 text-purple-300 border border-purple-500/40',
+    accentGradient: 'from-purple-500/20 via-pink-500/10 to-transparent border-purple-500/40',
+    turnover: '০x নো-ওয়েজার (রিয়াল ক্যাশ)',
+    minDeposit: 'ভিআইপি লেভেল ৩+',
+    maxBonus: '৳ ১,০০,০০০',
+    validity: 'প্রতি সোমবার',
+    eligibleGames: 'প্ল্যাটফর্মের সকল গেমস',
+    description: 'প্রতি সপ্তাহের মোট নেট লসের ওপর ১৫% পর্যন্ত নো-ওয়েজারিং ডিরেক্ট রিয়াল ব্যালেন্স রিফান্ড। সরাসরি ক্যাশ-আউট যোগ্য।',
+    terms: [
+      'শুধুমাত্র ভিআইপি সিলভার, গোল্ড ও প্ল্যাটিনাম মেম্বারদের জন্য প্রযোজ্য।',
+      'কোনো টার্নওভার শর্ত নেই (০x Wagering) – টাকা সরাসরি রিয়াল ব্যালেন্সে জমা হবে।',
+      'প্রতি সোমবার সকাল ১০:০০ টায় স্বয়ংক্রিয় ডিপোজিট।'
+    ],
+    claimCode: 'VIPLOSS15'
+  },
+  {
+    id: 'refer-friend-bounty',
+    category: 'WELCOME',
+    title: '৳ ৫০০ ফ্রেন্ড রেফারেল বাউন্টি + ১০% লাইফটাইম কমিশন',
+    subtitle: 'বন্ধুদের ইনভাইট করে আনলিমিটেড প্যাসিভ আর্নিং',
+    bonusAmount: '৳ ৫০০ + ১০% কমিশন',
+    badge: 'AFFILIATE PASS',
+    badgeColor: 'bg-amber-400/20 text-amber-300 border border-amber-400/40',
+    accentGradient: 'from-amber-500/20 via-yellow-500/10 to-transparent border-amber-500/40',
+    turnover: '১x রোলওভার',
+    minDeposit: 'রেফার্ড ফ্রেন্ড ডিপোজিট ৳৫০০',
+    maxBonus: 'আনলিমিটেড',
+    validity: 'আজীবন মেয়াদ',
+    eligibleGames: 'সকল গেমস',
+    description: 'আপনার রেফারেল লিংকে বন্ধু যোগ দিয়ে প্রথম ডিপোজিট করলেই পাবেন ইনস্ট্যান্ট ৳৫০০ বোনাস এবং তার প্রতিটি বেটে ১০% আজীবন কমিশন।',
+    terms: [
+      'রেফার করা বন্ধুকে কমপক্ষে ৳৫০০ প্রথম ডিপোজিট করতে হবে।',
+      'বোনাস তাৎক্ষণিকভাবে অ্যাফিলিয়েট লেজারে জমা হবে।',
+      'দৈনিক যেকোনো সময় ক্যাশ-আউট করা সম্ভব।'
+    ],
+    claimCode: 'FRIEND500'
+  },
+  {
+    id: 'mystery-jackpot-drops',
+    category: 'SLOTS',
+    title: '৳ ১০,০০,০০০ মেগা মিস্ট্রি প্রাইজ ড্রপস',
+    subtitle: 'যেকোনো সাধারণ স্পিনেই হতে পারেন কোটিপতি',
+    bonusAmount: '৳ ১০,০০,০০০ প্রাইজ পুল',
+    badge: 'MYSTERY DROPS',
+    badgeColor: 'bg-rose-500/20 text-rose-300 border border-rose-500/40',
+    accentGradient: 'from-rose-500/20 via-red-500/10 to-transparent border-rose-500/40',
+    turnover: '০x রিয়াল ক্যাশ ড্রপ',
+    minDeposit: 'যেকোনো বেট ৳১০+',
+    maxBonus: '৳ ৫০,০০০ পার ড্রপ',
+    validity: '২৪/৭ লাইভ',
+    eligibleGames: 'Gates of Olympus, Sweet Bonanza, Fortune Gems, Crazy Time',
+    description: 'কোনো নির্দিষ্ট কম্বিনেশন ছাড়াই যেকোনো স্পিন করার সময় হঠাৎ স্ক্রিনে ভেসে উঠবে র্যান্ডম ক্যাশ জ্যাকপট প্রাইজ ড্রপ।',
+    terms: [
+      'সর্বনিম্ন বেট ৳১০ বা তার বেশি হতে হবে।',
+      'দৈনিক ৫০+ জন প্লেয়ারকে র্যান্ডম ক্যাশ প্রাইজ দেওয়া হয়।',
+      'টাকা সরাসরি রিয়াল ক্যাশ হিসেবে জমা হয়।'
+    ],
+    claimCode: 'MYSTERY2026'
+  }
+];
 
 export const PromotionHub: React.FC<PromotionHubProps> = ({
   currentUser,
   currentWallet,
   currency,
-  onRewardClaimed
+  onRewardClaimed,
+  onOpenCashier
 }) => {
-  // Check in state
+  const { showToast, refreshState } = useWalletGame();
+
+  // Navigation Filter
+  const [activeCategory, setActiveCategory] = useState<string>('ALL');
+  const [activeTab, setActiveTab] = useState<'OFFERS' | 'STREAK_WHEEL' | 'MISSIONS' | 'TURNOVER'>('OFFERS');
+
+  // Selected Offer Modal
+  const [selectedOffer, setSelectedOffer] = useState<PromoOffer | null>(null);
+  const [claimingOfferId, setClaimingOfferId] = useState<string | null>(null);
+
+  // 7-Day Streak State
   const [currentStreak, setCurrentStreak] = useState<number>(3);
   const [hasCheckedInToday, setHasCheckedInToday] = useState<boolean>(false);
   const [checkInLoading, setCheckInLoading] = useState<boolean>(false);
 
-  // Wheel Spin state
+  // Wheel Spin State
   const [spinning, setSpinning] = useState<boolean>(false);
   const [wheelRotation, setWheelRotation] = useState<number>(0);
   const [spinsRemaining, setSpinsRemaining] = useState<number>(3);
   const [wonPrize, setWonPrize] = useState<typeof WHEEL_PRIZES[0] | null>(null);
-  const [toast, setToast] = useState<string | null>(null);
 
   // Handle Daily Check In
   const handleCheckIn = () => {
     if (hasCheckedInToday) return;
     setCheckInLoading(true);
+    soundEngine.playClick(900);
 
     setTimeout(() => {
       const nextDay = (currentStreak % 7) + 1;
       const rewardConfig = DAILY_CHECKIN_REWARDS.find((r) => r.day === nextDay) || DAILY_CHECKIN_REWARDS[0];
 
-      // Credit bonus to wallet
       seamlessEngine.topUpWallet(currentUser.id, currentUser.currency, rewardConfig.reward);
       setCurrentStreak(nextDay);
       setHasCheckedInToday(true);
       setCheckInLoading(false);
-      setToast(`অভিনন্দন! ডে ${nextDay} ডেইলি চেক-ইন বোনাস ৳${rewardConfig.reward} সফলভাবে যোগ হয়েছে!`);
+
+      notificationService.pushNotification(currentUser.id, {
+        userId: currentUser.id,
+        title: '🎁 ডেইলি স্ট্রিক রিওয়ার্ড ক্লেইম!',
+        message: `ডে ${nextDay} ডেইলি চেক-ইন বোনাস ৳${rewardConfig.reward} সফলভাবে ওয়ালেটে যোগ হয়েছে!`,
+        type: 'BONUS_UNLOCKED',
+        amount: rewardConfig.reward,
+        currency: currentUser.currency as 'BDT' | 'USD',
+        isRead: false,
+        actionTab: 'promo'
+      });
+
+      soundEngine.playWinChime();
+      showToast(`অভিনন্দন! ডে ${nextDay} বোনাস ৳${rewardConfig.reward} যুক্ত হয়েছে!`);
       onRewardClaimed();
-      setTimeout(() => setToast(null), 4000);
     }, 700);
   };
 
@@ -65,8 +270,8 @@ export const PromotionHub: React.FC<PromotionHubProps> = ({
     if (spinning || spinsRemaining <= 0) return;
     setSpinning(true);
     setWonPrize(null);
+    soundEngine.playClick(1000);
 
-    // Pick random prize from weighted prizes
     const prizeIndex = Math.floor(Math.random() * WHEEL_PRIZES.length);
     const selectedPrize = WHEEL_PRIZES[prizeIndex];
 
@@ -83,153 +288,616 @@ export const PromotionHub: React.FC<PromotionHubProps> = ({
 
       if (selectedPrize.value > 0) {
         seamlessEngine.topUpWallet(currentUser.id, currentUser.currency, selectedPrize.value);
-        setToast(`লাকি স্পিন উইন! আপনি জিতেছেন: ${selectedPrize.label}`);
+        
+        notificationService.pushNotification(currentUser.id, {
+          userId: currentUser.id,
+          title: '🎡 লাকি স্পিন উইন!',
+          message: `লাকি ফরচুন স্পিন থেকে আপনি জিতেছেন: ${selectedPrize.label}!`,
+          type: 'VIP_UPGRADE',
+          amount: selectedPrize.value,
+          currency: currentUser.currency as 'BDT' | 'USD',
+          isRead: false,
+          actionTab: 'promo'
+        });
+
+        soundEngine.playWinChime();
+        showToast(`🎉 লাকি স্পিন উইন! ${selectedPrize.label}`);
         onRewardClaimed();
-        setTimeout(() => setToast(null), 4000);
       }
     }, 3500);
   };
 
+  // Handle Claim Offer Action
+  const handleClaimOffer = (offer: PromoOffer) => {
+    setClaimingOfferId(offer.id);
+    soundEngine.playClick(950);
+
+    setTimeout(() => {
+      setClaimingOfferId(null);
+      setSelectedOffer(null);
+
+      // Add a simulation bonus voucher
+      seamlessEngine.topUpWallet(currentUser.id, currentUser.currency, 500);
+      
+      notificationService.pushNotification(currentUser.id, {
+        userId: currentUser.id,
+        title: `🔥 ${offer.title} সক্রিয় হয়েছে`,
+        message: `আপনার বোনাস ভাউচার সফলভাবে একটিভেট করা হয়েছে। টার্নওভার ট্র্যাক করতে টার্নওভার পেজ দেখুন।`,
+        type: 'BONUS_UNLOCKED',
+        amount: 500,
+        currency: currentUser.currency as 'BDT' | 'USD',
+        isRead: false,
+        actionTab: 'wagering'
+      });
+
+      soundEngine.playWinChime();
+      showToast(`অফার "${offer.title}" সফলভাবে সক্রিয় হয়েছে!`);
+      onRewardClaimed();
+    }, 900);
+  };
+
+  const filteredOffers = PROMOTIONAL_OFFERS.filter((o) => {
+    if (activeCategory === 'ALL') return true;
+    return o.category === activeCategory;
+  });
+
   return (
-    <div className="max-w-6xl mx-auto px-4 py-6 space-y-8 pb-24 lg:pb-12">
-      {/* Toast Notification */}
-      {toast && (
-        <div className="fixed top-20 right-6 z-50 bg-slate-900 border border-amber-500/50 text-amber-300 px-4 py-3 rounded-2xl shadow-2xl flex items-center space-x-2 font-mono text-xs animate-bounce">
-          <Sparkles className="w-4 h-4 text-amber-400" />
-          <span>{toast}</span>
-        </div>
-      )}
+    <motion.div
+      initial={{ opacity: 0, y: 12 }}
+      animate={{ opacity: 1, y: 0 }}
+      transition={{ duration: 0.35, ease: 'easeOut' }}
+      className="max-w-7xl mx-auto px-3 sm:px-6 lg:px-8 py-4 sm:py-6 space-y-6 pb-28 font-sans text-slate-100 selection:bg-amber-400 selection:text-slate-950"
+    >
+      {/* 1. MASTER PROMOTIONS HERO BANNER (Harmonious 61.8% / 38.2% Visual Layout) */}
+      <div className="grid grid-cols-1 lg:grid-cols-12 gap-5 items-stretch">
+        
+        {/* Left Column (61.8% Hero Highlight): 300% Mega Welcome Bonus */}
+        <div className="lg:col-span-7 golden-ratio-card rounded-[28px] p-5 sm:p-7 relative overflow-hidden flex flex-col justify-between">
+          <div className="absolute top-0 right-0 w-72 h-72 bg-gradient-to-br from-amber-400/20 to-yellow-500/5 rounded-full blur-3xl pointer-events-none" />
+          <div className="absolute top-0 left-8 right-8 h-[1.5px] bg-gradient-to-r from-transparent via-amber-400/50 to-transparent" />
 
-      {/* 1. Daily Missions & Task Completion Rewards Engine */}
-      <DailyMissions
-        currentUser={currentUser}
-        currentWallet={currentWallet}
-        currency={currency}
-        onMissionClaimed={onRewardClaimed}
-      />
+          <div className="space-y-3.5">
+            <div className="flex flex-wrap items-center justify-between gap-2">
+              <div className="inline-flex items-center space-x-2 px-3.5 py-1 rounded-full bg-amber-500/20 border border-amber-400/40 text-amber-300 text-xs font-mono font-bold tracking-wider uppercase">
+                <Flame className="w-3.5 h-3.5 text-amber-400 animate-bounce" />
+                <span>মেগা ওয়েলকাম ক্যাম্পেইন ২০২৬</span>
+              </div>
 
-      {/* 2. Dynamic Wagering Requirement & Rollover Turnover Component */}
-      <WageringRequirements
-        currentUser={currentUser}
-        currentWallet={currentWallet}
-        currency={currency}
-        onConversionSuccess={onRewardClaimed}
-      />
-
-      {/* 3. 2-Column Grid: 7-Day Daily Check-In + Lucky Wheel */}
-      <div className="grid grid-cols-1 lg:grid-cols-12 gap-6">
-        {/* Left Column: 7-Day Streak Check-In */}
-        <div className="lg:col-span-6 bg-slate-900/90 border border-slate-800 rounded-3xl p-6 shadow-xl space-y-4 font-mono text-xs flex flex-col justify-between">
-          <div className="flex items-center justify-between border-b border-slate-800 pb-3">
-            <div className="flex items-center space-x-2">
-              <Calendar className="w-4 h-4 text-amber-400" />
-              <h2 className="text-sm font-bold text-white uppercase">৭-দিনের ডেইলি চেক-ইন স্ট্রিক</h2>
+              <div className="flex items-center space-x-1.5 text-slate-300 text-xs font-mono bg-slate-950/80 px-3 py-1 rounded-full border border-slate-800">
+                <Clock className="w-3.5 h-3.5 text-amber-400" />
+                <span>মেয়াদ বাকি: <strong>১৩ ঘণ্টা ৪২ মিনিট</strong></span>
+              </div>
             </div>
-            <span className="text-[10px] text-amber-300 font-bold">Streak: Day {currentStreak}/7</span>
-          </div>
 
-          {/* 7 Days Reward Grid */}
-          <div className="grid grid-cols-4 gap-2">
-            {DAILY_CHECKIN_REWARDS.map((item) => {
-              const isClaimed = item.day <= currentStreak && hasCheckedInToday;
-              const isToday = item.day === (hasCheckedInToday ? currentStreak : currentStreak + 1);
+            <h1 className="text-2xl sm:text-4xl font-black text-white tracking-tight leading-tight">
+              ৩০০% ডিপোজিট বোনাস + ১০০ ফ্রি স্পিন
+            </h1>
 
-              return (
-                <div
-                  key={item.day}
-                  className={`relative p-3 rounded-2xl border text-center transition-all flex flex-col justify-between ${
-                    isClaimed
-                      ? 'bg-emerald-500/15 border-emerald-500/40 text-emerald-300'
-                      : isToday
-                      ? 'bg-amber-500/20 border-amber-500 shadow-md shadow-amber-500/20 text-white animate-pulse'
-                      : 'bg-slate-950/70 border-slate-800 text-slate-500'
-                  }`}
-                >
-                  <div className="text-[10px] font-bold">ডে {item.day}</div>
-                  <div className="my-1.5 text-xs font-black text-amber-400">
-                    ৳{item.reward.toLocaleString()}
-                  </div>
-                  <div className="text-[9px]">
-                    {isClaimed ? (
-                      <Check className="w-4 h-4 mx-auto text-emerald-400" />
-                    ) : isToday ? (
-                      <span className="px-2 py-0.5 rounded bg-amber-400 text-slate-950 font-black text-[9px]">
-                        আজকের
-                      </span>
-                    ) : (
-                      <Lock className="w-4 h-4 mx-auto text-slate-700" />
-                    )}
-                  </div>
+            <p className="text-xs sm:text-sm text-slate-300 leading-relaxed font-sans max-w-xl">
+              প্রথম ডিপোজিটে পান সর্বোচ্চ <strong className="text-amber-300 font-mono">৳৩০,০০০</strong> পর্যন্ত নিশ্চিত বোনাস। সহজ ১৫x টার্নওভার এবং সাথে সাথে ১০০ ফ্রি স্পিন স্লট খেলায় ব্যবহার করুন।
+            </p>
+
+            {/* Feature Highlights Pill Grid */}
+            <div className="grid grid-cols-3 gap-2.5 pt-1 font-mono text-[11px]">
+              <div className="p-2.5 rounded-xl bg-slate-950/80 border border-slate-800">
+                <div className="text-amber-300 font-bold flex items-center space-x-1">
+                  <Percent className="w-3.5 h-3.5" />
+                  <span>১৫x টার্নওভার</span>
                 </div>
-              );
-            })}
-          </div>
+                <div className="text-slate-400 text-[10px] mt-0.5">সহজ রূপান্তর শর্ত</div>
+              </div>
 
-          <button
-            onClick={handleCheckIn}
-            disabled={hasCheckedInToday || checkInLoading}
-            className="w-full py-3.5 rounded-2xl bg-gradient-to-r from-amber-500 via-yellow-400 to-amber-500 text-slate-950 font-black text-xs shadow-lg shadow-amber-500/20 hover:scale-[1.01] active:scale-[0.99] disabled:opacity-50 transition-all flex items-center justify-center space-x-2"
-          >
-            <Sparkles className="w-4 h-4" />
-            <span>
-              {hasCheckedInToday
-                ? 'আজকের চেক-ইন ক্লেইম করা হয়েছে (Tomorrow at 00:00)'
-                : checkInLoading
-                ? 'ক্লেইম হচ্ছে...'
-                : 'আজকের রিওয়ার্ড ক্লেইম করুন'}
-            </span>
-          </button>
-        </div>
+              <div className="p-2.5 rounded-xl bg-slate-950/80 border border-slate-800">
+                <div className="text-emerald-400 font-bold flex items-center space-x-1">
+                  <Zap className="w-3.5 h-3.5" />
+                  <span>ইনস্ট্যান্ট ক্রেডিট</span>
+                </div>
+                <div className="text-slate-400 text-[10px] mt-0.5">০-৪ সেকেন্ডে ডিপোজিট</div>
+              </div>
 
-        {/* Right Column: Lucky Spin-the-Wheel */}
-        <div className="lg:col-span-6 bg-slate-900/90 border border-slate-800 rounded-3xl p-6 shadow-xl space-y-4 font-mono text-xs flex flex-col justify-between">
-          <div className="flex items-center justify-between border-b border-slate-800 pb-3">
-            <div className="flex items-center space-x-2">
-              <RotateCcw className="w-4 h-4 text-purple-400" />
-              <h2 className="text-sm font-bold text-white uppercase">লাকি ফরচুন হুইল (Spin &amp; Win)</h2>
+              <div className="p-2.5 rounded-xl bg-slate-950/80 border border-slate-800">
+                <div className="text-cyan-400 font-bold flex items-center space-x-1">
+                  <ShieldCheck className="w-3.5 h-3.5" />
+                  <span>১০০% সুরক্ষিত</span>
+                </div>
+                <div className="text-slate-400 text-[10px] mt-0.5">অফিসিয়াল গেমিং লাইসেন্স</div>
+              </div>
             </div>
-            <span className="text-[10px] text-purple-300 font-bold">100% Provably Fair RNG</span>
           </div>
 
-          {/* Wheel Graphic Container */}
-          <div className="relative flex items-center justify-center py-4">
-            {/* Pointer Marker */}
-            <div className="absolute top-0 z-20 w-0 h-0 border-l-[10px] border-l-transparent border-r-[10px] border-r-transparent border-t-[18px] border-t-amber-400 drop-shadow-md" />
-
-            {/* Rotating Wheel Disk */}
-            <div
-              className="w-56 h-56 sm:w-64 sm:h-64 rounded-full border-4 border-amber-500/60 shadow-2xl relative overflow-hidden transition-transform duration-[3500ms] ease-out flex items-center justify-center"
-              style={{
-                transform: `rotate(${wheelRotation}deg)`,
-                background: 'conic-gradient(#f59e0b 0deg 45deg, #06b6d4 45deg 90deg, #a855f7 90deg 135deg, #10b981 135deg 180deg, #3b82f6 180deg 225deg, #ec4899 225deg 270deg, #eab308 270deg 315deg, #6366f1 315deg 360deg)'
+          {/* Action Trigger Buttons */}
+          <div className="flex flex-wrap items-center gap-3 pt-5 mt-3 border-t border-slate-800/80 font-mono text-xs">
+            <button
+              onClick={() => {
+                const welcomePromo = PROMOTIONAL_OFFERS[0];
+                handleClaimOffer(welcomePromo);
               }}
+              className="flex-1 min-h-[46px] px-6 py-3 rounded-xl bg-gradient-to-r from-amber-400 via-yellow-400 to-amber-500 text-slate-950 font-black shadow-lg shadow-amber-500/25 active:scale-95 transition-all flex items-center justify-center space-x-2 cursor-pointer"
             >
-              {/* Wheel Center Cap */}
-              <div className="w-16 h-16 rounded-full bg-slate-950 border-2 border-amber-400 flex items-center justify-center z-10 shadow-xl">
-                <Crown className="w-6 h-6 text-amber-400" />
-              </div>
-            </div>
-          </div>
-
-          {/* Spin Action & Result */}
-          <div className="space-y-2">
-            {wonPrize && (
-              <div className="p-3 bg-purple-500/20 border border-purple-500/40 rounded-xl text-center text-purple-300 font-bold animate-pulse">
-                🎉 আপনি জিতেছেন: {wonPrize.label}!
-              </div>
-            )}
+              <Sparkles className="w-4 h-4" />
+              <span>এখনই বোনাস ক্লেইম করুন</span>
+            </button>
 
             <button
-              onClick={handleSpinWheel}
-              disabled={spinning || spinsRemaining <= 0}
-              className="w-full py-3.5 rounded-2xl bg-gradient-to-r from-purple-500 via-pink-500 to-amber-500 text-white font-black text-xs shadow-lg shadow-purple-500/25 hover:scale-[1.01] active:scale-[0.99] disabled:opacity-50 transition-all flex items-center justify-center space-x-2"
+              onClick={() => {
+                setSelectedOffer(PROMOTIONAL_OFFERS[0]);
+                soundEngine.playClick(800);
+              }}
+              className="min-h-[46px] px-5 py-3 rounded-xl bg-slate-950 hover:bg-slate-900 border border-slate-700 text-slate-300 hover:text-white font-bold active:scale-95 transition-all flex items-center justify-center space-x-1.5 cursor-pointer"
             >
-              <RotateCcw className={`w-4 h-4 ${spinning ? 'animate-spin' : ''}`} />
-              <span>{spinning ? 'হুইল ঘুরছে...' : `স্পিন করুন (${spinsRemaining} স্পিন বাকি)`}</span>
+              <HelpCircle className="w-4 h-4 text-amber-400" />
+              <span>শর্তাবলী দেখুন</span>
             </button>
           </div>
         </div>
+
+        {/* Right Column (38.2% Daily Rewards Snapshot) */}
+        <div className="lg:col-span-5 golden-ratio-card rounded-[28px] p-5 sm:p-7 relative overflow-hidden flex flex-col justify-between bg-gradient-to-br from-[#0c1220] to-[#05070d]">
+          <div className="space-y-3 font-mono">
+            <div className="flex items-center justify-between border-b border-slate-800 pb-3">
+              <div className="flex items-center space-x-2">
+                <Calendar className="w-4 h-4 text-amber-400" />
+                <h2 className="text-sm font-bold text-white uppercase">৭-দিনের ডেইলি স্ট্রিক</h2>
+              </div>
+              <span className="px-2.5 py-0.5 rounded-full bg-amber-500/20 text-amber-300 text-[10px] font-bold border border-amber-500/30">
+                DAY {currentStreak}/7
+              </span>
+            </div>
+
+            <div className="p-3 bg-slate-950/80 rounded-2xl border border-slate-800 space-y-2">
+              <div className="flex justify-between items-center text-xs">
+                <span className="text-slate-400">আজকের নিশ্চিত রিওয়ার্ড:</span>
+                <span className="text-emerald-400 font-bold text-sm">
+                  ৳{DAILY_CHECKIN_REWARDS[currentStreak - 1]?.reward || 150} বোনাস
+                </span>
+              </div>
+              <div className="flex justify-between items-center text-xs">
+                <span className="text-slate-400">পরবর্তী গ্র্যান্ড প্রাইজ:</span>
+                <span className="text-amber-300 font-bold">৳১,০০০ + লাকি টিকিট</span>
+              </div>
+            </div>
+
+            <div className="p-3 bg-purple-500/10 rounded-2xl border border-purple-500/30 flex items-center justify-between text-xs">
+              <div className="flex items-center space-x-2">
+                <Crown className="w-4 h-4 text-purple-400 shrink-0" />
+                <span className="text-slate-200">লাকি ফরচুন হুইল স্পিন বাকি:</span>
+              </div>
+              <span className="px-2 py-0.5 rounded-lg bg-purple-500/30 text-purple-300 font-bold">
+                {spinsRemaining} স্পিন
+              </span>
+            </div>
+          </div>
+
+          <div className="grid grid-cols-2 gap-2.5 pt-4 mt-2 border-t border-slate-800/80 font-mono text-xs">
+            <button
+              onClick={handleCheckIn}
+              disabled={hasCheckedInToday || checkInLoading}
+              className="py-3 px-3 rounded-xl bg-gradient-to-r from-amber-400 to-yellow-400 text-slate-950 font-black active:scale-95 transition-all disabled:opacity-50 flex items-center justify-center space-x-1.5 cursor-pointer shadow-md shadow-amber-500/20"
+            >
+              <Check className="w-4 h-4 stroke-[3]" />
+              <span>{hasCheckedInToday ? 'আজকের ক্লেইমড' : checkInLoading ? 'ক্লেইম হচ্ছে...' : 'ডেইলি চেক-ইন'}</span>
+            </button>
+
+            <button
+              onClick={() => {
+                soundEngine.playClick(850);
+                setActiveTab('STREAK_WHEEL');
+              }}
+              className="py-3 px-3 rounded-xl bg-slate-900 hover:bg-slate-800 border border-slate-700 text-purple-300 font-bold active:scale-95 transition-all flex items-center justify-center space-x-1.5 cursor-pointer"
+            >
+              <RotateCcw className="w-4 h-4 text-purple-400" />
+              <span>ফরচুন স্পিন</span>
+            </button>
+          </div>
+        </div>
+
       </div>
-    </div>
+
+      {/* 2. TABBED NAVIGATION (Offers / Lucky Spin & Streak / Missions / Turnover) */}
+      <div className="flex items-center space-x-2 bg-slate-950 p-1.5 rounded-2xl border border-slate-800 font-mono text-xs overflow-x-auto scrollbar-none">
+        <button
+          onClick={() => {
+            soundEngine.playClick(750);
+            setActiveTab('OFFERS');
+          }}
+          className={`min-h-[42px] px-4 py-2 rounded-xl font-bold flex items-center space-x-2 transition-all cursor-pointer whitespace-nowrap ${
+            activeTab === 'OFFERS'
+              ? 'bg-gradient-to-r from-amber-400 via-yellow-400 to-amber-500 text-slate-950 font-black shadow-md'
+              : 'text-slate-400 hover:text-white'
+          }`}
+        >
+          <Gift className="w-3.5 h-3.5" />
+          <span>সকল প্রমোশন ও বোনাস ({PROMOTIONAL_OFFERS.length})</span>
+        </button>
+
+        <button
+          onClick={() => {
+            soundEngine.playClick(750);
+            setActiveTab('STREAK_WHEEL');
+          }}
+          className={`min-h-[42px] px-4 py-2 rounded-xl font-bold flex items-center space-x-2 transition-all cursor-pointer whitespace-nowrap ${
+            activeTab === 'STREAK_WHEEL'
+              ? 'bg-gradient-to-r from-amber-400 via-yellow-400 to-amber-500 text-slate-950 font-black shadow-md'
+              : 'text-slate-400 hover:text-white'
+          }`}
+        >
+          <RotateCcw className="w-3.5 h-3.5" />
+          <span>ডেইলি স্ট্রিক ও লাকি স্পিন</span>
+        </button>
+
+        <button
+          onClick={() => {
+            soundEngine.playClick(750);
+            setActiveTab('MISSIONS');
+          }}
+          className={`min-h-[42px] px-4 py-2 rounded-xl font-bold flex items-center space-x-2 transition-all cursor-pointer whitespace-nowrap ${
+            activeTab === 'MISSIONS'
+              ? 'bg-gradient-to-r from-amber-400 via-yellow-400 to-amber-500 text-slate-950 font-black shadow-md'
+              : 'text-slate-400 hover:text-white'
+          }`}
+        >
+          <Target className="w-3.5 h-3.5" />
+          <span>ডেইলি মিশন ও টাস্ক</span>
+        </button>
+
+        <button
+          onClick={() => {
+            soundEngine.playClick(750);
+            setActiveTab('TURNOVER');
+          }}
+          className={`min-h-[42px] px-4 py-2 rounded-xl font-bold flex items-center space-x-2 transition-all cursor-pointer whitespace-nowrap ${
+            activeTab === 'TURNOVER'
+              ? 'bg-gradient-to-r from-amber-400 via-yellow-400 to-amber-500 text-slate-950 font-black shadow-md'
+              : 'text-slate-400 hover:text-white'
+          }`}
+        >
+          <TrendingUp className="w-3.5 h-3.5" />
+          <span>টার্নওভার ম্যানেজার</span>
+        </button>
+      </div>
+
+      {/* ========================================================================= */}
+      {/* 3. OFFERS VIEW & CATEGORY FILTER */}
+      {/* ========================================================================= */}
+      {activeTab === 'OFFERS' && (
+        <div className="space-y-5">
+          {/* Category Filter Pills */}
+          <div className="flex items-center space-x-2 overflow-x-auto pb-1 scrollbar-none font-mono text-xs">
+            {[
+              { id: 'ALL', label: 'সকল অফার' },
+              { id: 'WELCOME', label: 'ওয়েলকাম প্যাক' },
+              { id: 'CASHBACK', label: 'দৈনিক ক্যাশব্যাক' },
+              { id: 'SPORTS', label: 'স্পোর্টসবুক' },
+              { id: 'VIP', label: 'ভিআইপি স্পেশাল' },
+              { id: 'SLOTS', label: 'স্লটস জ্যাকপট' }
+            ].map((cat) => (
+              <button
+                key={cat.id}
+                onClick={() => {
+                  soundEngine.playClick(700);
+                  setActiveCategory(cat.id);
+                }}
+                className={`min-h-[38px] px-3.5 py-2 rounded-xl font-bold transition-all cursor-pointer whitespace-nowrap ${
+                  activeCategory === cat.id
+                    ? 'bg-amber-400 text-slate-950 font-black shadow-md'
+                    : 'bg-slate-950 border border-slate-800 text-slate-400 hover:text-slate-200'
+                }`}
+              >
+                {cat.label}
+              </button>
+            ))}
+          </div>
+
+          {/* Promotional Offer Cards Grid (Proportional Harmony) */}
+          <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-5">
+            {filteredOffers.map((offer) => (
+              <div
+                key={offer.id}
+                className="golden-ratio-card rounded-3xl p-5 sm:p-6 flex flex-col justify-between relative overflow-hidden transition-all duration-300 hover:border-amber-500/50 hover:shadow-xl hover:shadow-amber-500/10 group"
+              >
+                <div className="space-y-3">
+                  {/* Top Badge & Code */}
+                  <div className="flex items-center justify-between">
+                    <span className={`px-2.5 py-1 rounded-full text-[10px] font-mono font-bold ${offer.badgeColor}`}>
+                      {offer.badge}
+                    </span>
+                    <span className="font-mono text-[10px] text-slate-500 bg-slate-950 px-2 py-0.5 rounded-lg border border-slate-800">
+                      {offer.claimCode}
+                    </span>
+                  </div>
+
+                  {/* Title & Subtitle */}
+                  <div>
+                    <h3 className="text-base sm:text-lg font-black text-white group-hover:text-amber-300 transition-colors leading-snug">
+                      {offer.title}
+                    </h3>
+                    <p className="text-xs text-slate-400 font-sans mt-1 leading-relaxed">
+                      {offer.subtitle}
+                    </p>
+                  </div>
+
+                  {/* Highlight Bonus Value */}
+                  <div className="p-3 bg-[#05070d] rounded-2xl border border-slate-800/80 font-mono flex items-center justify-between">
+                    <span className="text-slate-400 text-xs">বোনাস পরিমাণ:</span>
+                    <span className="text-sm font-black text-transparent bg-gradient-to-r from-yellow-300 via-amber-300 to-yellow-400 bg-clip-text">
+                      {offer.bonusAmount}
+                    </span>
+                  </div>
+
+                  {/* Meta Details */}
+                  <div className="grid grid-cols-2 gap-2 text-[11px] font-mono text-slate-300 pt-1">
+                    <div className="bg-slate-950/60 p-2 rounded-xl border border-slate-800">
+                      <span className="text-[10px] text-slate-500 block">টার্নওভার</span>
+                      <span className="font-bold text-amber-300">{offer.turnover}</span>
+                    </div>
+                    <div className="bg-slate-950/60 p-2 rounded-xl border border-slate-800">
+                      <span className="text-[10px] text-slate-500 block">মিনিমাম ডিপোজিট</span>
+                      <span className="font-bold text-emerald-400">{offer.minDeposit}</span>
+                    </div>
+                  </div>
+                </div>
+
+                {/* Bottom Card Actions */}
+                <div className="grid grid-cols-2 gap-2 pt-4 mt-3 border-t border-slate-800/80 font-mono text-xs">
+                  <button
+                    onClick={() => {
+                      soundEngine.playClick(800);
+                      setSelectedOffer(offer);
+                    }}
+                    className="py-2.5 rounded-xl bg-slate-950 hover:bg-slate-900 border border-slate-800 text-slate-300 hover:text-white font-bold transition-all flex items-center justify-center space-x-1 cursor-pointer"
+                  >
+                    <HelpCircle className="w-3.5 h-3.5 text-amber-400" />
+                    <span>শর্তাবলী</span>
+                  </button>
+
+                  <button
+                    onClick={() => handleClaimOffer(offer)}
+                    disabled={claimingOfferId === offer.id}
+                    className="py-2.5 rounded-xl bg-gradient-to-r from-amber-400 to-yellow-400 text-slate-950 font-black shadow-md active:scale-95 transition-all flex items-center justify-center space-x-1 cursor-pointer disabled:opacity-50"
+                  >
+                    <Sparkles className="w-3.5 h-3.5" />
+                    <span>{claimingOfferId === offer.id ? 'ক্লেইম হচ্ছে...' : 'ক্লেইম করুন'}</span>
+                  </button>
+                </div>
+              </div>
+            ))}
+          </div>
+        </div>
+      )}
+
+      {/* ========================================================================= */}
+      {/* 4. LUCKY WHEEL & 7-DAY STREAK VIEW */}
+      {/* ========================================================================= */}
+      {activeTab === 'STREAK_WHEEL' && (
+        <div className="grid grid-cols-1 lg:grid-cols-12 gap-6 items-stretch">
+          
+          {/* Left Column (6-cols): 7-Day Daily Check-In Streak */}
+          <div className="lg:col-span-6 golden-ratio-card rounded-3xl p-5 sm:p-7 space-y-4 font-mono text-xs flex flex-col justify-between">
+            <div className="flex items-center justify-between border-b border-slate-800 pb-3">
+              <div className="flex items-center space-x-2">
+                <Calendar className="w-4 h-4 text-amber-400" />
+                <h2 className="text-sm font-bold text-white uppercase">৭-দিনের ধারাবাহিক চেক-ইন স্ট্রিক</h2>
+              </div>
+              <span className="text-[11px] text-amber-300 font-bold">Streak: Day {currentStreak}/7</span>
+            </div>
+
+            <p className="text-slate-300 font-sans text-xs leading-relaxed">
+              প্রতিদিন লগইন করে রিওয়ার্ড ক্লেইম করুন। ৭ম দিনে পৌঁছালে নিশ্চিত পাবেন ৳১,০০০ গ্র্যান্ড রিওয়ার্ড এবং ভিআইপি লাকি স্পিন টিকিট।
+            </p>
+
+            {/* 7 Days Reward Grid */}
+            <div className="grid grid-cols-4 sm:grid-cols-7 gap-2">
+              {DAILY_CHECKIN_REWARDS.map((item) => {
+                const isClaimed = item.day <= currentStreak && hasCheckedInToday;
+                const isToday = item.day === (hasCheckedInToday ? currentStreak : currentStreak + 1);
+
+                return (
+                  <div
+                    key={item.day}
+                    className={`relative p-2.5 rounded-2xl border text-center transition-all flex flex-col justify-between ${
+                      isClaimed
+                        ? 'bg-emerald-500/15 border-emerald-500/40 text-emerald-300'
+                        : isToday
+                        ? 'bg-amber-500/20 border-amber-500 shadow-md shadow-amber-500/20 text-white animate-pulse'
+                        : 'bg-slate-950/70 border-slate-800 text-slate-500'
+                    }`}
+                  >
+                    <div className="text-[10px] font-bold">ডে {item.day}</div>
+                    <div className="my-1 text-xs font-black text-amber-400 truncate">
+                      ৳{item.reward.toLocaleString()}
+                    </div>
+                    <div className="text-[9px]">
+                      {isClaimed ? (
+                        <Check className="w-4 h-4 mx-auto text-emerald-400" />
+                      ) : isToday ? (
+                        <span className="px-1.5 py-0.5 rounded bg-amber-400 text-slate-950 font-black text-[9px]">
+                          আজকের
+                        </span>
+                      ) : (
+                        <Lock className="w-3.5 h-3.5 mx-auto text-slate-700" />
+                      )}
+                    </div>
+                  </div>
+                );
+              })}
+            </div>
+
+            <button
+              onClick={handleCheckIn}
+              disabled={hasCheckedInToday || checkInLoading}
+              className="w-full min-h-[48px] py-3 rounded-2xl bg-gradient-to-r from-amber-400 via-yellow-400 to-amber-500 text-slate-950 font-black text-xs shadow-lg shadow-amber-500/20 hover:scale-[1.01] active:scale-[0.99] disabled:opacity-50 transition-all flex items-center justify-center space-x-2 cursor-pointer mt-2"
+            >
+              <Sparkles className="w-4 h-4" />
+              <span>
+                {hasCheckedInToday
+                  ? 'আজকের চেক-ইন সফল (পরবর্তী আনলক রাত ১২:০০)'
+                  : checkInLoading
+                  ? 'রিওয়ার্ড যোগ হচ্ছে...'
+                  : 'আজকের রিওয়ার্ড ক্লেইম করুন'}
+              </span>
+            </button>
+          </div>
+
+          {/* Right Column (6-cols): Lucky Fortune Wheel */}
+          <div className="lg:col-span-6 golden-ratio-card rounded-3xl p-5 sm:p-7 space-y-4 font-mono text-xs flex flex-col justify-between">
+            <div className="flex items-center justify-between border-b border-slate-800 pb-3">
+              <div className="flex items-center space-x-2">
+                <RotateCcw className="w-4 h-4 text-purple-400" />
+                <h2 className="text-sm font-bold text-white uppercase">লাকি ফরচুন হুইল (Spin &amp; Win)</h2>
+              </div>
+              <span className="text-[10px] text-purple-300 font-bold">100% Provably Fair RNG</span>
+            </div>
+
+            {/* Wheel Graphic Container */}
+            <div className="relative flex items-center justify-center py-3">
+              {/* Pointer Marker */}
+              <div className="absolute top-0 z-20 w-0 h-0 border-l-[10px] border-l-transparent border-r-[10px] border-r-transparent border-t-[18px] border-t-amber-400 drop-shadow-md" />
+
+              {/* Rotating Wheel Disk */}
+              <div
+                className="w-52 h-52 sm:w-60 sm:h-60 rounded-full border-4 border-amber-400/80 shadow-2xl relative overflow-hidden transition-transform duration-[3500ms] ease-out flex items-center justify-center"
+                style={{
+                  transform: `rotate(${wheelRotation}deg)`,
+                  background: 'conic-gradient(#f59e0b 0deg 45deg, #06b6d4 45deg 90deg, #a855f7 90deg 135deg, #10b981 135deg 180deg, #3b82f6 180deg 225deg, #ec4899 225deg 270deg, #eab308 270deg 315deg, #6366f1 315deg 360deg)'
+                }}
+              >
+                {/* Center Cap */}
+                <div className="w-14 h-14 rounded-full bg-slate-950 border-2 border-amber-400 flex items-center justify-center z-10 shadow-xl">
+                  <Crown className="w-5 h-5 text-amber-400" />
+                </div>
+              </div>
+            </div>
+
+            {/* Spin Result & Action */}
+            <div className="space-y-2">
+              {wonPrize && (
+                <div className="p-3 bg-purple-500/20 border border-purple-500/40 rounded-xl text-center text-purple-300 font-bold animate-pulse">
+                  🎉 আপনি জিতেছেন: {wonPrize.label}!
+                </div>
+              )}
+
+              <button
+                onClick={handleSpinWheel}
+                disabled={spinning || spinsRemaining <= 0}
+                className="w-full min-h-[48px] py-3 rounded-2xl bg-gradient-to-r from-purple-500 via-pink-500 to-amber-500 text-white font-black text-xs shadow-lg shadow-purple-500/25 hover:scale-[1.01] active:scale-[0.99] disabled:opacity-50 transition-all flex items-center justify-center space-x-2 cursor-pointer"
+              >
+                <RotateCcw className={`w-4 h-4 ${spinning ? 'animate-spin' : ''}`} />
+                <span>{spinning ? 'হুইল ঘুরছে...' : `স্পিন করুন (${spinsRemaining} স্পিন বাকি)`}</span>
+              </button>
+            </div>
+          </div>
+
+        </div>
+      )}
+
+      {/* ========================================================================= */}
+      {/* 5. EMBEDDED MISSIONS VIEW */}
+      {/* ========================================================================= */}
+      {activeTab === 'MISSIONS' && (
+        <DailyMissions
+          currentUser={currentUser}
+          currentWallet={currentWallet}
+          currency={currency}
+          onMissionClaimed={onRewardClaimed}
+        />
+      )}
+
+      {/* ========================================================================= */}
+      {/* 6. EMBEDDED TURNOVER MANAGER VIEW */}
+      {/* ========================================================================= */}
+      {activeTab === 'TURNOVER' && (
+        <WageringRequirements
+          currentUser={currentUser}
+          currentWallet={currentWallet}
+          currency={currency}
+          onConversionSuccess={onRewardClaimed}
+        />
+      )}
+
+      {/* ========================================================================= */}
+      {/* 7. DETAILED TERMS & CONDITIONS MODAL */}
+      {/* ========================================================================= */}
+      <AnimatePresence>
+        {selectedOffer && (
+          <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/80 backdrop-blur-sm animate-in fade-in">
+            <motion.div
+              initial={{ scale: 0.95, opacity: 0 }}
+              animate={{ scale: 1, opacity: 1 }}
+              exit={{ scale: 0.95, opacity: 0 }}
+              className="bg-[#080d1a] border border-amber-500/40 rounded-[28px] max-w-xl w-full p-6 sm:p-8 space-y-5 shadow-2xl relative overflow-hidden font-sans text-slate-100 max-h-[90vh] overflow-y-auto"
+            >
+              {/* Close Button */}
+              <button
+                onClick={() => setSelectedOffer(null)}
+                className="absolute top-5 right-5 p-2 rounded-full bg-slate-900 text-slate-400 hover:text-white border border-slate-800 transition-colors"
+              >
+                <X className="w-5 h-5" />
+              </button>
+
+              {/* Modal Header */}
+              <div className="space-y-1.5 border-b border-slate-800 pb-4">
+                <span className={`px-2.5 py-0.5 rounded-full text-[10px] font-mono font-bold ${selectedOffer.badgeColor}`}>
+                  {selectedOffer.badge}
+                </span>
+                <h2 className="text-xl sm:text-2xl font-black text-white mt-1">
+                  {selectedOffer.title}
+                </h2>
+                <p className="text-xs text-slate-400">
+                  অফার কোড: <strong className="text-amber-300 font-mono">{selectedOffer.claimCode}</strong>
+                </p>
+              </div>
+
+              {/* Offer Summary Table */}
+              <div className="grid grid-cols-2 sm:grid-cols-4 gap-2.5 font-mono text-xs">
+                <div className="bg-slate-950 p-2.5 rounded-xl border border-slate-800">
+                  <span className="text-[10px] text-slate-500 block">সর্বোচ্চ বোনাস</span>
+                  <span className="font-bold text-amber-300 mt-0.5 block truncate">{selectedOffer.maxBonus}</span>
+                </div>
+                <div className="bg-slate-950 p-2.5 rounded-xl border border-slate-800">
+                  <span className="text-[10px] text-slate-500 block">টার্নওভার</span>
+                  <span className="font-bold text-emerald-400 mt-0.5 block">{selectedOffer.turnover}</span>
+                </div>
+                <div className="bg-slate-950 p-2.5 rounded-xl border border-slate-800">
+                  <span className="text-[10px] text-slate-500 block">মিন. ডিপোজিট</span>
+                  <span className="font-bold text-white mt-0.5 block">{selectedOffer.minDeposit}</span>
+                </div>
+                <div className="bg-slate-950 p-2.5 rounded-xl border border-slate-800">
+                  <span className="text-[10px] text-slate-500 block">মেয়াদ</span>
+                  <span className="font-bold text-cyan-300 mt-0.5 block">{selectedOffer.validity}</span>
+                </div>
+              </div>
+
+              {/* Eligible Games Box */}
+              <div className="bg-slate-950 p-3.5 rounded-xl border border-slate-800 text-xs space-y-1">
+                <span className="text-[11px] font-bold text-amber-400 block font-mono">প্রযোজ্য গেমস:</span>
+                <p className="text-slate-300 font-sans leading-relaxed">{selectedOffer.eligibleGames}</p>
+              </div>
+
+              {/* Terms List */}
+              <div className="space-y-2">
+                <h4 className="text-xs font-bold text-white font-mono uppercase">নিয়ম ও শর্তাবলী (Terms &amp; Conditions):</h4>
+                <ul className="space-y-1.5 text-xs text-slate-400 list-disc list-inside font-sans leading-relaxed">
+                  {selectedOffer.terms.map((t, i) => (
+                    <li key={i}>{t}</li>
+                  ))}
+                </ul>
+              </div>
+
+              {/* Modal Bottom Action */}
+              <div className="pt-2">
+                <button
+                  onClick={() => handleClaimOffer(selectedOffer)}
+                  className="w-full min-h-[48px] py-3 rounded-2xl bg-gradient-to-r from-amber-400 via-yellow-400 to-amber-500 text-slate-950 font-black text-sm shadow-xl shadow-amber-500/25 active:scale-95 transition-all flex items-center justify-center space-x-2 cursor-pointer"
+                >
+                  <Sparkles className="w-4 h-4" />
+                  <span>এখনই বোনাস সক্রিয় করুন</span>
+                </button>
+              </div>
+            </motion.div>
+          </div>
+        )}
+      </AnimatePresence>
+
+    </motion.div>
   );
 };

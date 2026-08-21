@@ -80,6 +80,10 @@ class PWAService {
     return !!this.deferredPrompt || (!this.isInstalled && this.isIOS());
   }
 
+  public hasPrompt(): boolean {
+    return !!this.deferredPrompt;
+  }
+
   public getIsInstalled(): boolean {
     return this.isInstalled;
   }
@@ -96,9 +100,9 @@ class PWAService {
   }
 
   /**
-   * Triggers the native browser PWA install prompt
+   * Triggers the native browser PWA install prompt in real-time
    */
-  public async promptInstall(): Promise<'accepted' | 'dismissed' | 'manual_ios'> {
+  public async promptInstall(): Promise<'accepted' | 'dismissed' | 'manual_ios' | 'unavailable'> {
     if (this.deferredPrompt) {
       try {
         await this.deferredPrompt.prompt();
@@ -118,7 +122,7 @@ class PWAService {
       return 'manual_ios';
     }
 
-    return 'dismissed';
+    return 'unavailable';
   }
 
   private notifyListeners(): void {

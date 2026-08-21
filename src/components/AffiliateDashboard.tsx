@@ -1,8 +1,8 @@
 /**
  * @file AffiliateDashboard.tsx
  * @description Multi-Tier MLM Affiliate & Referral Engine for Playall 365.
- * Features a visual chart using Recharts showing 30-day referral network growth,
- * daily commission trends, tier breakdown analytics, and real-time wallet claiming.
+ * Structured with harmonious visual proportion, balanced hierarchy, responsive mobile layout,
+ * visual Recharts 30-day analytics, 3-tier commission breakdown, and instant wallet claim.
  */
 
 import React, { useState, useMemo } from 'react';
@@ -26,7 +26,8 @@ import {
   LineChart as LineChartIcon,
   PieChart as PieChartIcon,
   UserPlus,
-  Coins
+  Coins,
+  ChevronRight
 } from 'lucide-react';
 import {
   ResponsiveContainer,
@@ -45,6 +46,8 @@ import {
 import { UserEntity, WalletEntity } from '../server/types/seamless';
 import { seamlessEngine } from '../services/simulatedWalletEngine';
 import { notificationService } from '../services/notificationService';
+import { soundEngine } from '../services/soundEngine';
+import { motion, AnimatePresence } from 'framer-motion';
 
 interface AffiliateDashboardProps {
   currentUser: UserEntity;
@@ -104,68 +107,34 @@ const generate30DayAffiliateData = (currency: 'BDT' | 'USD') => {
   return data;
 };
 
-// Custom Luxury Dark Tooltip for Recharts
-const CustomChartTooltip = ({ active, payload, label, currency }: any) => {
-  if (active && payload && payload.length) {
-    const symbol = currency === 'BDT' ? '৳' : '$';
-    return (
-      <div className="bg-[#0b0f19] border border-amber-500/40 p-3.5 rounded-2xl shadow-2xl font-mono text-xs space-y-2 backdrop-blur-md">
-        <div className="font-bold text-amber-400 border-b border-slate-800 pb-1 flex items-center justify-between">
-          <span>{label}</span>
-          <span className="text-[10px] text-slate-400 font-normal">30-Day Ledger</span>
-        </div>
-        <div className="space-y-1">
-          {payload.map((item: any, idx: number) => {
-            const isAmount = item.dataKey.toLowerCase().includes('commission') || item.dataKey === 'turnover';
-            const valueStr = isAmount
-              ? `${symbol} ${Number(item.value).toLocaleString()}`
-              : `${Number(item.value).toLocaleString()} মেম্বার`;
-
-            return (
-              <div key={idx} className="flex items-center justify-between space-x-4 text-[11px]">
-                <div className="flex items-center space-x-1.5">
-                  <span className="w-2.5 h-2.5 rounded-full" style={{ backgroundColor: item.color || item.fill }} />
-                  <span className="text-slate-300">{item.name}:</span>
-                </div>
-                <span className="font-black text-white">{valueStr}</span>
-              </div>
-            );
-          })}
-        </div>
-      </div>
-    );
-  }
-  return null;
-};
-
 export const AffiliateDashboard: React.FC<AffiliateDashboardProps> = ({
   currentUser,
   currentWallet,
   currency,
   onCommissionClaimed
 }) => {
-  const [copiedLink, setCopiedLink] = useState(false);
-  const [claiming, setClaiming] = useState(false);
-  const [unclaimedAmount, setUnclaimedAmount] = useState<number>(
-    currentUser.currency === 'BDT' ? 3450.0 : 35.0
-  );
+  const [unclaimedAmount, setUnclaimedAmount] = useState<number>(() => {
+    return currentUser.currency === 'BDT' ? 8450 : 70.4;
+  });
+  const [copiedLink, setCopiedLink] = useState<boolean>(false);
+  const [claiming, setClaiming] = useState<boolean>(false);
   const [toast, setToast] = useState<string | null>(null);
 
-  // Chart state controls
-  const [chartMetric, setChartMetric] = useState<'commission' | 'network' | 'tiers'>('commission');
-  const [chartTimeframe, setChartTimeframe] = useState<'30D' | '14D' | '7D'>('30D');
+  // Timeframe and Chart view modes
+  const [timeframe, setTimeframe] = useState<'7D' | '14D' | '30D'>('30D');
+  const [chartType, setChartType] = useState<'AREA' | 'BAR' | 'TIERS'>('AREA');
 
-  const referralCode = `GP365_${currentUser.username.toUpperCase()}`;
-  const referralLink = `https://playall365.com/register?ref=${referralCode}`;
+  const referralLink = `https://playall365.vip/register?ref=${currentUser.id.substring(0, 8)}`;
 
-  // 30-Day Generated Analytics Data
+  // Generate 30 days dataset once or on currency change
   const rawChartData = useMemo(() => generate30DayAffiliateData(currency), [currency]);
 
+  // Filtered dataset according to timeframe
   const chartData = useMemo(() => {
-    if (chartTimeframe === '7D') return rawChartData.slice(rawChartData.length - 7);
-    if (chartTimeframe === '14D') return rawChartData.slice(rawChartData.length - 14);
+    if (timeframe === '7D') return rawChartData.slice(-7);
+    if (timeframe === '14D') return rawChartData.slice(-14);
     return rawChartData;
-  }, [rawChartData, chartTimeframe]);
+  }, [rawChartData, timeframe]);
 
   // Aggregate Metrics over selected timeframe
   const totalCommissionTimeframe = useMemo(
@@ -184,6 +153,7 @@ export const AffiliateDashboard: React.FC<AffiliateDashboardProps> = ({
 
   const handleCopyLink = () => {
     navigator.clipboard.writeText(referralLink);
+    soundEngine.playClick(950);
     setCopiedLink(true);
     setTimeout(() => setCopiedLink(false), 2000);
   };
@@ -191,12 +161,11 @@ export const AffiliateDashboard: React.FC<AffiliateDashboardProps> = ({
   const handleClaimCommission = () => {
     if (unclaimedAmount <= 0) return;
     setClaiming(true);
+    soundEngine.playClick(900);
 
     setTimeout(() => {
-      // Top up real balance in wallet
       seamlessEngine.topUpWallet(currentUser.id, currentUser.currency, unclaimedAmount);
 
-      // Trigger real-time notification
       notificationService.pushNotification(currentUser.id, {
         userId: currentUser.id,
         title: '💸 এফিলিয়েট কমিশন ওয়ালেটে ট্রান্সফার সফল!',
@@ -208,6 +177,7 @@ export const AffiliateDashboard: React.FC<AffiliateDashboardProps> = ({
         actionTab: 'cashier'
       });
 
+      soundEngine.playWinChime();
       setToast(
         `সফলভাবে ${currentUser.currency === 'BDT' ? '৳' : '$'}${unclaimedAmount.toLocaleString()} কমিশন ওয়ালেটে ট্রান্সফার করা হয়েছে!`
       );
@@ -230,359 +200,324 @@ export const AffiliateDashboard: React.FC<AffiliateDashboardProps> = ({
   const symbol = currency === 'BDT' ? '৳' : '$';
 
   return (
-    <div className="max-w-6xl mx-auto px-4 py-6 space-y-6 font-mono">
-      {/* 1. Top Banner: Multi-Tier Referral Overview */}
-      <div className="relative rounded-3xl overflow-hidden bg-gradient-to-br from-amber-500/20 via-[#0a0e17] to-cyan-950/40 border border-amber-500/30 p-6 sm:p-8 shadow-2xl space-y-6">
-        <div className="flex flex-col md:flex-row md:items-center justify-between gap-4">
-          <div>
-            <div className="inline-flex items-center space-x-1.5 px-3 py-1 rounded-full bg-amber-500/20 border border-amber-500/40 text-amber-300 text-xs font-bold uppercase mb-2">
-              <Share2 className="w-3.5 h-3.5" />
+    <motion.div
+      initial={{ opacity: 0, y: 12 }}
+      animate={{ opacity: 1, y: 0 }}
+      transition={{ duration: 0.35, ease: 'easeOut' }}
+      className="max-w-7xl mx-auto px-3 sm:px-6 lg:px-8 py-4 sm:py-6 space-y-6 pb-28 font-sans text-slate-100 selection:bg-amber-400 selection:text-slate-950"
+    >
+      {/* 1. MASTER BANNER (Harmonious 61.8% / 38.2% Proportions) */}
+      <div className="grid grid-cols-1 lg:grid-cols-12 gap-5 items-stretch">
+        
+        {/* Left Column (61.8% Program Overview & Referral Link) */}
+        <div className="lg:col-span-7 golden-ratio-card rounded-[28px] p-5 sm:p-7 relative overflow-hidden flex flex-col justify-between">
+          <div className="absolute top-0 right-0 w-72 h-72 bg-gradient-to-br from-amber-400/20 to-yellow-500/5 rounded-full blur-3xl pointer-events-none" />
+          <div className="absolute top-0 left-8 right-8 h-[1.5px] bg-gradient-to-r from-transparent via-amber-400/50 to-transparent" />
+
+          <div className="space-y-3">
+            <div className="inline-flex items-center space-x-2 px-3.5 py-1 rounded-full bg-amber-500/20 border border-amber-400/40 text-amber-300 text-xs font-mono font-bold uppercase">
+              <Share2 className="w-3.5 h-3.5 text-amber-400" />
               <span>Multi-Tier MLM Affiliate Engine</span>
             </div>
-            <h1 className="text-2xl sm:text-3xl font-black text-white font-sans">
-              আজীবন কমিশন আর্নিং প্রোগ্রাম (Up to 0.80% Valid Bet Turnover)
+
+            <h1 className="text-2xl sm:text-3xl font-black text-white tracking-tight">
+              আজীবন কমিশন প্রোগ্রাম (Up to 0.80% Turnover)
             </h1>
-            <p className="text-xs sm:text-sm text-slate-300 font-sans mt-1">
-              আপনার রেফারেল লিংকের মাধ্যমে যোগদানকারী সকল মেম্বারের গেম ট্রানজ্যাকশন থেকে সরাসরি স্বয়ংক্রিয় কমিশন পান।
+
+            <p className="text-xs sm:text-sm text-slate-300 font-sans leading-relaxed">
+              আপনার রেফারেল লিংকের মাধ্যমে যোগদানকারী সকল মেম্বারের গেম ট্রানজ্যাকশন থেকে সরাসরি স্বয়ংক্রিয় লাইফটাইম কমিশন পান।
             </p>
+
+            {/* Referral Link Box */}
+            <div className="bg-slate-950/90 border border-slate-800 p-3 rounded-2xl flex flex-col sm:flex-row items-center justify-between gap-2.5 text-xs font-mono">
+              <div className="flex items-center space-x-2 text-slate-300 truncate w-full">
+                <span className="text-amber-400 font-bold shrink-0">রেফারেল লিংক:</span>
+                <span className="text-slate-400 bg-slate-900 px-3 py-1.5 rounded-xl border border-slate-800 truncate flex-1 select-all text-[11px]">
+                  {referralLink}
+                </span>
+              </div>
+
+              <button
+                onClick={handleCopyLink}
+                className="w-full sm:w-auto min-h-[38px] px-4 py-2 rounded-xl bg-gradient-to-r from-amber-400 to-yellow-400 text-slate-950 font-black flex items-center justify-center space-x-1.5 shrink-0 shadow-md active:scale-95 transition-all cursor-pointer"
+              >
+                {copiedLink ? <Check className="w-4 h-4 text-emerald-950 stroke-[3]" /> : <Copy className="w-4 h-4" />}
+                <span>{copiedLink ? 'কপি হয়েছে!' : 'কপি করুন'}</span>
+              </button>
+            </div>
           </div>
 
-          {/* Unclaimed Commission Card */}
-          <div className="bg-slate-950/90 border border-amber-500/50 p-4 rounded-2xl text-right shrink-0 shadow-xl">
-            <div className="text-[11px] text-slate-400 uppercase">ক্লেইমেবল কমিশন (Unclaimed)</div>
-            <div className="text-2xl font-black text-amber-300 mt-1">
-              {currentUser.currency === 'BDT' ? `৳${unclaimedAmount.toLocaleString()}` : `$${unclaimedAmount.toFixed(2)}`}
-            </div>
-            <button
-              onClick={handleClaimCommission}
-              disabled={claiming || unclaimedAmount <= 0}
-              className="mt-3 w-full px-4 py-2 rounded-xl bg-gradient-to-r from-amber-500 to-yellow-400 text-slate-950 font-black text-xs shadow-lg shadow-amber-500/20 hover:scale-[1.02] active:scale-[0.98] disabled:opacity-50 transition-all flex items-center justify-center space-x-1 cursor-pointer"
-            >
-              <span>{claiming ? 'ট্রান্সফার হচ্ছে...' : 'ওয়ালেটে ক্লেইম করুন'}</span>
-              <ArrowRight className="w-3.5 h-3.5" />
-            </button>
+          <div className="flex items-center space-x-4 pt-4 mt-2 border-t border-slate-800/80 text-xs font-mono text-slate-400">
+            <span className="flex items-center space-x-1 text-emerald-400">
+              <ShieldCheck className="w-4 h-4" />
+              <span>রিয়েল-টাইম অটো সেটেলমেন্ট</span>
+            </span>
+            <span>•</span>
+            <span>০% ডিডাকশন ফি</span>
           </div>
         </div>
 
-        {/* Shareable Link Box */}
-        <div className="bg-slate-950/80 border border-slate-800 p-4 rounded-2xl flex flex-col sm:flex-row items-center justify-between gap-3 text-xs">
-          <div className="flex items-center space-x-2 text-slate-300 truncate w-full">
-            <span className="text-amber-400 font-bold shrink-0">আপনার রেফারেল লিংক:</span>
-            <span className="text-slate-400 bg-slate-900 px-3 py-1.5 rounded-lg border border-slate-800 truncate flex-1 select-all">
-              {referralLink}
-            </span>
+        {/* Right Column (38.2% Unclaimed Commission Snapshot) */}
+        <div className="lg:col-span-5 golden-ratio-card rounded-[28px] p-5 sm:p-7 relative overflow-hidden flex flex-col justify-between bg-gradient-to-br from-[#0c1220] to-[#05070d]">
+          <div className="space-y-3 font-mono">
+            <div className="flex items-center justify-between border-b border-slate-800 pb-3">
+              <span className="text-xs text-slate-400 uppercase font-bold">ক্লেইমেবল কমিশন (Unclaimed)</span>
+              <span className="px-2 py-0.5 rounded-full bg-amber-500/20 text-amber-300 text-[10px] font-bold">
+                READY TO WITHDRAW
+              </span>
+            </div>
+
+            <div className="p-4 bg-slate-950/80 rounded-2xl border border-slate-800">
+              <div className="text-[11px] text-slate-400">মোট ব্যালেন্স:</div>
+              <div className="text-3xl sm:text-4xl font-black text-transparent bg-gradient-to-r from-yellow-300 via-amber-300 to-yellow-400 bg-clip-text mt-1">
+                {currentUser.currency === 'BDT' ? `৳${unclaimedAmount.toLocaleString()}` : `$${unclaimedAmount.toFixed(2)}`}
+              </div>
+              <div className="text-[10px] text-emerald-400 mt-1 font-semibold">
+                মূল ওয়ালেটে সরাসরি জমা হবে কোনো শর্ত ছাড়াই
+              </div>
+            </div>
           </div>
 
           <button
-            onClick={handleCopyLink}
-            className="px-4 py-2 rounded-xl bg-slate-800 hover:bg-slate-700 text-amber-300 border border-amber-500/30 flex items-center space-x-1.5 shrink-0 transition-all hover:scale-105 active:scale-95 cursor-pointer"
+            onClick={handleClaimCommission}
+            disabled={claiming || unclaimedAmount <= 0}
+            className="w-full min-h-[46px] mt-4 py-3 rounded-2xl bg-gradient-to-r from-amber-400 via-yellow-400 to-amber-500 text-slate-950 font-black text-xs font-mono shadow-lg shadow-amber-500/20 hover:scale-[1.01] active:scale-[0.99] disabled:opacity-50 transition-all flex items-center justify-center space-x-1.5 cursor-pointer"
           >
-            {copiedLink ? <Check className="w-4 h-4 text-emerald-400" /> : <Copy className="w-4 h-4" />}
-            <span>{copiedLink ? 'কপি হয়েছে!' : 'লিংক কপি করুন'}</span>
+            <Sparkles className="w-4 h-4" />
+            <span>{claiming ? 'ট্রান্সফার হচ্ছে...' : 'ওয়ালেটে ক্লেইম করুন'}</span>
           </button>
         </div>
+
       </div>
 
       {toast && (
-        <div className="p-4 bg-emerald-500/10 border border-emerald-500/30 rounded-2xl text-emerald-400 text-xs flex items-center space-x-2 animate-bounce">
+        <div className="p-4 bg-emerald-500/10 border border-emerald-500/30 rounded-2xl text-emerald-400 text-xs font-mono flex items-center space-x-2 animate-bounce">
           <Sparkles className="w-4 h-4" />
           <span>{toast}</span>
         </div>
       )}
 
-      {/* 2. Visual Recharts 30-Day Growth & Commission Analytics Section */}
-      <div className="bg-[#090d16] border border-slate-800 rounded-3xl p-6 shadow-2xl space-y-6">
-        {/* Chart Header & Controls Toolbar */}
-        <div className="flex flex-col lg:flex-row lg:items-center justify-between gap-4 border-b border-slate-800 pb-5">
+      {/* 2. 3-TIER COMMISSION CARDS (Proportional Balance) */}
+      <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+        {/* Tier 1 */}
+        <div className="golden-ratio-card rounded-2xl p-5 space-y-2 font-mono flex flex-col justify-between">
+          <div className="flex items-center justify-between">
+            <span className="text-xs text-slate-300 uppercase font-bold">Tier 1 (Direct)</span>
+            <span className="px-2.5 py-0.5 rounded-full bg-amber-500/20 text-amber-300 text-xs font-black border border-amber-500/30">
+              0.50%
+            </span>
+          </div>
+          <div>
+            <div className="text-2xl font-black text-white">14 মেম্বার</div>
+            <div className="text-xs text-amber-300 mt-0.5">মোট টার্নওভার: ৳৬,৩০,০০০</div>
+          </div>
+          <p className="text-[11px] text-slate-400 font-sans leading-relaxed">
+            সরাসরি আপনার রেফারেল লিংকে রেজিস্টার্ড প্লেয়ারদের প্রতি স্পিনের ইনস্ট্যান্ট কমিশন।
+          </p>
+        </div>
+
+        {/* Tier 2 */}
+        <div className="golden-ratio-card rounded-2xl p-5 space-y-2 font-mono flex flex-col justify-between">
+          <div className="flex items-center justify-between">
+            <span className="text-xs text-slate-300 uppercase font-bold">Tier 2 (Subordinates)</span>
+            <span className="px-2.5 py-0.5 rounded-full bg-cyan-500/20 text-cyan-300 text-xs font-black border border-cyan-500/30">
+              0.20%
+            </span>
+          </div>
+          <div>
+            <div className="text-2xl font-black text-white">42 মেম্বার</div>
+            <div className="text-xs text-cyan-300 mt-0.5">মোট টার্নওভার: ৳১৮,৫০,০০০</div>
+          </div>
+          <p className="text-[11px] text-slate-400 font-sans leading-relaxed">
+            Tier 1 মেম্বারদের আমন্ত্রিত সেকেন্ড-লেভেল প্লেয়ারদের টার্নওভার কমিশন।
+          </p>
+        </div>
+
+        {/* Tier 3 */}
+        <div className="golden-ratio-card rounded-2xl p-5 space-y-2 font-mono flex flex-col justify-between">
+          <div className="flex items-center justify-between">
+            <span className="text-xs text-slate-300 uppercase font-bold">Tier 3 (Network)</span>
+            <span className="px-2.5 py-0.5 rounded-full bg-purple-500/20 text-purple-300 text-xs font-black border border-purple-500/30">
+              0.10%
+            </span>
+          </div>
+          <div>
+            <div className="text-2xl font-black text-white">88 মেম্বার</div>
+            <div className="text-xs text-purple-300 mt-0.5">মোট টার্নওভার: ৳৩৮,০০,০০০</div>
+          </div>
+          <p className="text-[11px] text-slate-400 font-sans leading-relaxed">
+            ৩য় লেয়ারের সকল সক্রিয় প্লেয়ারদের সম্মিলিত গেমপ্লে থেকে প্যাসিভ ইনকাম।
+          </p>
+        </div>
+      </div>
+
+      {/* 3. VISUAL RECHARTS 30-DAY ANALYTICS */}
+      <div className="golden-ratio-card rounded-3xl p-5 sm:p-7 space-y-5">
+        <div className="flex flex-col lg:flex-row lg:items-center justify-between gap-4 border-b border-slate-800 pb-4">
           <div className="flex items-center space-x-3">
             <div className="w-10 h-10 rounded-2xl bg-amber-500/20 border border-amber-500/40 flex items-center justify-center text-amber-400 shrink-0">
               <TrendingUp className="w-5 h-5" />
             </div>
             <div>
-              <div className="flex items-center space-x-2">
-                <h2 className="text-base font-black text-white font-sans uppercase">
-                  রেফারেল নেটওয়ার্ক গ্রোথ ও কমিশন ট্রেন্ড (Growth Analytics)
-                </h2>
-                <span className="px-2 py-0.5 rounded bg-emerald-500/20 text-emerald-300 text-[10px] font-bold border border-emerald-500/30">
-                  Live 30D Recharts
-                </span>
-              </div>
-              <p className="text-xs text-slate-400 mt-0.5 font-sans">
-                গত ৩০ দিনের রেফারেল বৃদ্ধির গ্রাফ এবং টিয়ার ১, ২ ও ৩ ভিত্তিক মোট কমিশন উপার্জনের চার্ট।
+              <h2 className="text-base font-black text-white font-sans">
+                ৩০-দিনের পারফরম্যান্স অ্যানালিটিক্স
+              </h2>
+              <p className="text-xs text-slate-400 font-mono">
+                নেটওয়ার্ক গ্রোথ, ডেইলি টার্নওভার ও কমিশন ট্রেন্ডস
               </p>
             </div>
           </div>
 
-          {/* View Modifiers: Metric Switcher & Timeframe Tabs */}
-          <div className="flex flex-wrap items-center gap-2.5">
-            {/* Metric Mode Switcher */}
-            <div className="flex items-center space-x-1 bg-slate-950 p-1 rounded-xl border border-slate-800 text-xs">
-              <button
-                onClick={() => setChartMetric('commission')}
-                className={`px-3 py-1.5 rounded-lg font-bold flex items-center space-x-1.5 transition-all ${
-                  chartMetric === 'commission'
-                    ? 'bg-amber-500/20 text-amber-300 border border-amber-500/40'
-                    : 'text-slate-400 hover:text-white'
-                }`}
-              >
-                <Coins className="w-3.5 h-3.5" />
-                <span>কমিশন ট্রেন্ড</span>
-              </button>
-              <button
-                onClick={() => setChartMetric('network')}
-                className={`px-3 py-1.5 rounded-lg font-bold flex items-center space-x-1.5 transition-all ${
-                  chartMetric === 'network'
-                    ? 'bg-cyan-500/20 text-cyan-300 border border-cyan-500/40'
-                    : 'text-slate-400 hover:text-white'
-                }`}
-              >
-                <UserPlus className="w-3.5 h-3.5" />
-                <span>নেটওয়ার্ক গ্রোথ</span>
-              </button>
-              <button
-                onClick={() => setChartMetric('tiers')}
-                className={`px-3 py-1.5 rounded-lg font-bold flex items-center space-x-1.5 transition-all ${
-                  chartMetric === 'tiers'
-                    ? 'bg-purple-500/20 text-purple-300 border border-purple-500/40'
-                    : 'text-slate-400 hover:text-white'
-                }`}
-              >
-                <Layers className="w-3.5 h-3.5" />
-                <span>টিয়ার ব্রেকডাউন</span>
-              </button>
-            </div>
-
-            {/* Timeframe Presets */}
-            <div className="flex items-center space-x-1 bg-slate-950 p-1 rounded-xl border border-slate-800 text-xs">
+          {/* Controls Toolbar */}
+          <div className="flex flex-wrap items-center gap-2 font-mono text-xs">
+            {/* Timeframe Buttons */}
+            <div className="flex items-center bg-slate-950 p-1 rounded-xl border border-slate-800">
               {(['7D', '14D', '30D'] as const).map((tf) => (
                 <button
                   key={tf}
-                  onClick={() => setChartTimeframe(tf)}
-                  className={`px-2.5 py-1.5 rounded-lg font-bold transition-all ${
-                    chartTimeframe === tf
-                      ? 'bg-slate-800 text-white'
-                      : 'text-slate-500 hover:text-slate-300'
+                  onClick={() => {
+                    soundEngine.playClick(700);
+                    setTimeframe(tf);
+                  }}
+                  className={`px-3 py-1.5 rounded-lg font-bold transition-all cursor-pointer ${
+                    timeframe === tf ? 'bg-amber-400 text-slate-950 font-black' : 'text-slate-400 hover:text-white'
                   }`}
                 >
                   {tf}
                 </button>
               ))}
             </div>
-          </div>
-        </div>
 
-        {/* 4 Summary Stat Cards for Selected Timeframe */}
-        <div className="grid grid-cols-2 lg:grid-cols-4 gap-3">
-          <div className="bg-slate-950/80 border border-amber-500/30 rounded-2xl p-4 space-y-1">
-            <div className="text-[10px] text-amber-400 uppercase font-bold flex items-center gap-1">
-              <Coins className="w-3.5 h-3.5" />
-              <span>{chartTimeframe} মোট কমিশন</span>
-            </div>
-            <div className="text-lg sm:text-xl font-black text-white">
-              {symbol} {totalCommissionTimeframe.toLocaleString()}
-            </div>
-            <div className="text-[10px] text-emerald-400 flex items-center gap-1">
-              <TrendingUp className="w-3 h-3" />
-              <span>+24.6% vs previous period</span>
-            </div>
-          </div>
-
-          <div className="bg-slate-950/80 border border-cyan-500/30 rounded-2xl p-4 space-y-1">
-            <div className="text-[10px] text-cyan-400 uppercase font-bold flex items-center gap-1">
-              <Users className="w-3.5 h-3.5" />
-              <span>সক্রিয় রেফারেল নেটওয়ার্ক</span>
-            </div>
-            <div className="text-lg sm:text-xl font-black text-white">
-              {currentNetworkCount} মেম্বার
-            </div>
-            <div className="text-[10px] text-cyan-300">
-              +{totalNewMembersTimeframe} নতুন মেম্বার যোগ হয়েছে ({chartTimeframe})
-            </div>
-          </div>
-
-          <div className="bg-slate-950/80 border border-purple-500/30 rounded-2xl p-4 space-y-1">
-            <div className="text-[10px] text-purple-400 uppercase font-bold flex items-center gap-1">
-              <Zap className="w-3.5 h-3.5" />
-              <span>{chartTimeframe} মোট টার্নওভার</span>
-            </div>
-            <div className="text-lg sm:text-xl font-black text-white">
-              {symbol} {totalTurnoverTimeframe.toLocaleString()}
-            </div>
-            <div className="text-[10px] text-slate-400">
-              ভ্যালিড বেট টার্নওভার ভলিউম
-            </div>
-          </div>
-
-          <div className="bg-slate-950/80 border border-emerald-500/30 rounded-2xl p-4 space-y-1">
-            <div className="text-[10px] text-emerald-400 uppercase font-bold flex items-center gap-1">
-              <Award className="w-3.5 h-3.5" />
-              <span>গড় কমিশন / মেম্বার</span>
-            </div>
-            <div className="text-lg sm:text-xl font-black text-emerald-300">
-              {symbol} {Math.round(totalCommissionTimeframe / Math.max(1, currentNetworkCount)).toLocaleString()}
-            </div>
-            <div className="text-[10px] text-emerald-400">
-              উচ্চ ভলিউম প্লেয়ার রিটেনশন
+            {/* Chart Type Selector */}
+            <div className="flex items-center bg-slate-950 p-1 rounded-xl border border-slate-800">
+              <button
+                onClick={() => setChartType('AREA')}
+                className={`p-1.5 rounded-lg transition-all cursor-pointer ${
+                  chartType === 'AREA' ? 'bg-amber-400 text-slate-950' : 'text-slate-400 hover:text-white'
+                }`}
+                title="Area Chart"
+              >
+                <LineChartIcon className="w-4 h-4" />
+              </button>
+              <button
+                onClick={() => setChartType('BAR')}
+                className={`p-1.5 rounded-lg transition-all cursor-pointer ${
+                  chartType === 'BAR' ? 'bg-amber-400 text-slate-950' : 'text-slate-400 hover:text-white'
+                }`}
+                title="Bar Chart"
+              >
+                <BarChart3 className="w-4 h-4" />
+              </button>
+              <button
+                onClick={() => setChartType('TIERS')}
+                className={`p-1.5 rounded-lg transition-all cursor-pointer ${
+                  chartType === 'TIERS' ? 'bg-amber-400 text-slate-950' : 'text-slate-400 hover:text-white'
+                }`}
+                title="Tier Breakdown Chart"
+              >
+                <PieChartIcon className="w-4 h-4" />
+              </button>
             </div>
           </div>
         </div>
 
-        {/* The Main Recharts Visual Display */}
-        <div className="h-80 w-full pt-2">
+        {/* Snapshot Summary Metrics Bar */}
+        <div className="grid grid-cols-2 sm:grid-cols-4 gap-3 font-mono text-xs">
+          <div className="bg-slate-950/80 p-3 rounded-2xl border border-slate-800">
+            <span className="text-[10px] text-slate-400 uppercase">মোট অর্জিত কমিশন</span>
+            <div className="text-base sm:text-lg font-black text-amber-300 mt-0.5 truncate">
+              {symbol}{totalCommissionTimeframe.toLocaleString()}
+            </div>
+          </div>
+
+          <div className="bg-slate-950/80 p-3 rounded-2xl border border-slate-800">
+            <span className="text-[10px] text-slate-400 uppercase">মোট টার্নওভার ভলিউম</span>
+            <div className="text-base sm:text-lg font-black text-cyan-300 mt-0.5 truncate">
+              {symbol}{totalTurnoverTimeframe.toLocaleString()}
+            </div>
+          </div>
+
+          <div className="bg-slate-950/80 p-3 rounded-2xl border border-slate-800">
+            <span className="text-[10px] text-slate-400 uppercase">নতুন রেজিস্টার্ড</span>
+            <div className="text-base sm:text-lg font-black text-emerald-300 mt-0.5 truncate">
+              +{totalNewMembersTimeframe} জন
+            </div>
+          </div>
+
+          <div className="bg-slate-950/80 p-3 rounded-2xl border border-slate-800">
+            <span className="text-[10px] text-slate-400 uppercase">বর্তমান নেটওয়ার্ক</span>
+            <div className="text-base sm:text-lg font-black text-purple-300 mt-0.5 truncate">
+              {currentNetworkCount} জন মেম্বার
+            </div>
+          </div>
+        </div>
+
+        {/* Chart Canvas */}
+        <div className="h-64 sm:h-72 w-full pt-3">
           <ResponsiveContainer width="100%" height="100%">
-            {chartMetric === 'commission' ? (
-              // 1. Commission Growth Area Chart
+            {chartType === 'AREA' ? (
               <AreaChart data={chartData} margin={{ top: 10, right: 10, left: -20, bottom: 0 }}>
                 <defs>
-                  <linearGradient id="commGradient" x1="0" y1="0" x2="0" y2="1">
-                    <stop offset="5%" stopColor="#f59e0b" stopOpacity={0.4} />
-                    <stop offset="95%" stopColor="#f59e0b" stopOpacity={0.0} />
-                  </linearGradient>
-                  <linearGradient id="turnoverGradient" x1="0" y1="0" x2="0" y2="1">
-                    <stop offset="5%" stopColor="#06b6d4" stopOpacity={0.2} />
-                    <stop offset="95%" stopColor="#06b6d4" stopOpacity={0.0} />
+                  <linearGradient id="commGrad" x1="0" y1="0" x2="0" y2="1">
+                    <stop offset="5%" stopColor="#f59e0b" stopOpacity={0.8} />
+                    <stop offset="95%" stopColor="#f59e0b" stopOpacity={0} />
                   </linearGradient>
                 </defs>
-                <CartesianGrid strokeDasharray="3 3" stroke="#1e293b" opacity={0.6} />
-                <XAxis dataKey="date" stroke="#64748b" tick={{ fontSize: 10 }} />
-                <YAxis stroke="#64748b" tick={{ fontSize: 10 }} tickFormatter={(val) => `${symbol}${val}`} />
-                <Tooltip content={<CustomChartTooltip currency={currency} />} />
-                <Legend wrapperStyle={{ fontSize: '11px', paddingTop: '10px' }} />
-                <Area
-                  type="monotone"
-                  dataKey="totalCommission"
-                  name="দৈনিক মোট কমিশন (Total Commission)"
-                  stroke="#f59e0b"
-                  strokeWidth={2.5}
-                  fillOpacity={1}
-                  fill="url(#commGradient)"
-                />
-              </AreaChart>
-            ) : chartMetric === 'network' ? (
-              // 2. Network Growth Line & Bar Chart
-              <AreaChart data={chartData} margin={{ top: 10, right: 10, left: -20, bottom: 0 }}>
-                <defs>
-                  <linearGradient id="memberGradient" x1="0" y1="0" x2="0" y2="1">
-                    <stop offset="5%" stopColor="#06b6d4" stopOpacity={0.4} />
-                    <stop offset="95%" stopColor="#06b6d4" stopOpacity={0.0} />
-                  </linearGradient>
-                </defs>
-                <CartesianGrid strokeDasharray="3 3" stroke="#1e293b" opacity={0.6} />
+                <CartesianGrid strokeDasharray="3 3" stroke="#1e293b" />
                 <XAxis dataKey="date" stroke="#64748b" tick={{ fontSize: 10 }} />
                 <YAxis stroke="#64748b" tick={{ fontSize: 10 }} />
-                <Tooltip content={<CustomChartTooltip currency={currency} />} />
-                <Legend wrapperStyle={{ fontSize: '11px', paddingTop: '10px' }} />
-                <Area
-                  type="monotone"
-                  dataKey="cumulativeMembers"
-                  name="মোট নেটওয়ার্ক মেম্বার (Total Network)"
-                  stroke="#06b6d4"
-                  strokeWidth={2.5}
-                  fillOpacity={1}
-                  fill="url(#memberGradient)"
+                <Tooltip
+                  contentStyle={{ backgroundColor: '#090d16', borderColor: '#334155', borderRadius: '12px' }}
                 />
-                <Line
-                  type="monotone"
-                  dataKey="newMembers"
-                  name="দৈনিক নতুন মেম্বার (Daily New)"
-                  stroke="#10b981"
-                  strokeWidth={2}
-                  dot={{ r: 3, fill: '#10b981' }}
-                />
+                <Area type="monotone" dataKey="totalCommission" stroke="#f59e0b" fillOpacity={1} fill="url(#commGrad)" name="কমিশন" />
               </AreaChart>
-            ) : (
-              // 3. Multi-Tier Commission Breakdown Stacked Bar Chart
+            ) : chartType === 'BAR' ? (
               <BarChart data={chartData} margin={{ top: 10, right: 10, left: -20, bottom: 0 }}>
-                <CartesianGrid strokeDasharray="3 3" stroke="#1e293b" opacity={0.6} />
+                <CartesianGrid strokeDasharray="3 3" stroke="#1e293b" />
                 <XAxis dataKey="date" stroke="#64748b" tick={{ fontSize: 10 }} />
-                <YAxis stroke="#64748b" tick={{ fontSize: 10 }} tickFormatter={(val) => `${symbol}${val}`} />
-                <Tooltip content={<CustomChartTooltip currency={currency} />} />
+                <YAxis stroke="#64748b" tick={{ fontSize: 10 }} />
+                <Tooltip
+                  contentStyle={{ backgroundColor: '#090d16', borderColor: '#334155', borderRadius: '12px' }}
+                />
+                <Bar dataKey="totalCommission" fill="#f59e0b" radius={[4, 4, 0, 0]} name="কমিশন" />
+              </BarChart>
+            ) : (
+              <BarChart data={chartData} margin={{ top: 10, right: 10, left: -20, bottom: 0 }}>
+                <CartesianGrid strokeDasharray="3 3" stroke="#1e293b" />
+                <XAxis dataKey="date" stroke="#64748b" tick={{ fontSize: 10 }} />
+                <YAxis stroke="#64748b" tick={{ fontSize: 10 }} />
+                <Tooltip
+                  contentStyle={{ backgroundColor: '#090d16', borderColor: '#334155', borderRadius: '12px' }}
+                />
                 <Legend wrapperStyle={{ fontSize: '11px', paddingTop: '10px' }} />
-                <Bar
-                  dataKey="commissionTier1"
-                  name="Tier 1 (0.50% Direct)"
-                  fill="#f59e0b"
-                  stackId="tiers"
-                  radius={[0, 0, 0, 0]}
-                />
-                <Bar
-                  dataKey="commissionTier2"
-                  name="Tier 2 (0.20% Subordinate)"
-                  fill="#06b6d4"
-                  stackId="tiers"
-                  radius={[0, 0, 0, 0]}
-                />
-                <Bar
-                  dataKey="commissionTier3"
-                  name="Tier 3 (0.10% Network)"
-                  fill="#a855f7"
-                  stackId="tiers"
-                  radius={[4, 4, 0, 0]}
-                />
+                <Bar dataKey="commissionTier1" name="Tier 1 (0.50%)" fill="#f59e0b" stackId="tiers" />
+                <Bar dataKey="commissionTier2" name="Tier 2 (0.20%)" fill="#06b6d4" stackId="tiers" />
+                <Bar dataKey="commissionTier3" name="Tier 3 (0.10%)" fill="#a855f7" stackId="tiers" radius={[4, 4, 0, 0]} />
               </BarChart>
             )}
           </ResponsiveContainer>
         </div>
       </div>
 
-      {/* 3. 3 Tier Commission Structure Cards */}
-      <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
-        <div className="bg-slate-900/90 border border-amber-500/40 p-5 rounded-2xl shadow-xl relative overflow-hidden">
-          <div className="flex items-center justify-between">
-            <span className="text-xs text-slate-400 uppercase font-bold">Tier 1 (Direct Referrals)</span>
-            <span className="px-2 py-0.5 rounded bg-amber-500/20 text-amber-300 text-[10px] font-black">
-              0.50%
-            </span>
-          </div>
-          <div className="text-2xl font-black text-white mt-3">14 মেম্বার</div>
-          <div className="text-xs text-emerald-400 mt-1">মোট টার্নওভার: ৳৬,৩০,০০০</div>
-          <div className="text-[10px] text-slate-400 mt-2 font-sans">সরাসরি আপনার লিংকে রেজিস্টার্ড প্লেয়ারদের প্রতি স্পিনের কমিশন।</div>
-        </div>
-
-        <div className="bg-slate-900/90 border border-cyan-500/40 p-5 rounded-2xl shadow-xl relative overflow-hidden">
-          <div className="flex items-center justify-between">
-            <span className="text-xs text-slate-400 uppercase font-bold">Tier 2 (Subordinates)</span>
-            <span className="px-2 py-0.5 rounded bg-cyan-500/20 text-cyan-300 text-[10px] font-black">
-              0.20%
-            </span>
-          </div>
-          <div className="text-2xl font-black text-white mt-3">42 মেম্বার</div>
-          <div className="text-xs text-emerald-400 mt-1">মোট টার্নওভার: ৳১৮,৫০,০০০</div>
-          <div className="text-[10px] text-slate-400 mt-2 font-sans">Tier 1 মেম্বারদের রেফারকৃত প্লেয়ারদের টার্নওভার কমিশন।</div>
-        </div>
-
-        <div className="bg-slate-900/90 border border-purple-500/40 p-5 rounded-2xl shadow-xl relative overflow-hidden">
-          <div className="flex items-center justify-between">
-            <span className="text-xs text-slate-400 uppercase font-bold">Tier 3 (Network)</span>
-            <span className="px-2 py-0.5 rounded bg-purple-500/20 text-purple-300 text-[10px] font-black">
-              0.10%
-            </span>
-          </div>
-          <div className="text-2xl font-black text-white mt-3">88 মেম্বার</div>
-          <div className="text-xs text-emerald-400 mt-1">মোট টার্নওভার: ৳৩৮,০০,০০০</div>
-          <div className="text-[10px] text-slate-400 mt-2 font-sans">৩য় লেয়ারের সকল সক্রিয় প্লেয়ারদের টার্নওভার কমিশন।</div>
-        </div>
-      </div>
-
-      {/* 4. Network Downline Tree Table */}
-      <div className="bg-slate-900/90 border border-slate-800 rounded-3xl p-6 shadow-xl space-y-4">
+      {/* 4. NETWORK DOWNLINE TREE TABLE */}
+      <div className="golden-ratio-card rounded-3xl p-5 sm:p-7 space-y-4">
         <div className="flex items-center justify-between border-b border-slate-800 pb-4">
           <div>
-            <h2 className="text-base font-bold text-white flex items-center space-x-2">
+            <h2 className="text-base font-bold text-white flex items-center space-x-2 font-sans">
               <Users className="w-4 h-4 text-amber-400" />
               <span>সাবঅর্ডিনেট মেম্বার ও কমিশন লেজার</span>
             </h2>
-            <p className="text-xs text-slate-400 font-sans mt-0.5">
+            <p className="text-xs text-slate-400 font-mono mt-0.5">
               রিয়েল-টাইমে সাবঅর্ডিনেটদের ভ্যালিড বেট টার্নওভার ও অর্জিত কমিশন হিস্টোরি।
             </p>
           </div>
-          <span className="text-xs text-emerald-400 bg-emerald-500/10 px-3 py-1 rounded-full border border-emerald-500/20">
-            Active Upline Network
+          <span className="text-xs font-mono text-emerald-400 bg-emerald-500/10 px-3 py-1 rounded-full border border-emerald-500/20">
+            Active Network
           </span>
         </div>
 
         <div className="overflow-x-auto">
-          <table className="w-full text-left text-xs">
+          <table className="w-full text-left font-mono text-xs">
             <thead className="bg-slate-950 text-slate-400 uppercase text-[10px]">
               <tr>
                 <th className="p-3">ইউজারনেম</th>
@@ -593,9 +528,9 @@ export const AffiliateDashboard: React.FC<AffiliateDashboardProps> = ({
                 <th className="p-3">স্ট্যাটাস</th>
               </tr>
             </thead>
-            <tbody className="divide-y divide-slate-800">
+            <tbody className="divide-y divide-slate-800/80">
               {networkMembers.map((m, idx) => (
-                <tr key={idx} className="hover:bg-slate-800/50 transition-colors">
+                <tr key={idx} className="hover:bg-slate-800/40 transition-colors">
                   <td className="p-3 text-white font-bold">{m.name}</td>
                   <td className="p-3">
                     <span className="px-2 py-0.5 rounded bg-slate-800 text-slate-300 text-[10px]">
@@ -622,6 +557,6 @@ export const AffiliateDashboard: React.FC<AffiliateDashboardProps> = ({
           </table>
         </div>
       </div>
-    </div>
+    </motion.div>
   );
 };

@@ -16,6 +16,7 @@ export interface GameAsset {
   animatedPreviewUrl: string;
   bannerUrl: string;
   logoUrl?: string;
+  demoUrl?: string;
   icon: string;
   themeColor: {
     primary: string;
@@ -90,6 +91,7 @@ export const GAME_ASSETS: Record<string, GameAsset> = {
     thumbnailUrl: 'https://images.unsplash.com/photo-1540959733332-eab4deabeeaf?auto=format&fit=crop&w=800&q=85',
     animatedPreviewUrl: 'https://images.unsplash.com/photo-1519074069444-1ba4ea16e6f9?auto=format&fit=crop&w=800&q=85',
     bannerUrl: 'https://images.unsplash.com/photo-1506015391300-4802dc74de2e?auto=format&fit=crop&w=1400&q=85',
+    demoUrl: 'https://demogamesfree.pragmaticplay.net/gs2c/openGame.do?lang=en&cur=BDT&gameSymbol=vs20olympgate&websiteUrl=https%3A%2F%2Fdemogamesfree.pragmaticplay.net&lobbyURL=https%3A%2F%2Fwww.pragmaticplay.com',
     icon: '✈️',
     themeColor: {
       primary: '#e11d48',
@@ -116,6 +118,7 @@ export const GAME_ASSETS: Record<string, GameAsset> = {
     thumbnailUrl: 'https://images.unsplash.com/photo-1519074069444-1ba4ea16e6f9?auto=format&fit=crop&w=800&q=85',
     animatedPreviewUrl: 'https://images.unsplash.com/photo-1540959733332-eab4deabeeaf?auto=format&fit=crop&w=800&q=85',
     bannerUrl: 'https://images.unsplash.com/photo-1451187580459-43490279c0fa?auto=format&fit=crop&w=1400&q=85',
+    demoUrl: 'https://demogamesfree.pragmaticplay.net/gs2c/openGame.do?lang=en&cur=BDT&gameSymbol=vs20olympgate&websiteUrl=https%3A%2F%2Fdemogamesfree.pragmaticplay.net&lobbyURL=https%3A%2F%2Fwww.pragmaticplay.com',
     icon: '🚀',
     themeColor: {
       primary: '#9333ea',
@@ -142,6 +145,7 @@ export const GAME_ASSETS: Record<string, GameAsset> = {
     thumbnailUrl: 'https://images.unsplash.com/photo-1506015391300-4802dc74de2e?auto=format&fit=crop&w=800&q=85',
     animatedPreviewUrl: 'https://images.unsplash.com/photo-1451187580459-43490279c0fa?auto=format&fit=crop&w=800&q=85',
     bannerUrl: 'https://images.unsplash.com/photo-1506015391300-4802dc74de2e?auto=format&fit=crop&w=1400&q=85',
+    demoUrl: 'https://demogamesfree.pragmaticplay.net/gs2c/openGame.do?lang=en&cur=BDT&gameSymbol=vs20sweetbonanza&websiteUrl=https%3A%2F%2Fdemogamesfree.pragmaticplay.net&lobbyURL=https%3A%2F%2Fwww.pragmaticplay.com',
     icon: '⚡',
     themeColor: {
       primary: '#06b6d4',
@@ -168,6 +172,7 @@ export const GAME_ASSETS: Record<string, GameAsset> = {
     thumbnailUrl: 'https://images.unsplash.com/photo-1511193311914-0346f16efe90?auto=format&fit=crop&w=800&q=85',
     animatedPreviewUrl: 'https://images.unsplash.com/photo-1541278107931-e006523892df?auto=format&fit=crop&w=800&q=85',
     bannerUrl: 'https://images.unsplash.com/photo-1518609878373-06d740f60d8b?auto=format&fit=crop&w=1400&q=85',
+    demoUrl: 'https://demogamesfree.pragmaticplay.net/gs2c/openGame.do?lang=en&cur=BDT&gameSymbol=vs20sweetbonanza&websiteUrl=https%3A%2F%2Fdemogamesfree.pragmaticplay.net&lobbyURL=https%3A%2F%2Fwww.pragmaticplay.com',
     icon: '🃏',
     themeColor: {
       primary: '#f59e0b',
@@ -194,6 +199,7 @@ export const GAME_ASSETS: Record<string, GameAsset> = {
     thumbnailUrl: 'https://images.unsplash.com/photo-1541278107931-e006523892df?auto=format&fit=crop&w=800&q=85',
     animatedPreviewUrl: 'https://images.unsplash.com/photo-1511193311914-0346f16efe90?auto=format&fit=crop&w=800&q=85',
     bannerUrl: 'https://images.unsplash.com/photo-1518609878373-06d740f60d8b?auto=format&fit=crop&w=1400&q=85',
+    demoUrl: 'https://demogamesfree.pragmaticplay.net/gs2c/openGame.do?lang=en&cur=BDT&gameSymbol=vs20olympgate&websiteUrl=https%3A%2F%2Fdemogamesfree.pragmaticplay.net&lobbyURL=https%3A%2F%2Fwww.pragmaticplay.com',
     icon: '👑',
     themeColor: {
       primary: '#eab308',
@@ -220,6 +226,7 @@ export const GAME_ASSETS: Record<string, GameAsset> = {
     thumbnailUrl: 'https://images.unsplash.com/photo-1563089145-599997674d42?auto=format&fit=crop&w=800&q=85',
     animatedPreviewUrl: 'https://images.unsplash.com/photo-1579546929518-9e396f3cc809?auto=format&fit=crop&w=800&q=85',
     bannerUrl: 'https://images.unsplash.com/photo-1518609878373-06d740f60d8b?auto=format&fit=crop&w=1400&q=85',
+    demoUrl: 'https://demogamesfree.pragmaticplay.net/gs2c/openGame.do?lang=en&cur=BDT&gameSymbol=vs20sweetbonanza&websiteUrl=https%3A%2F%2Fdemogamesfree.pragmaticplay.net&lobbyURL=https%3A%2F%2Fwww.pragmaticplay.com',
     icon: '🀄',
     themeColor: {
       primary: '#10b981',
@@ -246,6 +253,7 @@ export const GAME_ASSETS: Record<string, GameAsset> = {
     thumbnailUrl: 'https://images.unsplash.com/photo-1561731216-c3a4d99437d5?auto=format&fit=crop&w=800&q=85',
     animatedPreviewUrl: 'https://images.unsplash.com/photo-1563089145-599997674d42?auto=format&fit=crop&w=800&q=85',
     bannerUrl: 'https://images.unsplash.com/photo-1561731216-c3a4d99437d5?auto=format&fit=crop&w=1400&q=85',
+    demoUrl: 'https://demogamesfree.pragmaticplay.net/gs2c/openGame.do?lang=en&cur=BDT&gameSymbol=vs20olympgate&websiteUrl=https%3A%2F%2Fdemogamesfree.pragmaticplay.net&lobbyURL=https%3A%2F%2Fwww.pragmaticplay.com',
     icon: '🐯',
     themeColor: {
       primary: '#f97316',
@@ -262,6 +270,33 @@ export const GAME_ASSETS: Record<string, GameAsset> = {
     features: ['10x Full Screen Multiplier', 'Fortune Tiger Respin Feature', '3x3 Classic Grid'],
     description: 'Hear the roar of the golden tiger! Complete full screen symbol alignments to trigger instant 10x total payouts.'
   },
+  vs20olympgate: {
+    gameId: 'vs20olympgate',
+    name: 'Gates of Olympus',
+    nameBn: 'গেটস্ অফ অলিম্পাস (Zeus)',
+    provider: 'Pragmatic Play',
+    providerId: 'pragmatic',
+    category: 'slots',
+    thumbnailUrl: 'https://images.unsplash.com/photo-1534447677768-be436bb09401?auto=format&fit=crop&w=800&q=85',
+    animatedPreviewUrl: 'https://images.unsplash.com/photo-1518770660439-4636190af475?auto=format&fit=crop&w=800&q=85',
+    bannerUrl: 'https://images.unsplash.com/photo-1534447677768-be436bb09401?auto=format&fit=crop&w=1400&q=85',
+    demoUrl: 'https://demogamesfree.pragmaticplay.net/gs2c/openGame.do?lang=en&cur=BDT&gameSymbol=vs20olympgate&websiteUrl=https%3A%2F%2Fdemogamesfree.pragmaticplay.net&lobbyURL=https%3A%2F%2Fwww.pragmaticplay.com',
+    icon: '⚡',
+    themeColor: {
+      primary: '#3b82f6',
+      glow: 'rgba(59, 130, 246, 0.4)',
+      border: 'border-blue-500/50',
+      gradient: 'from-blue-600 via-indigo-500 to-amber-400'
+    },
+    rtp: '96.50%',
+    volatility: 'Extreme',
+    maxMultiplier: '5,000x',
+    minBet: 10.0,
+    maxBet: 50000.0,
+    badge: 'ZEUS 500X',
+    features: ['Zeus Lightning Multipliers (up to 500x)', 'Free Spins Global Multiplier', 'Pay Anywhere Tumble'],
+    description: 'The legendary Greek mythology slot where Zeus hurls lightning multipliers up to 500x during cascading tumbling spins.'
+  },
   vs20sweetbonanza: {
     gameId: 'vs20sweetbonanza',
     name: 'Sweet Bonanza 1000',
@@ -272,6 +307,7 @@ export const GAME_ASSETS: Record<string, GameAsset> = {
     thumbnailUrl: 'https://images.unsplash.com/photo-1582058091505-f87a2e55a40f?auto=format&fit=crop&w=800&q=85',
     animatedPreviewUrl: 'https://images.unsplash.com/photo-1582058091505-f87a2e55a40f?auto=format&fit=crop&w=800&q=85',
     bannerUrl: 'https://images.unsplash.com/photo-1579546929518-9e396f3cc809?auto=format&fit=crop&w=1400&q=85',
+    demoUrl: 'https://demogamesfree.pragmaticplay.net/gs2c/openGame.do?lang=en&cur=BDT&gameSymbol=vs20sweetbonanza&websiteUrl=https%3A%2F%2Fdemogamesfree.pragmaticplay.net&lobbyURL=https%3A%2F%2Fwww.pragmaticplay.com',
     icon: '🍬',
     themeColor: {
       primary: '#ec4899',
@@ -288,31 +324,140 @@ export const GAME_ASSETS: Record<string, GameAsset> = {
     features: ['Tumble Feature', 'Multiplier Rainbow Bombs (up to 1000x)', 'Scatter Pays Anywhere'],
     description: 'Pragmatic Play candy wonderland with all-ways pays mechanics and explosive candy bomb multipliers.'
   },
-  vs20olympgate: {
-    gameId: 'vs20olympgate',
-    name: 'Gates of Olympus',
-    nameBn: 'গেটস্ অফ অলিম্পাস (Zeus)',
+  vs20sugarush: {
+    gameId: 'vs20sugarush',
+    name: 'Sugar Rush 1000',
+    nameBn: 'সুগার রাশ ১০০০',
+    provider: 'Pragmatic Play',
+    providerId: 'pragmatic',
+    category: 'slots',
+    thumbnailUrl: 'https://images.unsplash.com/photo-1579546929518-9e396f3cc809?auto=format&fit=crop&w=800&q=85',
+    animatedPreviewUrl: 'https://images.unsplash.com/photo-1582058091505-f87a2e55a40f?auto=format&fit=crop&w=800&q=85',
+    bannerUrl: 'https://images.unsplash.com/photo-1579546929518-9e396f3cc809?auto=format&fit=crop&w=1400&q=85',
+    demoUrl: 'https://demogamesfree.pragmaticplay.net/gs2c/openGame.do?lang=en&cur=BDT&gameSymbol=vs20sugarush&websiteUrl=https%3A%2F%2Fdemogamesfree.pragmaticplay.net&lobbyURL=https%3A%2F%2Fwww.pragmaticplay.com',
+    icon: '🍭',
+    themeColor: {
+      primary: '#d946ef',
+      glow: 'rgba(217, 70, 239, 0.4)',
+      border: 'border-fuchsia-500/50',
+      gradient: 'from-fuchsia-600 via-pink-500 to-amber-400'
+    },
+    rtp: '96.53%',
+    volatility: 'Extreme',
+    maxMultiplier: '25,000x',
+    minBet: 10.0,
+    maxBet: 50000.0,
+    badge: '1024X SPOTS',
+    features: ['Sticky Multiplier Spots (up to 1024x)', 'Cluster Pays Grid 7x7', 'Free Spins Retrigger'],
+    description: 'Explosive gummy cluster slot with persistent multiplier spots that double up to 1024x on every explosion.'
+  },
+  vs20starlight: {
+    gameId: 'vs20starlight',
+    name: 'Starlight Princess 1000',
+    nameBn: 'স্টারলাইট প্রিন্সেস ১০০০',
     provider: 'Pragmatic Play',
     providerId: 'pragmatic',
     category: 'slots',
     thumbnailUrl: 'https://images.unsplash.com/photo-1534447677768-be436bb09401?auto=format&fit=crop&w=800&q=85',
     animatedPreviewUrl: 'https://images.unsplash.com/photo-1518770660439-4636190af475?auto=format&fit=crop&w=800&q=85',
     bannerUrl: 'https://images.unsplash.com/photo-1534447677768-be436bb09401?auto=format&fit=crop&w=1400&q=85',
-    icon: '⚡',
+    demoUrl: 'https://demogamesfree.pragmaticplay.net/gs2c/openGame.do?lang=en&cur=BDT&gameSymbol=vs20starlight&websiteUrl=https%3A%2F%2Fdemogamesfree.pragmaticplay.net&lobbyURL=https%3A%2F%2Fwww.pragmaticplay.com',
+    icon: '✨',
+    themeColor: {
+      primary: '#ec4899',
+      glow: 'rgba(236, 72, 153, 0.4)',
+      border: 'border-pink-500/50',
+      gradient: 'from-pink-500 via-purple-500 to-yellow-400'
+    },
+    rtp: '96.50%',
+    volatility: 'Extreme',
+    maxMultiplier: '15,000x',
+    minBet: 10.0,
+    maxBet: 50000.0,
+    badge: '1000X MULT',
+    features: ['Starlight Heart Multipliers up to 1000x', 'Global Free Spin Bank', 'Anime Fantasy Theme'],
+    description: 'Anime celestial princess grants random glowing heart multipliers up to 1000x on every spin.'
+  },
+  vswaysdoghouse: {
+    gameId: 'vswaysdoghouse',
+    name: 'The Dog House Megaways',
+    nameBn: 'দ্য ডগ হাউজ মেগাওয়েজ',
+    provider: 'Pragmatic Play',
+    providerId: 'pragmatic',
+    category: 'slots',
+    thumbnailUrl: 'https://images.unsplash.com/photo-1543466835-00a7907e9de1?auto=format&fit=crop&w=800&q=85',
+    animatedPreviewUrl: 'https://images.unsplash.com/photo-1543466835-00a7907e9de1?auto=format&fit=crop&w=800&q=85',
+    bannerUrl: 'https://images.unsplash.com/photo-1543466835-00a7907e9de1?auto=format&fit=crop&w=1400&q=85',
+    demoUrl: 'https://demogamesfree.pragmaticplay.net/gs2c/openGame.do?lang=en&cur=BDT&gameSymbol=vswaysdoghouse&websiteUrl=https%3A%2F%2Fdemogamesfree.pragmaticplay.net&lobbyURL=https%3A%2F%2Fwww.pragmaticplay.com',
+    icon: '🐶',
     themeColor: {
       primary: '#3b82f6',
       glow: 'rgba(59, 130, 246, 0.4)',
       border: 'border-blue-500/50',
-      gradient: 'from-blue-600 via-indigo-500 to-amber-400'
+      gradient: 'from-blue-600 via-sky-500 to-amber-400'
     },
-    rtp: '96.50%',
-    volatility: 'Extreme',
-    maxMultiplier: '5,000x',
+    rtp: '96.55%',
+    volatility: 'High',
+    maxMultiplier: '12,305x',
     minBet: 10.0,
     maxBet: 50000.0,
-    badge: 'ZEUS 500X',
-    features: ['Zeus Lightning Multipliers', 'Free Spins Accumulator', 'Pay Anywhere Tumble'],
-    description: 'Zeus strikes his thunderbolt to grant multipliers ranging from 2x up to 500x in both base game and free spins.'
+    badge: '117,649 WAYS',
+    features: ['117,649 Megaways', 'Sticky Wilds & Raining Wilds Free Spins', 'Multiplier Kennels'],
+    description: 'The lovable canine pack returns with up to 117,649 Megaways and multiplier kennel wilds.'
+  },
+  vs10bbbonanza: {
+    gameId: 'vs10bbbonanza',
+    name: 'Big Bass Bonanza',
+    nameBn: 'বিগ ব্যাস বোনানজা',
+    provider: 'Pragmatic Play',
+    providerId: 'pragmatic',
+    category: 'fishing',
+    thumbnailUrl: 'https://images.unsplash.com/photo-1544551763-46a013bb70d5?auto=format&fit=crop&w=800&q=85',
+    animatedPreviewUrl: 'https://images.unsplash.com/photo-1544551763-46a013bb70d5?auto=format&fit=crop&w=800&q=85',
+    bannerUrl: 'https://images.unsplash.com/photo-1544551763-46a013bb70d5?auto=format&fit=crop&w=1400&q=85',
+    demoUrl: 'https://demogamesfree.pragmaticplay.net/gs2c/openGame.do?lang=en&cur=BDT&gameSymbol=vs10bbbonanza&websiteUrl=https%3A%2F%2Fdemogamesfree.pragmaticplay.net&lobbyURL=https%3A%2F%2Fwww.pragmaticplay.com',
+    icon: '🎣',
+    themeColor: {
+      primary: '#06b6d4',
+      glow: 'rgba(6, 182, 212, 0.4)',
+      border: 'border-cyan-500/50',
+      gradient: 'from-cyan-500 via-teal-500 to-amber-400'
+    },
+    rtp: '96.71%',
+    volatility: 'Medium',
+    maxMultiplier: '2,100x',
+    minBet: 10.0,
+    maxBet: 50000.0,
+    badge: 'FISH CASH',
+    features: ['Fisherman Cash Collector Wilds', '10x Multiplier Progression', 'Free Spins Catch'],
+    description: 'Hook the biggest fish in the lake! Fisherman collects all cash fish values during the bonus round.'
+  },
+  vs25wolfgold: {
+    gameId: 'vs25wolfgold',
+    name: 'Wolf Gold',
+    nameBn: 'উলফ গোল্ড (Pragmatic)',
+    provider: 'Pragmatic Play',
+    providerId: 'pragmatic',
+    category: 'slots',
+    thumbnailUrl: 'https://images.unsplash.com/photo-1564349683136-77e08dba1ef6?auto=format&fit=crop&w=800&q=85',
+    animatedPreviewUrl: 'https://images.unsplash.com/photo-1564349683136-77e08dba1ef6?auto=format&fit=crop&w=800&q=85',
+    bannerUrl: 'https://images.unsplash.com/photo-1564349683136-77e08dba1ef6?auto=format&fit=crop&w=1400&q=85',
+    demoUrl: 'https://demogamesfree.pragmaticplay.net/gs2c/openGame.do?lang=en&cur=BDT&gameSymbol=vs25wolfgold&websiteUrl=https%3A%2F%2Fdemogamesfree.pragmaticplay.net&lobbyURL=https%3A%2F%2Fwww.pragmaticplay.com',
+    icon: '🐺',
+    themeColor: {
+      primary: '#eab308',
+      glow: 'rgba(234, 179, 8, 0.4)',
+      border: 'border-yellow-500/50',
+      gradient: 'from-amber-500 via-orange-500 to-yellow-300'
+    },
+    rtp: '96.01%',
+    volatility: 'Medium',
+    maxMultiplier: '2,500x',
+    minBet: 10.0,
+    maxBet: 50000.0,
+    badge: 'JACKPOT',
+    features: ['Money Respin Feature', 'Giant 3x3 Mega Symbols', 'Mini, Major, Mega Jackpots'],
+    description: 'Venture into Native American wilderness with full moon money respins and giant mega symbol reels.'
   },
   evolution_lightning_roulette: {
     gameId: 'evolution_lightning_roulette',
@@ -324,6 +469,7 @@ export const GAME_ASSETS: Record<string, GameAsset> = {
     thumbnailUrl: 'https://images.unsplash.com/photo-1511193311914-0346f16efe90?auto=format&fit=crop&w=800&q=85',
     animatedPreviewUrl: 'https://images.unsplash.com/photo-1518609878373-06d740f60d8b?auto=format&fit=crop&w=800&q=85',
     bannerUrl: 'https://images.unsplash.com/photo-1511193311914-0346f16efe90?auto=format&fit=crop&w=1400&q=85',
+    demoUrl: 'https://demogamesfree.pragmaticplay.net/gs2c/openGame.do?lang=en&cur=BDT&gameSymbol=vs20olympgate&websiteUrl=https%3A%2F%2Fdemogamesfree.pragmaticplay.net&lobbyURL=https%3A%2F%2Fwww.pragmaticplay.com',
     icon: '⚡',
     themeColor: {
       primary: '#06b6d4',
@@ -350,6 +496,7 @@ export const GAME_ASSETS: Record<string, GameAsset> = {
     thumbnailUrl: 'https://images.unsplash.com/photo-1518609878373-06d740f60d8b?auto=format&fit=crop&w=800&q=85',
     animatedPreviewUrl: 'https://images.unsplash.com/photo-1579546929518-9e396f3cc809?auto=format&fit=crop&w=800&q=85',
     bannerUrl: 'https://images.unsplash.com/photo-1518609878373-06d740f60d8b?auto=format&fit=crop&w=1400&q=85',
+    demoUrl: 'https://demogamesfree.pragmaticplay.net/gs2c/openGame.do?lang=en&cur=BDT&gameSymbol=vs20sweetbonanza&websiteUrl=https%3A%2F%2Fdemogamesfree.pragmaticplay.net&lobbyURL=https%3A%2F%2Fwww.pragmaticplay.com',
     icon: '🎡',
     themeColor: {
       primary: '#8b5cf6',
@@ -376,6 +523,7 @@ export const GAME_ASSETS: Record<string, GameAsset> = {
     thumbnailUrl: 'https://images.unsplash.com/photo-1544551763-46a013bb70d5?auto=format&fit=crop&w=800&q=85',
     animatedPreviewUrl: 'https://images.unsplash.com/photo-1544551763-46a013bb70d5?auto=format&fit=crop&w=800&q=85',
     bannerUrl: 'https://images.unsplash.com/photo-1544551763-46a013bb70d5?auto=format&fit=crop&w=1400&q=85',
+    demoUrl: 'https://demogamesfree.pragmaticplay.net/gs2c/openGame.do?lang=en&cur=BDT&gameSymbol=vs10bbbonanza&websiteUrl=https%3A%2F%2Fdemogamesfree.pragmaticplay.net&lobbyURL=https%3A%2F%2Fwww.pragmaticplay.com',
     icon: '🐟',
     themeColor: {
       primary: '#0ea5e9',

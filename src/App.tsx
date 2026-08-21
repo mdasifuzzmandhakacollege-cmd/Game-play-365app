@@ -111,7 +111,7 @@ function Playall365InnerApp() {
 
   // 2. Once Registered / Logged In, display the full Playall 365 Casino App
   return (
-    <div className="min-h-screen bg-[#06080d] text-slate-100 flex flex-col font-bengali selection:bg-amber-500 selection:text-slate-950">
+    <div className="min-h-screen bg-[#06080d] text-slate-100 flex flex-col font-bengali selection:bg-amber-500 selection:text-slate-950 w-full max-w-full overflow-x-hidden">
       {/* Luxury Corporate Futurism Navbar */}
       <Navbar
         onOpenCashier={() => setActiveTab('cashier')}

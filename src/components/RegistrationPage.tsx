@@ -1,4 +1,11 @@
-import React, { useState } from 'react';
+/**
+ * @file RegistrationPage.tsx
+ * @description Premium Authentication & User Onboarding Hub for Playall 365.
+ * Designed with elegant proportions, harmonious luxury color palette, responsive mobile layout,
+ * and direct Firebase Auth & Firestore synchronization.
+ */
+
+import React, { useState, useEffect } from 'react';
 import {
   Crown,
   Sparkles,
@@ -23,8 +30,13 @@ import {
   CreditCard,
   Copy,
   Check,
-  ExternalLink,
-  Globe
+  Globe,
+  Award,
+  CircleDollarSign,
+  ChevronRight,
+  ShieldAlert,
+  Sliders,
+  DollarSign
 } from 'lucide-react';
 import { useAuth } from '../contexts/AuthContext';
 import { UserEntity, WalletEntity } from '../server/types/seamless';
@@ -41,7 +53,7 @@ export const RegistrationPage: React.FC<RegistrationPageProps> = ({
   onLoginSuccess,
   allUsers
 }) => {
-  const { signInWithGoogle, registerWithEmail, loginWithEmail, user: firebaseUser } = useAuth();
+  const { signInWithGoogle, registerWithEmail, loginWithEmail } = useAuth();
 
   // Mode: 'REGISTER' | 'LOGIN'
   const [authMode, setAuthMode] = useState<'REGISTER' | 'LOGIN'>('REGISTER');
@@ -53,7 +65,7 @@ export const RegistrationPage: React.FC<RegistrationPageProps> = ({
   const [password, setPassword] = useState('');
   const [confirmPassword, setConfirmPassword] = useState('');
   const [currency, setCurrency] = useState<'BDT' | 'USD'>('BDT');
-  const [promoCode, setPromoCode] = useState('');
+  const [promoCode, setPromoCode] = useState('WELCOME365');
   const [termsAgreed, setTermsAgreed] = useState(true);
   const [showPassword, setShowPassword] = useState(false);
 
@@ -63,6 +75,39 @@ export const RegistrationPage: React.FC<RegistrationPageProps> = ({
   const [domainError, setDomainError] = useState<string | null>(null);
   const [copiedDomain, setCopiedDomain] = useState(false);
   const [successAnimation, setSuccessAnimation] = useState(false);
+
+  // Live Jackpot & Recent Activity Ticker
+  const [liveJackpot, setLiveJackpot] = useState(15842900);
+  const [recentWin, setRecentWin] = useState({
+    name: 'Tanvir_Pro',
+    amount: '৳48,500',
+    game: 'Aviator 12.8x'
+  });
+
+  useEffect(() => {
+    const interval = setInterval(() => {
+      setLiveJackpot((prev) => prev + Math.floor(Math.random() * 25) + 15);
+    }, 1800);
+
+    const winUpdates = [
+      { name: 'Tanvir_Pro', amount: '৳48,500', game: 'Aviator 12.8x 🚀' },
+      { name: 'Sakib_Gamer', amount: '৳125,000', game: 'Sweet Bonanza 🍬' },
+      { name: 'Rahim_Elite', amount: '৳35,200', game: 'Lightning Roulette ⚡' },
+      { name: 'Nafis_777', amount: '৳89,000', game: 'Gates of Olympus ⚡' },
+      { name: 'Fahim_Win', amount: '৳62,400', game: 'Crazy Time 🎡' }
+    ];
+
+    let winIdx = 0;
+    const winInterval = setInterval(() => {
+      winIdx = (winIdx + 1) % winUpdates.length;
+      setRecentWin(winUpdates[winIdx]);
+    }, 4000);
+
+    return () => {
+      clearInterval(interval);
+      clearInterval(winInterval);
+    };
+  }, []);
 
   const handleRegisterSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -74,7 +119,9 @@ export const RegistrationPage: React.FC<RegistrationPageProps> = ({
       return;
     }
 
-    const effectiveEmail = email.trim() || `${username.trim().toLowerCase().replace(/[^a-z0-9]/g, '')}@playall365.vip`;
+    const effectiveEmail =
+      email.trim() ||
+      `${username.trim().toLowerCase().replace(/[^a-z0-9]/g, '')}@playall365.com`;
 
     if (authMode === 'REGISTER' && (!effectiveEmail || !effectiveEmail.includes('@'))) {
       setErrorMessage('একটি সঠিক ইমেইল এড্রেস প্রদান করুন (Please enter a valid email)');
@@ -98,9 +145,14 @@ export const RegistrationPage: React.FC<RegistrationPageProps> = ({
         let authUid = '';
         let authEmail = effectiveEmail;
 
-        // 1. Register with Firebase Authentication
+        // 1. Firebase Authentication with Local Persistence
         try {
-          const authResult = await registerWithEmail(effectiveEmail, password, username.trim());
+          const authResult = await registerWithEmail(
+            effectiveEmail,
+            password,
+            username.trim(),
+            currency
+          );
           if (authResult) {
             authUid = authResult.uid;
             authEmail = authResult.email || effectiveEmail;
@@ -109,14 +161,20 @@ export const RegistrationPage: React.FC<RegistrationPageProps> = ({
           console.warn('Firebase Auth Registration notice:', firebaseAuthErr);
           const errCode = firebaseAuthErr?.code || '';
           if (errCode === 'auth/email-already-in-use') {
-            setErrorMessage('এই ইমেইলটি ইতিমধ্যে নিবন্ধিত! অনুগ্রহ করে লগইন করুন (Email already in use, please sign in)');
+            setErrorMessage(
+              'এই ইমেইলটি ইতিমধ্যে নিবন্ধিত! অনুগ্রহ করে লগইন করুন (Email already in use, please sign in)'
+            );
             setLoading(false);
             return;
           } else if (errCode === 'auth/unauthorized-domain') {
             setDomainError(window.location.hostname);
-            setErrorMessage(`ডোমেইনটি ফায়ারবেসে অনুমোদিত নয় (auth/unauthorized-domain)। ফায়ারবেস কনসোলে Authorized Domains-এ ${window.location.hostname} যুক্ত করুন।`);
+            setErrorMessage(
+              `ডোমেইনটি ফায়ারবেসে অনুমোদিত নয় (auth/unauthorized-domain)। ফায়ারবেস কনসোলে Authorized Domains-এ ${window.location.hostname} যুক্ত করুন।`
+            );
           } else if (errCode === 'auth/weak-password') {
-            setErrorMessage('পাসওয়ার্ড কমপক্ষে ৬ অক্ষরের হতে হবে (Password must be at least 6 characters)');
+            setErrorMessage(
+              'পাসওয়ার্ড কমপক্ষে ৬ অক্ষরের হতে হবে (Password must be at least 6 characters)'
+            );
             setLoading(false);
             return;
           } else if (errCode === 'auth/invalid-email') {
@@ -124,10 +182,9 @@ export const RegistrationPage: React.FC<RegistrationPageProps> = ({
             setLoading(false);
             return;
           }
-          // If Firebase Auth provider is not enabled, continue with fallback
         }
 
-        // 2. Register / Sync in Local Engine
+        // 2. Register & Allocate Initial Vault in Engine
         const engineResult = seamlessEngine.registerUser({
           username: username.trim(),
           email: authEmail,
@@ -138,14 +195,17 @@ export const RegistrationPage: React.FC<RegistrationPageProps> = ({
 
         const targetUserId = authUid || engineResult.user.id;
 
-        // 3. Sync to Firebase Firestore Database
+        // 3. Sync to Real Firestore Enterprise Database
         try {
-          await firebaseFirestore.syncUserProfile({
-            uid: targetUserId,
-            email: authEmail,
-            displayName: username.trim(),
-            phoneNumber: phone.trim()
-          }, currency);
+          await firebaseFirestore.syncUserProfile(
+            {
+              uid: targetUserId,
+              email: authEmail,
+              displayName: username.trim(),
+              phoneNumber: phone.trim()
+            },
+            currency
+          );
           await firebaseFirestore.ensureUserWallet(targetUserId, currency, 5000);
         } catch (firestoreErr) {
           console.warn('Firestore sync notice:', firestoreErr);
@@ -157,7 +217,7 @@ export const RegistrationPage: React.FC<RegistrationPageProps> = ({
           onLoginSuccess(engineResult.user, engineResult.wallet);
         }, 400);
       } else {
-        // Login flow
+        // Sign In Flow
         let authUid = '';
         try {
           const loginResult = await loginWithEmail(effectiveEmail, password);
@@ -190,11 +250,14 @@ export const RegistrationPage: React.FC<RegistrationPageProps> = ({
 
           if (authUid) {
             try {
-              await firebaseFirestore.syncUserProfile({
-                uid: authUid,
-                email: found.email,
-                displayName: found.username
-              }, (found.currency as 'BDT' | 'USD') || 'BDT');
+              await firebaseFirestore.syncUserProfile(
+                {
+                  uid: authUid,
+                  email: found.email,
+                  displayName: found.username
+                },
+                (found.currency as 'BDT' | 'USD') || 'BDT'
+              );
             } catch (e) {
               console.warn('Firestore profile sync error on login:', e);
             }
@@ -217,12 +280,15 @@ export const RegistrationPage: React.FC<RegistrationPageProps> = ({
 
           const targetUid = authUid || result.user.id;
           try {
-            await firebaseFirestore.syncUserProfile({
-              uid: targetUid,
-              email: effectiveEmail,
-              displayName: username.trim(),
-              phoneNumber: phone.trim()
-            }, currency);
+            await firebaseFirestore.syncUserProfile(
+              {
+                uid: targetUid,
+                email: effectiveEmail,
+                displayName: username.trim(),
+                phoneNumber: phone.trim()
+              },
+              currency
+            );
           } catch (e) {
             console.warn('Firestore initial registration sync notice:', e);
           }
@@ -247,23 +313,28 @@ export const RegistrationPage: React.FC<RegistrationPageProps> = ({
       setErrorMessage(null);
       setDomainError(null);
       const googleUser = await signInWithGoogle();
-      
+
       if (!googleUser) {
         throw new Error('Google Sign-In was cancelled or failed.');
       }
 
       const displayName = googleUser?.displayName || 'GooglePlayer';
-      const emailAddress = googleUser?.email || `${displayName.toLowerCase().replace(/[^a-z0-9]/g, '')}@gmail.com`;
+      const emailAddress =
+        googleUser?.email ||
+        `${displayName.toLowerCase().replace(/[^a-z0-9]/g, '')}@gmail.com`;
 
       // 1. Sync to Firebase Firestore Database
       try {
-        await firebaseFirestore.syncUserProfile({
-          uid: googleUser.uid,
-          email: googleUser.email,
-          displayName: googleUser.displayName,
-          photoURL: googleUser.photoURL,
-          phoneNumber: googleUser.phoneNumber
-        }, 'BDT');
+        await firebaseFirestore.syncUserProfile(
+          {
+            uid: googleUser.uid,
+            email: googleUser.email,
+            displayName: googleUser.displayName,
+            photoURL: googleUser.photoURL,
+            phoneNumber: googleUser.phoneNumber
+          },
+          'BDT'
+        );
         await firebaseFirestore.ensureUserWallet(googleUser.uid, 'BDT', 5000);
       } catch (firestoreErr) {
         console.warn('Firestore Google User sync notice:', firestoreErr);
@@ -272,7 +343,10 @@ export const RegistrationPage: React.FC<RegistrationPageProps> = ({
       // 2. Sync to Seamless Engine
       const existingUsers = seamlessEngine.getUsers();
       let foundUser = existingUsers.find(
-        (u) => u.id === googleUser.uid || (u.email && u.email.toLowerCase() === emailAddress.toLowerCase()) || u.username.toLowerCase() === displayName.toLowerCase()
+        (u) =>
+          u.id === googleUser.uid ||
+          (u.email && u.email.toLowerCase() === emailAddress.toLowerCase()) ||
+          u.username.toLowerCase() === displayName.toLowerCase()
       );
 
       if (!foundUser) {
@@ -281,14 +355,14 @@ export const RegistrationPage: React.FC<RegistrationPageProps> = ({
           email: emailAddress,
           phone: googleUser?.phoneNumber || '',
           currency: 'BDT',
-          promoCode: ''
+          promoCode: 'GOOGLE_OFFICIAL'
         });
         foundUser = result.user;
       }
 
       const wallets = seamlessEngine.getWallets();
       const userWallet = wallets.find((w) => w.user_id === foundUser.id) || wallets[0];
-      
+
       soundEngine.playWinChime();
       onLoginSuccess(foundUser, userWallet);
     } catch (err: any) {
@@ -322,153 +396,222 @@ export const RegistrationPage: React.FC<RegistrationPageProps> = ({
   };
 
   return (
-    <div className="min-h-screen bg-[#05070c] text-white flex flex-col justify-between relative overflow-hidden font-sans selection:bg-amber-500 selection:text-slate-950">
-      {/* Background Animated Atmosphere */}
-      <div className="absolute top-0 left-1/4 w-[500px] h-[500px] bg-amber-500/10 rounded-full blur-[140px] pointer-events-none animate-pulse" />
-      <div className="absolute bottom-0 right-1/4 w-[600px] h-[600px] bg-cyan-500/10 rounded-full blur-[160px] pointer-events-none" />
-      <div className="absolute inset-0 bg-[radial-gradient(#1e293b_1px,transparent_1px)] [background-size:24px_24px] opacity-20 pointer-events-none" />
+    <div className="min-h-screen bg-[#030712] text-slate-100 flex flex-col justify-between relative overflow-hidden font-sans selection:bg-amber-400 selection:text-slate-950">
+      {/* Visual Ambient Lighting Background */}
+      <div className="absolute top-[-10%] left-[-5%] w-[60vw] max-w-[800px] h-[60vw] max-h-[800px] bg-gradient-to-br from-amber-500/15 via-yellow-600/5 to-transparent rounded-full blur-[140px] pointer-events-none animate-pulse-glow" />
+      <div className="absolute bottom-[-15%] right-[-5%] w-[40vw] max-w-[600px] h-[40vw] max-h-[600px] bg-gradient-to-tl from-emerald-500/10 via-cyan-500/5 to-transparent rounded-full blur-[160px] pointer-events-none" />
+      <div className="absolute inset-0 bg-[radial-gradient(#1e293b_1px,transparent_1px)] [background-size:32px_32px] opacity-15 pointer-events-none" />
 
-      {/* Top Brand Bar */}
-      <header className="relative z-10 border-b border-slate-800/80 bg-[#07090e]/90 backdrop-blur-xl px-4 sm:px-8 py-3.5 flex items-center justify-between">
-        <div className="flex items-center space-x-3">
-          <div className="w-10 h-10 rounded-xl bg-gradient-to-br from-amber-400 via-yellow-500 to-amber-600 p-[1px] shadow-lg shadow-amber-500/25">
-            <div className="w-full h-full bg-[#090b10] rounded-[11px] flex items-center justify-center">
-              <Crown className="w-5 h-5 text-amber-400 animate-pulse" />
+      {/* Top Header */}
+      <header className="relative z-20 border-b border-amber-500/20 bg-[#070b14]/90 backdrop-blur-2xl px-4 sm:px-8 py-3.5 flex items-center justify-between">
+        <div className="flex items-center space-x-3.5">
+          <div className="relative w-11 h-11 rounded-2xl bg-gradient-to-br from-amber-300 via-yellow-500 to-amber-700 p-[1.5px] shadow-lg shadow-amber-500/25">
+            <div className="w-full h-full bg-[#080d1a] rounded-[14px] flex items-center justify-center">
+              <Crown className="w-5 h-5 text-amber-400" />
+            </div>
+            <div className="absolute -bottom-1 -right-1 w-3.5 h-3.5 bg-emerald-500 rounded-full border-2 border-[#080d1a] flex items-center justify-center">
+              <span className="w-1.5 h-1.5 bg-white rounded-full animate-ping" />
             </div>
           </div>
+          
           <div>
-            <div className="text-xl font-black tracking-tight">
-              GamePlay<span className="text-transparent bg-gradient-to-r from-amber-400 to-yellow-300 bg-clip-text">365</span>
+            <div className="flex items-center space-x-2">
+              <span className="text-xl sm:text-2xl font-black tracking-tight text-white font-sans">
+                GamePlay<span className="text-transparent bg-gradient-to-r from-amber-300 via-yellow-400 to-amber-500 bg-clip-text">365</span>
+              </span>
+              <span className="hidden sm:inline-block px-2 py-0.5 rounded-md bg-amber-500/15 border border-amber-400/40 text-[10px] font-mono font-bold text-amber-300 tracking-wider">
+                OFFICIAL CASINO
+              </span>
             </div>
-            <div className="text-[10px] text-amber-400 font-mono tracking-wider font-semibold">
-              PREMIER VIP CASINO &amp; SEAMLESS LEDGER
+            <div className="text-[10px] text-slate-400 font-mono tracking-wider">
+              PREMIER SEAMLESS GAMING &amp; INSTANT CASHOUT
             </div>
           </div>
         </div>
 
-        <div className="flex items-center space-x-3 text-xs font-mono">
-          <div className="hidden md:flex items-center space-x-2 text-emerald-400 bg-emerald-500/10 border border-emerald-500/30 px-3 py-1 rounded-full">
-            <span className="w-2 h-2 rounded-full bg-emerald-400 animate-ping" />
-            <span>bKash &amp; Nagad Instant Gateways Live</span>
+        {/* Currency Switcher & Toggle */}
+        <div className="flex items-center space-x-3">
+          <div className="hidden sm:flex items-center bg-slate-950/90 border border-amber-500/30 rounded-xl p-1 font-mono text-xs">
+            <button
+              onClick={() => setCurrency('BDT')}
+              className={`px-3 py-1 rounded-lg font-bold transition-all ${
+                currency === 'BDT'
+                  ? 'bg-gradient-to-r from-amber-500 to-yellow-500 text-slate-950 shadow-md'
+                  : 'text-slate-400 hover:text-white'
+              }`}
+            >
+              ৳ BDT
+            </button>
+            <button
+              onClick={() => setCurrency('USD')}
+              className={`px-3 py-1 rounded-lg font-bold transition-all ${
+                currency === 'USD'
+                  ? 'bg-gradient-to-r from-cyan-500 to-blue-500 text-slate-950 shadow-md'
+                  : 'text-slate-400 hover:text-white'
+              }`}
+            >
+              $ USD
+            </button>
           </div>
 
           <button
-            onClick={() => setAuthMode(authMode === 'REGISTER' ? 'LOGIN' : 'REGISTER')}
-            className="px-4 py-1.5 rounded-xl border border-amber-500/40 text-amber-300 hover:bg-amber-500/10 font-bold transition-all text-xs"
+            onClick={() => {
+              soundEngine.playClick(900);
+              setAuthMode(authMode === 'REGISTER' ? 'LOGIN' : 'REGISTER');
+              setErrorMessage(null);
+            }}
+            className="px-4 py-2 rounded-xl bg-gradient-to-r from-amber-500/10 via-amber-500/20 to-amber-500/10 border border-amber-500/40 hover:border-amber-400 text-amber-300 hover:text-white font-mono font-bold text-xs shadow-lg shadow-amber-500/10 transition-all flex items-center space-x-1.5"
           >
-            {authMode === 'REGISTER' ? 'লগইন করুন (Sign In)' : 'নতুন অ্যাকাউন্ট (Register)'}
+            {authMode === 'REGISTER' ? (
+              <>
+                <LogIn className="w-3.5 h-3.5 text-amber-400" />
+                <span>লগইন করুন (Sign In)</span>
+              </>
+            ) : (
+              <>
+                <UserPlus className="w-3.5 h-3.5 text-amber-400" />
+                <span>নতুন একাউন্ট (Register)</span>
+              </>
+            )}
           </button>
         </div>
       </header>
 
-      {/* Main Registration & Welcome Center Stage */}
-      <main className="relative z-10 max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-8 sm:py-12 flex-1 flex items-center justify-center">
-        <div className="w-full grid grid-cols-1 lg:grid-cols-12 gap-8 items-center">
+      {/* Main Content Layout */}
+      <main className="relative z-10 max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-6 sm:py-10 flex-1 flex items-center">
+        <div className="w-full grid grid-cols-1 lg:grid-cols-12 gap-8 lg:gap-12 items-center">
           
-          {/* Left Column: Hero Welcome & Value Proposition */}
-          <div className="lg:col-span-6 space-y-6 text-left">
-            <div className="inline-flex items-center space-x-2 px-3.5 py-1.5 rounded-full bg-amber-500/10 border border-amber-500/30 text-amber-300 text-xs font-mono font-bold tracking-wider">
-              <Sparkles className="w-4 h-4 text-amber-300 animate-spin" />
-              <span>১০০% ফার্স্ট ডিপোজিট বোনাস + ১০,০০০ ৳ ওয়েলকাম গিফট</span>
-            </div>
-
-            <h1 className="text-3xl sm:text-5xl font-black text-white leading-tight font-sans tracking-tight">
-              লুক্সারি ক্যাসিনো ও <br />
-              <span className="bg-gradient-to-r from-amber-400 via-yellow-300 to-amber-500 bg-clip-text text-transparent">
-                ইনস্ট্যান্ট বিকাশ-নগদ
-              </span> গেমিং।
-            </h1>
-
-            <p className="text-sm sm:text-base text-slate-300 leading-relaxed max-w-xl">
-              Playall 365-এ আপনাকে স্বাগতম! রেজিস্ট্রেশন করুন আর সরাসরি খেলুন <strong>Aviator (1000x)</strong>, <strong>Sweet Bonanza</strong> এবং <strong>Live Lightning Roulette</strong>। ৪ সেকেন্ডের মধ্যে বিকাশ ও নগদ ক্যাশ-আউট।
-            </p>
-
-            {/* Live Benefits Grid */}
-            <div className="grid grid-cols-2 gap-3 pt-2 font-mono">
-              <div className="bg-slate-900/80 border border-slate-800 p-3.5 rounded-2xl">
-                <div className="flex items-center space-x-2 text-emerald-400 text-xs font-bold">
-                  <CreditCard className="w-4 h-4" />
-                  <span>বিকাশ ও নগদ 0% ফি</span>
-                </div>
-                <div className="text-[11px] text-slate-400 mt-1">
-                  ৫০০ ৳ থেকে ৫০,০০০ ৳ ইনস্ট্যান্ট লেনদেন
-                </div>
+          {/* Left Column: Clean Platform Introduction & Key Highlights */}
+          <div className="lg:col-span-7 space-y-6 text-left">
+            
+            {/* Welcome Tag */}
+            <div className="flex flex-wrap items-center gap-2">
+              <div className="inline-flex items-center space-x-2 px-3.5 py-1.5 rounded-full bg-gradient-to-r from-amber-500/20 via-yellow-500/10 to-transparent border border-amber-400/40 text-amber-300 text-xs font-mono font-bold tracking-wide">
+                <Sparkles className="w-3.5 h-3.5 text-amber-300 animate-spin" />
+                <span>১০০% ওয়েলকাম বোনাস • ১০,০০০ ৳ পর্যন্ত উপহার</span>
               </div>
 
-              <div className="bg-slate-900/80 border border-slate-800 p-3.5 rounded-2xl">
-                <div className="flex items-center space-x-2 text-cyan-400 text-xs font-bold">
+              <div className="inline-flex items-center space-x-1.5 px-3 py-1 rounded-full bg-emerald-500/15 border border-emerald-500/30 text-emerald-300 text-xs font-mono">
+                <span className="w-2 h-2 rounded-full bg-emerald-400 animate-ping" />
+                <span>০% বিকাশ ও নগদ চার্জ</span>
+              </div>
+            </div>
+
+            {/* Main Headline */}
+            <div className="space-y-3">
+              <h1 className="text-3xl sm:text-5xl lg:text-[44px] font-black text-white leading-[1.18] font-sans tracking-tight">
+                প্রিমিয়াম অনলাইন ক্যাসিনো ও <br />
+                <span className="text-transparent bg-gradient-to-r from-amber-300 via-yellow-300 to-amber-500 bg-clip-text">
+                  ইনস্ট্যান্ট ক্যাশ-আউট সুবিধা
+                </span>
+              </h1>
+              <p className="text-sm sm:text-base text-slate-300 leading-relaxed max-w-2xl font-sans">
+                জনপ্রিয় <strong>Aviator (1000x)</strong>, <strong>Sweet Bonanza</strong>, এবং <strong>Live Roulette</strong> সহ হাজারো সার্টিফাইড গেম। বিকাশ, নগদ ও রকেটে সম্পূর্ণ সুরক্ষিত ও নিরবচ্ছিন্ন লেনদেন।
+              </p>
+            </div>
+
+            {/* Jackpot & Live Metric Banner */}
+            <div className="golden-ratio-card rounded-[24px] p-5 relative overflow-hidden">
+              <div className="absolute top-0 right-0 w-48 h-48 bg-amber-400/10 rounded-full blur-3xl pointer-events-none" />
+              <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-4">
+                <div>
+                  <div className="text-[11px] text-amber-400/90 font-mono uppercase tracking-wider font-bold flex items-center space-x-1.5">
+                    <Crown className="w-3.5 h-3.5 text-amber-400" />
+                    <span>লাইভ প্রগ্রেসিভ জ্যাকপট</span>
+                  </div>
+                  <div className="text-2xl sm:text-3xl font-black text-transparent bg-gradient-to-r from-yellow-200 via-amber-300 to-yellow-400 bg-clip-text font-mono tracking-tight mt-1">
+                    ৳ {liveJackpot.toLocaleString('en-US')}
+                  </div>
+                  <div className="text-[11px] text-slate-400 font-mono mt-0.5">
+                    প্রতি সেকেন্ডে বৃদ্ধি পাচ্ছে • অটোমেটিক ড্রয়িং
+                  </div>
+                </div>
+
+                <div className="bg-slate-950/80 border border-slate-800/90 p-3 rounded-xl font-mono text-xs sm:w-56 shrink-0">
+                  <div className="text-[10px] text-slate-400 uppercase font-semibold flex items-center justify-between">
+                    <span>সর্বশেষ বিজয়ী</span>
+                    <span className="text-emerald-400 font-bold">LIVE</span>
+                  </div>
+                  <div className="text-white font-bold mt-1 truncate">{recentWin.name}</div>
+                  <div className="flex items-center justify-between text-amber-400 font-black text-[13px] mt-0.5">
+                    <span>{recentWin.amount}</span>
+                    <span className="text-[10px] text-slate-400 font-normal">{recentWin.game}</span>
+                  </div>
+                </div>
+              </div>
+            </div>
+
+            {/* Feature Highlights */}
+            <div className="grid grid-cols-1 sm:grid-cols-3 gap-3 font-mono">
+              <div className="bg-slate-950/70 border border-slate-800/90 hover:border-amber-500/40 p-3.5 rounded-2xl transition-all">
+                <div className="w-8 h-8 rounded-xl bg-amber-500/10 border border-amber-500/30 flex items-center justify-center text-amber-400 mb-2">
                   <Zap className="w-4 h-4" />
-                  <span>&lt; ৪ সেকেন্ড SLA</span>
                 </div>
+                <div className="font-bold text-white text-xs">দ্রুততম পে-আউট</div>
                 <div className="text-[11px] text-slate-400 mt-1">
-                  PostgreSQL ACID সুরক্ষিত লেজার
+                  বিকাশ ও নগদ অটোমেটিক গেটওয়ে
+                </div>
+              </div>
+
+              <div className="bg-slate-950/70 border border-slate-800/90 hover:border-amber-500/40 p-3.5 rounded-2xl transition-all">
+                <div className="w-8 h-8 rounded-xl bg-emerald-500/10 border border-emerald-500/30 flex items-center justify-center text-emerald-400 mb-2">
+                  <ShieldCheck className="w-4 h-4" />
+                </div>
+                <div className="font-bold text-white text-xs">১০০% নিরাপদ লেজার</div>
+                <div className="text-[11px] text-slate-400 mt-1">
+                  এনক্রিপ্টেড ডাটাবেজ সিকিউরিটি
+                </div>
+              </div>
+
+              <div className="bg-slate-950/70 border border-slate-800/90 hover:border-amber-500/40 p-3.5 rounded-2xl transition-all">
+                <div className="w-8 h-8 rounded-xl bg-cyan-500/10 border border-cyan-500/30 flex items-center justify-center text-cyan-400 mb-2">
+                  <Gift className="w-4 h-4" />
+                </div>
+                <div className="font-bold text-white text-xs">ভিআইপি রিওয়ার্ডস</div>
+                <div className="text-[11px] text-slate-400 mt-1">
+                  দৈনিক ক্যাশব্যাক ও বিশেষ বোনাস
                 </div>
               </div>
             </div>
 
-            {/* VIP & Security Assurance (Real-Time Infrastructure) */}
-            <div className="bg-slate-900/90 border border-emerald-500/30 p-4 rounded-2xl space-y-3">
-              <div className="flex items-center justify-between text-xs font-mono">
-                <span className="text-emerald-400 uppercase font-bold flex items-center space-x-1.5">
-                  <ShieldCheck className="w-4 h-4 text-emerald-400" />
-                  <span>রিয়েল-টাইম সিকিউরিটি ও ভিআইপি সিস্টেম</span>
-                </span>
-                <span className="text-[10px] text-emerald-400 font-bold bg-emerald-950/60 px-2 py-0.5 rounded border border-emerald-500/30">
-                  OFFICIAL VIP CORE
-                </span>
-              </div>
-
-              <div className="grid grid-cols-1 sm:grid-cols-2 gap-2.5 font-mono text-xs">
-                <div className="p-3 rounded-xl bg-slate-950/80 border border-slate-800 flex items-start space-x-2.5">
-                  <Flame className="w-4 h-4 text-amber-400 shrink-0 mt-0.5" />
-                  <div>
-                    <div className="font-bold text-white text-xs">সরাসরি বিকাশ ও নগদ ক্যাশ-আউট</div>
-                    <div className="text-[10px] text-slate-400 mt-0.5">১০০% রিয়েল-টাইম অটোমেটিক প্রসেসিং</div>
-                  </div>
-                </div>
-
-                <div className="p-3 rounded-xl bg-slate-950/80 border border-slate-800 flex items-start space-x-2.5">
-                  <Zap className="w-4 h-4 text-cyan-400 shrink-0 mt-0.5" />
-                  <div>
-                    <div className="font-bold text-white text-xs">B2B সিমলেস লেজার সিকিউরিটি</div>
-                    <div className="text-[10px] text-slate-400 mt-0.5">ACID ট্রানজেকশন প্রটেকশন</div>
-                  </div>
-                </div>
-              </div>
-            </div>
           </div>
 
-          {/* Right Column: Real-Time Registration & Auth Form Card */}
-          <div className="lg:col-span-6">
-            <div className="relative bg-gradient-to-b from-slate-900/95 via-slate-900/90 to-slate-950/95 border-2 border-amber-500/40 rounded-3xl p-6 sm:p-8 shadow-2xl shadow-amber-500/15 backdrop-blur-2xl">
+          {/* Right Column: Authentication Form */}
+          <div className="lg:col-span-5">
+            <div className="relative golden-ratio-card rounded-[32px] p-6 sm:p-8 backdrop-blur-2xl border-2 border-amber-500/40 shadow-2xl">
               
-              {/* Form Mode Header Tabs */}
-              <div className="flex items-center space-x-1 bg-slate-950 p-1.5 rounded-2xl border border-slate-800 mb-6 font-mono text-xs">
+              {/* Shimmer Accent Line */}
+              <div className="absolute top-0 left-8 right-8 h-[2px] bg-gradient-to-r from-transparent via-amber-400 to-transparent" />
+
+              {/* Form Navigation Tabs */}
+              <div className="flex items-center bg-slate-950 p-1.5 rounded-2xl border border-slate-800 mb-6 font-mono text-xs">
                 <button
                   type="button"
                   onClick={() => {
+                    soundEngine.playClick(900);
                     setAuthMode('REGISTER');
                     setErrorMessage(null);
                   }}
                   className={`flex-1 py-2.5 rounded-xl font-bold flex items-center justify-center space-x-1.5 transition-all ${
                     authMode === 'REGISTER'
-                      ? 'bg-gradient-to-r from-amber-500 to-yellow-500 text-slate-950 shadow-lg font-black'
+                      ? 'bg-gradient-to-r from-amber-400 via-yellow-500 to-amber-500 text-slate-950 font-black shadow-lg shadow-amber-500/25'
                       : 'text-slate-400 hover:text-white'
                   }`}
                 >
                   <UserPlus className="w-3.5 h-3.5" />
-                  <span>নতুন রেজিস্ট্রেশন (Register)</span>
+                  <span>রেজিস্ট্রেশন (Register)</span>
                 </button>
 
                 <button
                   type="button"
                   onClick={() => {
+                    soundEngine.playClick(900);
                     setAuthMode('LOGIN');
                     setErrorMessage(null);
                   }}
                   className={`flex-1 py-2.5 rounded-xl font-bold flex items-center justify-center space-x-1.5 transition-all ${
                     authMode === 'LOGIN'
-                      ? 'bg-gradient-to-r from-amber-500 to-yellow-500 text-slate-950 shadow-lg font-black'
+                      ? 'bg-gradient-to-r from-amber-400 via-yellow-500 to-amber-500 text-slate-950 font-black shadow-lg shadow-amber-500/25'
                       : 'text-slate-400 hover:text-white'
                   }`}
                 >
@@ -477,8 +620,9 @@ export const RegistrationPage: React.FC<RegistrationPageProps> = ({
                 </button>
               </div>
 
+              {/* Error Notification */}
               {errorMessage && (
-                <div className="mb-4 p-3.5 bg-red-500/10 border border-red-500/30 rounded-2xl text-red-400 text-xs font-mono flex items-start space-x-2.5 animate-shake">
+                <div className="mb-4 p-3.5 bg-red-500/10 border border-red-500/30 rounded-2xl text-red-400 text-xs font-mono flex items-start space-x-2.5">
                   <AlertCircle className="w-4 h-4 shrink-0 mt-0.5" />
                   <div className="flex-1 text-left">
                     <div>{errorMessage}</div>
@@ -486,11 +630,10 @@ export const RegistrationPage: React.FC<RegistrationPageProps> = ({
                       <div className="mt-2.5 p-2.5 bg-slate-950/80 border border-red-500/40 rounded-xl space-y-2 text-[11px]">
                         <div className="text-amber-300 font-bold flex items-center space-x-1.5">
                           <Globe className="w-3.5 h-3.5" />
-                          <span>ফায়ারবেস অথেন্টিকেশন ডোমেইন অনুমোদনের ধাপসমূহ:</span>
+                          <span>ফায়ারবেসে ডোমেইন অনুমোদন করুন:</span>
                         </div>
                         <p className="text-slate-300">
-                          ১. Firebase Console &gt; <strong>Authentication</strong> &gt; <strong>Settings</strong> &gt; <strong>Authorized domains</strong>-এ যান।<br />
-                          ২. <strong>Add domain</strong> বাটনে ক্লিক করে নিচের ডোমেইনটি পেস্ট করুন:
+                          Firebase Console &gt; Authentication &gt; Authorized domains-এ এই ডোমেইনটি যোগ করুন:
                         </p>
                         <div className="flex items-center space-x-2 bg-slate-900 px-2.5 py-1.5 rounded-lg border border-slate-700">
                           <span className="font-mono text-cyan-300 select-all flex-1">{domainError}</span>
@@ -509,42 +652,79 @@ export const RegistrationPage: React.FC<RegistrationPageProps> = ({
                 </div>
               )}
 
+              {/* Success Notification */}
               {successAnimation && (
                 <div className="mb-4 p-3.5 bg-emerald-500/10 border border-emerald-500/30 rounded-2xl text-emerald-400 text-xs font-mono flex items-center space-x-2">
                   <CheckCircle2 className="w-4 h-4 shrink-0 animate-spin" />
                   <span>
                     {authMode === 'LOGIN'
                       ? 'লগইন সফল! ক্যাসিনো লবিতে প্রবেশ করা হচ্ছে...'
-                      : 'রেজিস্ট্রেশন সম্পন্ন! ক্যাসিনো লবিতে প্রবেশ করা হচ্ছে...'}
+                      : 'রেজিস্ট্রেশন সম্পন্ন! ক্যাসিনো ভল্ট লোড হচ্ছে...'}
                   </span>
                 </div>
               )}
 
-              {/* Registration / Login Form */}
-              <form onSubmit={handleRegisterSubmit} className="space-y-4 font-mono text-xs">
+              {/* Google 1-Click Fast Auth Button */}
+              <div className="mb-5">
+                <button
+                  type="button"
+                  onClick={handleGoogleAuth}
+                  disabled={loading}
+                  className="w-full py-3 px-4 rounded-2xl bg-slate-950 hover:bg-slate-900 border border-amber-500/30 hover:border-amber-400/70 text-slate-100 text-xs font-mono font-bold flex items-center justify-center space-x-3 transition-all shadow-md group cursor-pointer"
+                >
+                  <svg className="w-4 h-4 shrink-0 transition-transform group-hover:scale-110" viewBox="0 0 24 24">
+                    <path
+                      fill="#4285F4"
+                      d="M22.56 12.25c0-.78-.07-1.53-.2-2.25H12v4.26h5.92c-.26 1.37-1.04 2.53-2.21 3.31v2.77h3.57c2.08-1.92 3.28-4.74 3.28-8.09z"
+                    />
+                    <path
+                      fill="#34A853"
+                      d="M12 23c2.97 0 5.46-.98 7.28-2.66l-3.57-2.77c-.98.66-2.23 1.06-3.71 1.06-2.86 0-5.29-1.93-6.16-4.53H2.18v2.84C3.99 20.53 7.7 23 12 23z"
+                    />
+                    <path
+                      fill="#FBBC05"
+                      d="M5.84 14.09c-.22-.66-.35-1.36-.35-2.09s.13-1.43.35-2.09V7.06H2.18C1.43 8.55 1 10.22 1 12s.43 3.45 1.18 4.94l2.85-2.22.81-.63z"
+                    />
+                    <path
+                      fill="#EA4335"
+                      d="M12 5.38c1.62 0 3.06.56 4.21 1.64l3.15-3.15C17.45 2.09 14.97 1 12 1 7.7 1 3.99 3.47 2.18 7.06l3.66 2.84c.87-2.6 3.3-4.52 6.16-4.52z"
+                    />
+                  </svg>
+                  <span>Google দিয়ে সরাসরি ১-ক্লিকে প্রবেশ করুন</span>
+                </button>
+
+                <div className="flex items-center my-4">
+                  <div className="flex-1 h-[1px] bg-slate-800" />
+                  <span className="px-3 text-[10px] font-mono text-slate-500 uppercase">অথবা ইমেইল/ইউজারনেম</span>
+                  <div className="flex-1 h-[1px] bg-slate-800" />
+                </div>
+              </div>
+
+              {/* Main Credentials Form */}
+              <form onSubmit={handleRegisterSubmit} className="space-y-3.5 font-mono text-xs">
                 
-                {/* Username */}
+                {/* Username Input */}
                 <div>
-                  <label className="block text-slate-300 mb-1 font-bold">
-                    VIP ইউজারনেম (Username) *
+                  <label className="block text-slate-300 mb-1 font-bold text-left">
+                    ইউজারনেম (Username) *
                   </label>
                   <div className="relative">
-                    <User className="w-4 h-4 absolute left-3.5 top-3.5 text-slate-500" />
+                    <User className="w-4 h-4 absolute left-3.5 top-3.5 text-amber-500/70" />
                     <input
                       type="text"
                       required
-                      placeholder="e.g. your_username"
+                      placeholder="e.g. Shakib_777"
                       value={username}
                       onChange={(e) => setUsername(e.target.value)}
-                      className="w-full bg-slate-950 border border-slate-800 focus:border-amber-500 rounded-xl pl-10 pr-3 py-3 text-white placeholder-slate-600 focus:outline-none transition-colors"
+                      className="w-full bg-slate-950/90 border border-slate-800 focus:border-amber-500 rounded-xl pl-10 pr-3 py-3 text-white placeholder-slate-600 focus:outline-none transition-colors"
                     />
                   </div>
                 </div>
 
-                {/* Email (only on register) */}
+                {/* Email Input */}
                 {authMode === 'REGISTER' && (
                   <div>
-                    <label className="block text-slate-300 mb-1 font-bold">
+                    <label className="block text-slate-300 mb-1 font-bold text-left">
                       ইমেইল এড্রেস (Email Address) *
                     </label>
                     <div className="relative">
@@ -555,18 +735,18 @@ export const RegistrationPage: React.FC<RegistrationPageProps> = ({
                         placeholder="yourname@gmail.com"
                         value={email}
                         onChange={(e) => setEmail(e.target.value)}
-                        className="w-full bg-slate-950 border border-slate-800 focus:border-amber-500 rounded-xl pl-10 pr-3 py-3 text-white placeholder-slate-600 focus:outline-none transition-colors"
+                        className="w-full bg-slate-950/90 border border-slate-800 focus:border-amber-500 rounded-xl pl-10 pr-3 py-3 text-white placeholder-slate-600 focus:outline-none transition-colors"
                       />
                     </div>
                   </div>
                 )}
 
-                {/* Phone & Currency Selection (only on register) */}
+                {/* Mobile & Currency Row */}
                 {authMode === 'REGISTER' && (
                   <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
                     <div>
-                      <label className="block text-slate-300 mb-1 font-bold">
-                        মোবাইল (bKash/Nagad)
+                      <label className="block text-slate-300 mb-1 font-bold text-left">
+                        মোবাইল (বিকাশ / নগদ)
                       </label>
                       <div className="relative">
                         <Phone className="w-4 h-4 absolute left-3.5 top-3.5 text-slate-500" />
@@ -575,13 +755,13 @@ export const RegistrationPage: React.FC<RegistrationPageProps> = ({
                           placeholder="01XXXXXXXXX"
                           value={phone}
                           onChange={(e) => setPhone(e.target.value)}
-                          className="w-full bg-slate-950 border border-slate-800 focus:border-amber-500 rounded-xl pl-10 pr-3 py-3 text-white placeholder-slate-600 focus:outline-none transition-colors"
+                          className="w-full bg-slate-950/90 border border-slate-800 focus:border-amber-500 rounded-xl pl-10 pr-3 py-3 text-white placeholder-slate-600 focus:outline-none transition-colors"
                         />
                       </div>
                     </div>
 
                     <div>
-                      <label className="block text-slate-300 mb-1 font-bold">
+                      <label className="block text-slate-300 mb-1 font-bold text-left">
                         মুদ্রা (Currency)
                       </label>
                       <div className="grid grid-cols-2 gap-1 bg-slate-950 p-1 rounded-xl border border-slate-800">
@@ -612,9 +792,9 @@ export const RegistrationPage: React.FC<RegistrationPageProps> = ({
                   </div>
                 )}
 
-                {/* Password */}
+                {/* Password Input */}
                 <div>
-                  <label className="block text-slate-300 mb-1 font-bold">
+                  <label className="block text-slate-300 mb-1 font-bold text-left">
                     পাসওয়ার্ড (Password) *
                   </label>
                   <div className="relative">
@@ -625,7 +805,7 @@ export const RegistrationPage: React.FC<RegistrationPageProps> = ({
                       placeholder="••••••••••••"
                       value={password}
                       onChange={(e) => setPassword(e.target.value)}
-                      className="w-full bg-slate-950 border border-slate-800 focus:border-amber-500 rounded-xl pl-10 pr-10 py-3 text-white placeholder-slate-600 focus:outline-none transition-colors"
+                      className="w-full bg-slate-950/90 border border-slate-800 focus:border-amber-500 rounded-xl pl-10 pr-10 py-3 text-white placeholder-slate-600 focus:outline-none transition-colors"
                     />
                     <button
                       type="button"
@@ -637,10 +817,10 @@ export const RegistrationPage: React.FC<RegistrationPageProps> = ({
                   </div>
                 </div>
 
-                {/* Confirm Password (only on register) */}
+                {/* Confirm Password */}
                 {authMode === 'REGISTER' && (
                   <div>
-                    <label className="block text-slate-300 mb-1 font-bold">
+                    <label className="block text-slate-300 mb-1 font-bold text-left">
                       পাসওয়ার্ড নিশ্চিত করুন (Confirm Password) *
                     </label>
                     <div className="relative">
@@ -651,101 +831,83 @@ export const RegistrationPage: React.FC<RegistrationPageProps> = ({
                         placeholder="••••••••••••"
                         value={confirmPassword}
                         onChange={(e) => setConfirmPassword(e.target.value)}
-                        className="w-full bg-slate-950 border border-slate-800 focus:border-amber-500 rounded-xl pl-10 pr-3 py-3 text-white placeholder-slate-600 focus:outline-none transition-colors"
+                        className="w-full bg-slate-950/90 border border-slate-800 focus:border-amber-500 rounded-xl pl-10 pr-3 py-3 text-white placeholder-slate-600 focus:outline-none transition-colors"
                       />
                     </div>
                   </div>
                 )}
 
-                {/* Promo Code Bonus Pill (on register) */}
+                {/* Promo Code Pill */}
                 {authMode === 'REGISTER' && (
-                  <div className="bg-slate-950 p-3 rounded-xl border border-slate-800 flex items-center space-x-2">
+                  <div className="bg-slate-950 p-2.5 rounded-xl border border-slate-800 flex items-center space-x-2">
                     <Gift className="w-4 h-4 text-amber-400 shrink-0" />
                     <input
                       type="text"
-                      placeholder="PROMO CODE (ঐচ্ছিক)"
+                      placeholder="PROMO CODE"
                       value={promoCode}
                       onChange={(e) => setPromoCode(e.target.value)}
                       className="bg-transparent text-xs font-mono text-white uppercase focus:outline-none flex-1 placeholder-slate-600"
                     />
-                    <span className="px-2 py-0.5 rounded bg-emerald-500/20 text-emerald-400 text-[10px] font-bold">
-                      +100% বোনাস কোড
+                    <span className="px-2 py-0.5 rounded bg-amber-500/20 text-amber-300 text-[10px] font-bold">
+                      +100% WELCOME BONUS
                     </span>
                   </div>
                 )}
 
                 {/* 18+ Agreement */}
                 {authMode === 'REGISTER' && (
-                  <div className="flex items-center space-x-2 text-[11px] text-slate-400">
+                  <div className="flex items-center space-x-2 text-[11px] text-slate-400 text-left pt-1">
                     <input
                       type="checkbox"
                       checked={termsAgreed}
                       onChange={(e) => setTermsAgreed(e.target.checked)}
                       className="w-4 h-4 rounded bg-slate-950 border-slate-700 text-amber-500 focus:ring-0"
                     />
-                    <span>আমার বয়স ১৮+ বছর এবং আমি শর্তাবলীতে সম্মত।</span>
+                    <span>আমার বয়স ১৮+ বছর এবং আমি টার্মস ও কন্ডিশনসে সম্মত।</span>
                   </div>
                 )}
 
-                {/* Action Big Button */}
+                {/* Big Action Button */}
                 <button
                   type="submit"
                   disabled={loading || (authMode === 'REGISTER' && !termsAgreed)}
-                  className="w-full py-4 rounded-2xl bg-gradient-to-r from-amber-500 via-yellow-400 to-amber-500 text-slate-950 font-black text-sm shadow-xl shadow-amber-500/30 hover:scale-[1.01] active:scale-[0.99] transition-all disabled:opacity-50 flex items-center justify-center space-x-2 cursor-pointer"
+                  className="w-full py-4 rounded-2xl bg-gradient-to-r from-amber-400 via-yellow-400 to-amber-500 text-slate-950 font-black text-sm shadow-xl shadow-amber-500/30 hover:scale-[1.01] active:scale-[0.99] transition-all disabled:opacity-50 flex items-center justify-center space-x-2 cursor-pointer mt-4"
                 >
                   <span>
                     {loading
                       ? 'অ্যাকাউন্ট ভেরিফাই হচ্ছে...'
                       : authMode === 'REGISTER'
-                      ? 'রেজিস্ট্রেশন করুন ও ক্যাসিনোতে প্রবেশ করুন'
+                      ? 'রেজিস্ট্রেশন করুন ও ১০,০০০ ৳ বোনাস নিন'
                       : 'লগইন করুন ও খেলুন'}
                   </span>
                   <ArrowRight className="w-4 h-4 stroke-[3]" />
                 </button>
               </form>
 
-              {/* Google Sign In Separator */}
-              <div className="mt-5 pt-4 border-t border-slate-800 text-center">
-                <button
-                  type="button"
-                  onClick={handleGoogleAuth}
-                  disabled={loading}
-                  className="w-full py-2.5 rounded-xl bg-slate-950 hover:bg-slate-800 border border-slate-700 text-slate-200 text-xs font-mono font-bold flex items-center justify-center space-x-2 transition-all"
-                >
-                  <svg className="w-4 h-4" viewBox="0 0 24 24">
-                    <path
-                      fill="#4285F4"
-                      d="M22.56 12.25c0-.78-.07-1.53-.2-2.25H12v4.26h5.92c-.26 1.37-1.04 2.53-2.21 3.31v2.77h3.57c2.08-1.92 3.28-4.74 3.28-8.09z"
-                    />
-                    <path
-                      fill="#34A853"
-                      d="M12 23c2.97 0 5.46-.98 7.28-2.66l-3.57-2.77c-.98.66-2.23 1.06-3.71 1.06-2.86 0-5.29-1.93-6.16-4.53H2.18v2.84C3.99 20.53 7.7 23 12 23z"
-                    />
-                    <path
-                      fill="#FBBC05"
-                      d="M5.84 14.09c-.22-.66-.35-1.36-.35-2.09s.13-1.43.35-2.09V7.06H2.18C1.43 8.55 1 10.22 1 12s.43 3.45 1.18 4.94l2.85-2.22.81-.63z"
-                    />
-                    <path
-                      fill="#EA4335"
-                      d="M12 5.38c1.62 0 3.06.56 4.21 1.64l3.15-3.15C17.45 2.09 14.97 1 12 1 7.7 1 3.99 3.47 2.18 7.06l3.66 2.84c.87-2.6 3.3-4.52 6.16-4.52z"
-                    />
-                  </svg>
-                  <span>Google দিয়ে ১-ক্লিকে সাইন ইন করুন</span>
-                </button>
+              {/* Supported Payment Gateways Footer inside Card */}
+              <div className="mt-5 pt-4 border-t border-slate-800/80 flex items-center justify-center space-x-3 text-[11px] text-slate-400 font-mono">
+                <span className="text-emerald-400 font-bold">bKash</span>
+                <span>•</span>
+                <span className="text-orange-400 font-bold">Nagad</span>
+                <span>•</span>
+                <span className="text-purple-400 font-bold">Rocket</span>
+                <span>•</span>
+                <span className="text-cyan-400 font-bold">USDT</span>
               </div>
             </div>
           </div>
+
         </div>
       </main>
 
-      {/* Luxury Footer */}
-      <footer className="relative z-10 bg-[#07090e] border-t border-slate-800/80 py-4 px-4 text-center text-xs text-slate-400 font-mono">
-        <div className="max-w-7xl mx-auto flex flex-col sm:flex-row items-center justify-between gap-2">
+      {/* Footer */}
+      <footer className="relative z-10 bg-[#06080d] border-t border-amber-500/20 py-4 px-4 text-center text-xs text-slate-400 font-mono">
+        <div className="max-w-7xl mx-auto flex flex-col sm:flex-row items-center justify-between gap-2.5">
           <div className="flex items-center space-x-2">
             <span className="w-2 h-2 rounded-full bg-emerald-400 animate-ping" />
-            <span className="text-slate-300 font-bold">Playall 365 VIP Architecture</span>
+            <span className="text-slate-300 font-bold">GamePlay 365 Official Platform</span>
           </div>
-          <div>bKash • Nagad • Rocket • Upay • USDT • SSL 256-bit Encrypted</div>
+          <div>bKash • Nagad • Rocket • Upay • USDT • 256-bit SSL Encrypted</div>
         </div>
       </footer>
     </div>
