@@ -162,11 +162,12 @@ export const WalletGameProvider: React.FC<{ children: React.ReactNode }> = ({ ch
   // Currency State
   const [currency, setCurrency] = useState<'BDT' | 'USD'>('BDT');
 
-  // Real-time Entities State from Firestore
+  // Real-time Entities State
   const [currentUser, setCurrentUser] = useState<UserEntity>(() => {
+    const localUsers = seamlessEngine.getUsers();
     return {
-      id: authUser?.uid || 'live_player_guest',
-      username: authUser?.displayName || (authUser?.email ? authUser.email.split('@')[0] : 'Player_365'),
+      id: authUser?.uid || localUsers[0]?.id || 'u_sakib_01',
+      username: authUser?.displayName || (authUser?.email ? authUser.email.split('@')[0] : localUsers[0]?.username || 'Sakib_VIP'),
       operator_id: 'GAMEPLAY365_LIVE',
       currency: 'BDT',
       status: 'ACTIVE',
@@ -176,23 +177,28 @@ export const WalletGameProvider: React.FC<{ children: React.ReactNode }> = ({ ch
     };
   });
 
-  const [currentWallet, setCurrentWallet] = useState<WalletEntity>({
-    id: `w_${authUser?.uid || 'live_player_guest'}_bdt`,
-    user_id: authUser?.uid || 'live_player_guest',
-    currency: 'BDT',
-    real_balance: 5000,
-    bonus_balance: 0,
-    locked_balance: 0,
-    version: 1,
-    status: 'ACTIVE',
-    created_at: new Date().toISOString(),
-    updated_at: new Date().toISOString()
+  const [currentWallet, setCurrentWallet] = useState<WalletEntity>(() => {
+    const localWallets = seamlessEngine.getWallets();
+    const uid = authUser?.uid || currentUser.id;
+    const w = localWallets.find((item) => item.user_id === uid && item.currency === 'BDT') || localWallets[0];
+    return w || {
+      id: `w_${uid}_bdt`,
+      user_id: uid,
+      currency: 'BDT',
+      real_balance: 5000,
+      bonus_balance: 0,
+      locked_balance: 0,
+      version: 1,
+      status: 'ACTIVE',
+      created_at: new Date().toISOString(),
+      updated_at: new Date().toISOString()
+    };
   });
 
-  const [users, setUsers] = useState<UserEntity[]>([currentUser]);
-  const [wallets, setWallets] = useState<WalletEntity[]>([currentWallet]);
-  const [transactions, setTransactions] = useState<TransactionEntity[]>([]);
-  const [selectedUserId, setSelectedUserId] = useState<string>(authUser?.uid || 'live_player_guest');
+  const [users, setUsers] = useState<UserEntity[]>(() => seamlessEngine.getUsers());
+  const [wallets, setWallets] = useState<WalletEntity[]>(() => seamlessEngine.getWallets());
+  const [transactions, setTransactions] = useState<TransactionEntity[]>(() => seamlessEngine.getTransactions());
+  const [selectedUserId, setSelectedUserId] = useState<string>(authUser?.uid || 'u_sakib_01');
 
   const [sessionAuthenticated, setSessionAuthenticated] = useState<boolean>(() => {
     try {
@@ -238,21 +244,21 @@ export const WalletGameProvider: React.FC<{ children: React.ReactNode }> = ({ ch
     // Test server connection on boot
     firebaseFirestore.testConnection();
 
-    const targetUid = authUser?.uid || (sessionAuthenticated && selectedUserId && selectedUserId !== 'guest_player_365' ? selectedUserId : null);
-
-    if (targetUid) {
+    if (authUser && authUser.uid) {
       let isMounted = true;
+      const targetUid = authUser.uid;
 
       // Sync and ensure initial user profile in Firestore
       firebaseFirestore.syncUserProfile({
         uid: targetUid,
-        email: authUser?.email || currentUser.email || `${currentUser.username}@playall365.vip`,
-        displayName: authUser?.displayName || currentUser.username,
-        photoURL: authUser?.photoURL,
-        phoneNumber: authUser?.phoneNumber || currentUser.phone
+        email: authUser.email || `${currentUser.username}@playall365.vip`,
+        displayName: authUser.displayName || currentUser.username,
+        photoURL: authUser.photoURL,
+        phoneNumber: authUser.phoneNumber || currentUser.phone
       }, currency).then((syncedProfile) => {
         if (isMounted && syncedProfile) {
           setCurrentUser(syncedProfile);
+          setSelectedUserId(syncedProfile.id);
           setUsers((prev) => {
             const others = prev.filter((u) => u.id !== syncedProfile.id);
             return [syncedProfile, ...others];
@@ -304,36 +310,20 @@ export const WalletGameProvider: React.FC<{ children: React.ReactNode }> = ({ ch
         unsubTx();
       };
     } else {
-      // Guest / initial fallback profile
-      const guestProfile: UserEntity = {
-        id: 'guest_player_365',
-        username: 'Guest_Player',
-        operator_id: 'GAMEPLAY365_LIVE',
-        currency: currency,
-        status: 'ACTIVE',
-        country_code: currency === 'USD' ? 'US' : 'BD',
-        created_at: new Date().toISOString(),
-        updated_at: new Date().toISOString()
-      };
-      const guestWallet: WalletEntity = {
-        id: `w_guest_${currency.toLowerCase()}`,
-        user_id: 'guest_player_365',
-        currency: currency,
-        real_balance: 5000,
-        bonus_balance: 0,
-        locked_balance: 0,
-        version: 1,
-        status: 'ACTIVE',
-        created_at: new Date().toISOString(),
-        updated_at: new Date().toISOString()
-      };
-      setCurrentUser(guestProfile);
-      setUsers([guestProfile]);
-      setCurrentWallet(guestWallet);
-      setWallets([guestWallet]);
-      setSelectedUserId('guest_player_365');
+      // Local fallback using seamless engine
+      const localUsers = seamlessEngine.getUsers();
+      const localWallets = seamlessEngine.getWallets();
+      const targetUser = localUsers.find((u) => u.id === selectedUserId) || localUsers[0];
+      if (targetUser) {
+        setCurrentUser(targetUser);
+        const userWallet = localWallets.find((w) => w.user_id === targetUser.id && w.currency === currency) || localWallets[0];
+        if (userWallet) setCurrentWallet(userWallet);
+      }
+      setUsers(localUsers);
+      setWallets(localWallets);
+      setTransactions(seamlessEngine.getTransactions());
     }
-  }, [authUser, currency]);
+  }, [authUser, currency, selectedUserId]);
 
   // Smooth balance counter interpolation
   const targetBalance = currentWallet ? currentWallet.real_balance : 0;

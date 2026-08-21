@@ -12,7 +12,10 @@ import {
   Star,
   ShieldCheck,
   Flame,
-  AlertCircle
+  AlertCircle,
+  Globe,
+  Copy,
+  Check
 } from 'lucide-react';
 import { motion, AnimatePresence } from 'framer-motion';
 import { useAuth } from '../contexts/AuthContext';
@@ -137,6 +140,8 @@ export const AuthModal: React.FC<AuthModalProps> = ({
   const [tab, setTab] = useState<'LOGIN' | 'REGISTER'>('LOGIN');
   const [loading, setLoading] = useState(false);
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
+  const [domainError, setDomainError] = useState<string | null>(null);
+  const [copiedDomain, setCopiedDomain] = useState(false);
 
   // Form State
   const [emailOrUsername, setEmailOrUsername] = useState('');
@@ -169,9 +174,19 @@ export const AuthModal: React.FC<AuthModalProps> = ({
   const isConfirmPasswordValid = isPasswordValid && password === confirmPassword;
   const isMobileValid = mobileNumber.length >= 10;
 
+  const copyDomain = () => {
+    if (domainError) {
+      navigator.clipboard.writeText(domainError);
+      setCopiedDomain(true);
+      soundEngine.playClick(900);
+      setTimeout(() => setCopiedDomain(false), 2500);
+    }
+  };
+
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     setErrorMessage(null);
+    setDomainError(null);
     setLoading(true);
     soundEngine.playClick(800);
 
@@ -221,6 +236,10 @@ export const AuthModal: React.FC<AuthModalProps> = ({
         setErrorMessage('ইমেইল অথবা পাসওয়ার্ড সঠিক নয় (Invalid email or password)');
       } else if (code === 'auth/email-already-in-use') {
         setErrorMessage('এই একাউন্টটি ইতিমধ্যে ব্যবহৃত হয়েছে, অনুগ্রহ করে লগইন করুন (Account already exists, please login)');
+      } else if (code === 'auth/unauthorized-domain') {
+        const currentDomain = window.location.hostname;
+        setDomainError(currentDomain);
+        setErrorMessage(`ফায়ারবেস ডোমেইন ত্রুটি (auth/unauthorized-domain): এই ডোমেইনটি (${currentDomain}) অনুমোদিত নয়।`);
       } else if (code === 'auth/weak-password') {
         setErrorMessage('পাসওয়ার্ড কমপক্ষে ৬ ডিজিট হতে হবে (Password must be at least 6 characters)');
       } else {
@@ -233,6 +252,7 @@ export const AuthModal: React.FC<AuthModalProps> = ({
 
   const handleGoogleLogin = async () => {
     setErrorMessage(null);
+    setDomainError(null);
     setLoading(true);
     soundEngine.playClick(600);
     try {
@@ -252,7 +272,18 @@ export const AuthModal: React.FC<AuthModalProps> = ({
       }
     } catch (err: any) {
       console.error('Google Sign-in failed:', err);
-      setErrorMessage('Google Authentication failed. Please try again.');
+      const code = err?.code || '';
+      if (code === 'auth/unauthorized-domain') {
+        const currentDomain = window.location.hostname;
+        setDomainError(currentDomain);
+        setErrorMessage(
+          `Firebase Error: (auth/unauthorized-domain) - এই ডোমেইনটি (${currentDomain}) Firebase Console-এ অনুমোদিত নয়।`
+        );
+      } else if (code === 'auth/popup-closed-by-user') {
+        setErrorMessage('Google সাইন-ইন পপআপ বন্ধ করা হয়েছে (Popup closed by user)');
+      } else {
+        setErrorMessage('Google Authentication failed. Please try again.');
+      }
     } finally {
       setLoading(false);
     }
@@ -316,9 +347,30 @@ export const AuthModal: React.FC<AuthModalProps> = ({
 
           {/* Error Message Toast */}
           {errorMessage && (
-            <div className="mb-4 p-3 bg-rose-950/60 border border-rose-500/50 rounded-xl text-rose-300 text-xs flex items-center gap-2">
-              <AlertCircle className="w-4 h-4 shrink-0 text-rose-400" />
-              <span>{errorMessage}</span>
+            <div className="mb-4 p-3.5 bg-rose-950/80 border border-rose-500/50 rounded-xl text-rose-300 text-xs flex flex-col gap-2">
+              <div className="flex items-start gap-2">
+                <AlertCircle className="w-4 h-4 shrink-0 text-rose-400 mt-0.5" />
+                <span className="leading-relaxed">{errorMessage}</span>
+              </div>
+              {domainError && (
+                <div className="mt-1 p-2.5 bg-black/60 border border-rose-500/40 rounded-lg space-y-1.5 text-[11px]">
+                  <div className="text-amber-400 font-bold flex items-center space-x-1">
+                    <Globe className="w-3.5 h-3.5" />
+                    <span>Firebase Console &gt; Authorized domains-এ ডোমেইনটি যোগ করুন:</span>
+                  </div>
+                  <div className="flex items-center space-x-2 bg-gray-900 px-2 py-1.5 rounded border border-gray-700">
+                    <span className="font-mono text-cyan-300 text-[11px] select-all flex-1">{domainError}</span>
+                    <button
+                      type="button"
+                      onClick={copyDomain}
+                      className="px-2 py-1 bg-amber-500 hover:bg-amber-400 text-black rounded font-bold text-[10px] flex items-center space-x-1 transition-all cursor-pointer"
+                    >
+                      {copiedDomain ? <Check className="w-3 h-3" /> : <Copy className="w-3 h-3" />}
+                      <span>{copiedDomain ? 'কপি হয়েছে!' : 'কপি করুন'}</span>
+                    </button>
+                  </div>
+                </div>
+              )}
             </div>
           )}
 

@@ -20,11 +20,17 @@ import {
   UserPlus,
   Play,
   TrendingUp,
-  CreditCard
+  CreditCard,
+  Copy,
+  Check,
+  ExternalLink,
+  Globe
 } from 'lucide-react';
 import { useAuth } from '../contexts/AuthContext';
 import { UserEntity, WalletEntity } from '../server/types/seamless';
 import { seamlessEngine } from '../services/simulatedWalletEngine';
+import { firebaseFirestore } from '../services/firebaseFirestoreService';
+import { soundEngine } from '../services/soundEngine';
 
 interface RegistrationPageProps {
   onLoginSuccess: (user: UserEntity, wallet: WalletEntity) => void;
@@ -35,7 +41,7 @@ export const RegistrationPage: React.FC<RegistrationPageProps> = ({
   onLoginSuccess,
   allUsers
 }) => {
-  const { signInWithGoogle, user: firebaseUser } = useAuth();
+  const { signInWithGoogle, registerWithEmail, loginWithEmail, user: firebaseUser } = useAuth();
 
   // Mode: 'REGISTER' | 'LOGIN'
   const [authMode, setAuthMode] = useState<'REGISTER' | 'LOGIN'>('REGISTER');
@@ -54,18 +60,23 @@ export const RegistrationPage: React.FC<RegistrationPageProps> = ({
   // Status
   const [loading, setLoading] = useState(false);
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
+  const [domainError, setDomainError] = useState<string | null>(null);
+  const [copiedDomain, setCopiedDomain] = useState(false);
   const [successAnimation, setSuccessAnimation] = useState(false);
 
   const handleRegisterSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     setErrorMessage(null);
+    setDomainError(null);
 
     if (!username.trim() || username.length < 3) {
       setErrorMessage('ইউজারনেম অন্তত ৩ অক্ষরের হতে হবে (Username must be at least 3 characters)');
       return;
     }
 
-    if (authMode === 'REGISTER' && (!email.trim() || !email.includes('@'))) {
+    const effectiveEmail = email.trim() || `${username.trim().toLowerCase().replace(/[^a-z0-9]/g, '')}@playall365.vip`;
+
+    if (authMode === 'REGISTER' && (!effectiveEmail || !effectiveEmail.includes('@'))) {
       setErrorMessage('একটি সঠিক ইমেইল এড্রেস প্রদান করুন (Please enter a valid email)');
       return;
     }
@@ -84,50 +95,139 @@ export const RegistrationPage: React.FC<RegistrationPageProps> = ({
 
     try {
       if (authMode === 'REGISTER') {
-        // Register in seamless engine
-        const result = seamlessEngine.registerUser({
+        let authUid = '';
+        let authEmail = effectiveEmail;
+
+        // 1. Register with Firebase Authentication
+        try {
+          const authResult = await registerWithEmail(effectiveEmail, password, username.trim());
+          if (authResult) {
+            authUid = authResult.uid;
+            authEmail = authResult.email || effectiveEmail;
+          }
+        } catch (firebaseAuthErr: any) {
+          console.warn('Firebase Auth Registration notice:', firebaseAuthErr);
+          const errCode = firebaseAuthErr?.code || '';
+          if (errCode === 'auth/email-already-in-use') {
+            setErrorMessage('এই ইমেইলটি ইতিমধ্যে নিবন্ধিত! অনুগ্রহ করে লগইন করুন (Email already in use, please sign in)');
+            setLoading(false);
+            return;
+          } else if (errCode === 'auth/unauthorized-domain') {
+            setDomainError(window.location.hostname);
+            setErrorMessage(`ডোমেইনটি ফায়ারবেসে অনুমোদিত নয় (auth/unauthorized-domain)। ফায়ারবেস কনসোলে Authorized Domains-এ ${window.location.hostname} যুক্ত করুন।`);
+          } else if (errCode === 'auth/weak-password') {
+            setErrorMessage('পাসওয়ার্ড কমপক্ষে ৬ অক্ষরের হতে হবে (Password must be at least 6 characters)');
+            setLoading(false);
+            return;
+          } else if (errCode === 'auth/invalid-email') {
+            setErrorMessage('ইমেইল ফরম্যাট সঠিক নয় (Invalid email format)');
+            setLoading(false);
+            return;
+          }
+          // If Firebase Auth provider is not enabled, continue with fallback
+        }
+
+        // 2. Register / Sync in Local Engine
+        const engineResult = seamlessEngine.registerUser({
           username: username.trim(),
-          email: email.trim(),
+          email: authEmail,
           phone: phone.trim(),
           currency: currency,
           promoCode: promoCode.trim()
         });
 
+        const targetUserId = authUid || engineResult.user.id;
+
+        // 3. Sync to Firebase Firestore Database
+        try {
+          await firebaseFirestore.syncUserProfile({
+            uid: targetUserId,
+            email: authEmail,
+            displayName: username.trim(),
+            phoneNumber: phone.trim()
+          }, currency);
+          await firebaseFirestore.ensureUserWallet(targetUserId, currency, 5000);
+        } catch (firestoreErr) {
+          console.warn('Firestore sync notice:', firestoreErr);
+        }
+
+        soundEngine.playWinChime();
         setSuccessAnimation(true);
         setTimeout(() => {
-          onLoginSuccess(result.user, result.wallet);
+          onLoginSuccess(engineResult.user, engineResult.wallet);
         }, 400);
       } else {
         // Login flow
+        let authUid = '';
+        try {
+          const loginResult = await loginWithEmail(effectiveEmail, password);
+          if (loginResult) {
+            authUid = loginResult.uid;
+          }
+        } catch (firebaseLoginErr: any) {
+          console.warn('Firebase Login notice:', firebaseLoginErr);
+          const errCode = firebaseLoginErr?.code || '';
+          if (errCode === 'auth/unauthorized-domain') {
+            setDomainError(window.location.hostname);
+          }
+        }
+
         const existingUsers = seamlessEngine.getUsers();
-        const found = existingUsers.find(
+        let found = existingUsers.find(
           (u) =>
             u.username.toLowerCase() === username.trim().toLowerCase() ||
-            (u.email && u.email.toLowerCase() === username.trim().toLowerCase()) ||
+            (u.email && u.email.toLowerCase() === effectiveEmail.toLowerCase()) ||
+            (authUid && u.id === authUid) ||
             u.id === username.trim()
         );
 
         if (found) {
           const wallets = seamlessEngine.getWallets();
           const userWallet =
-            wallets.find((w) => w.user_id === found.id && w.currency === found.currency) ||
-            wallets.find((w) => w.user_id === found.id) ||
+            wallets.find((w) => w.user_id === found!.id && w.currency === found!.currency) ||
+            wallets.find((w) => w.user_id === found!.id) ||
             wallets[0];
 
+          if (authUid) {
+            try {
+              await firebaseFirestore.syncUserProfile({
+                uid: authUid,
+                email: found.email,
+                displayName: found.username
+              }, (found.currency as 'BDT' | 'USD') || 'BDT');
+            } catch (e) {
+              console.warn('Firestore profile sync error on login:', e);
+            }
+          }
+
+          soundEngine.playWinChime();
           setSuccessAnimation(true);
           setTimeout(() => {
-            onLoginSuccess(found, userWallet);
+            onLoginSuccess(found!, userWallet);
           }, 400);
         } else {
-          // If user logging in with a new handle, register automatically
+          // Register automatically if new
           const result = seamlessEngine.registerUser({
             username: username.trim(),
-            email: email.trim() || `${username.trim().toLowerCase().replace(/[^a-z0-9]/g, '')}@playall365.vip`,
+            email: effectiveEmail,
             phone: phone.trim(),
             currency: currency,
             promoCode: promoCode.trim()
           });
 
+          const targetUid = authUid || result.user.id;
+          try {
+            await firebaseFirestore.syncUserProfile({
+              uid: targetUid,
+              email: effectiveEmail,
+              displayName: username.trim(),
+              phoneNumber: phone.trim()
+            }, currency);
+          } catch (e) {
+            console.warn('Firestore initial registration sync notice:', e);
+          }
+
+          soundEngine.playWinChime();
           setSuccessAnimation(true);
           setTimeout(() => {
             onLoginSuccess(result.user, result.wallet);
@@ -145,13 +245,34 @@ export const RegistrationPage: React.FC<RegistrationPageProps> = ({
     try {
       setLoading(true);
       setErrorMessage(null);
+      setDomainError(null);
       const googleUser = await signInWithGoogle();
+      
+      if (!googleUser) {
+        throw new Error('Google Sign-In was cancelled or failed.');
+      }
+
       const displayName = googleUser?.displayName || 'GooglePlayer';
       const emailAddress = googleUser?.email || `${displayName.toLowerCase().replace(/[^a-z0-9]/g, '')}@gmail.com`;
 
+      // 1. Sync to Firebase Firestore Database
+      try {
+        await firebaseFirestore.syncUserProfile({
+          uid: googleUser.uid,
+          email: googleUser.email,
+          displayName: googleUser.displayName,
+          photoURL: googleUser.photoURL,
+          phoneNumber: googleUser.phoneNumber
+        }, 'BDT');
+        await firebaseFirestore.ensureUserWallet(googleUser.uid, 'BDT', 5000);
+      } catch (firestoreErr) {
+        console.warn('Firestore Google User sync notice:', firestoreErr);
+      }
+
+      // 2. Sync to Seamless Engine
       const existingUsers = seamlessEngine.getUsers();
       let foundUser = existingUsers.find(
-        (u) => (u.email && u.email.toLowerCase() === emailAddress.toLowerCase()) || u.username.toLowerCase() === displayName.toLowerCase()
+        (u) => u.id === googleUser.uid || (u.email && u.email.toLowerCase() === emailAddress.toLowerCase()) || u.username.toLowerCase() === displayName.toLowerCase()
       );
 
       if (!foundUser) {
@@ -167,11 +288,36 @@ export const RegistrationPage: React.FC<RegistrationPageProps> = ({
 
       const wallets = seamlessEngine.getWallets();
       const userWallet = wallets.find((w) => w.user_id === foundUser.id) || wallets[0];
+      
+      soundEngine.playWinChime();
       onLoginSuccess(foundUser, userWallet);
     } catch (err: any) {
-      setErrorMessage(err.message || 'Google Sign-In failed');
+      console.error('Google Auth Error:', err);
+      const code = err?.code || '';
+      if (code === 'auth/unauthorized-domain') {
+        const currentDomain = window.location.hostname;
+        setDomainError(currentDomain);
+        setErrorMessage(
+          `Firebase Error: (auth/unauthorized-domain) - এই ডোমেইনটি (${currentDomain}) ফায়ারবেসে অনুমোদিত নয়।`
+        );
+      } else if (code === 'auth/popup-closed-by-user') {
+        setErrorMessage('Google সাইন-ইন পপআপ বন্ধ করা হয়েছে (Popup closed by user)');
+      } else if (code === 'auth/popup-blocked') {
+        setErrorMessage('ব্রাউজার পপআপ ব্লক করেছে, অনুগ্রহ করে পপআপ অনুমোদন করুন (Popup blocked)');
+      } else {
+        setErrorMessage(err.message || 'Google Sign-In failed');
+      }
     } finally {
       setLoading(false);
+    }
+  };
+
+  const copyDomainToClipboard = () => {
+    if (domainError) {
+      navigator.clipboard.writeText(domainError);
+      setCopiedDomain(true);
+      soundEngine.playClick(900);
+      setTimeout(() => setCopiedDomain(false), 2500);
     }
   };
 
@@ -332,9 +478,34 @@ export const RegistrationPage: React.FC<RegistrationPageProps> = ({
               </div>
 
               {errorMessage && (
-                <div className="mb-4 p-3.5 bg-red-500/10 border border-red-500/30 rounded-2xl text-red-400 text-xs font-mono flex items-center space-x-2 animate-shake">
-                  <AlertCircle className="w-4 h-4 shrink-0" />
-                  <span>{errorMessage}</span>
+                <div className="mb-4 p-3.5 bg-red-500/10 border border-red-500/30 rounded-2xl text-red-400 text-xs font-mono flex items-start space-x-2.5 animate-shake">
+                  <AlertCircle className="w-4 h-4 shrink-0 mt-0.5" />
+                  <div className="flex-1 text-left">
+                    <div>{errorMessage}</div>
+                    {domainError && (
+                      <div className="mt-2.5 p-2.5 bg-slate-950/80 border border-red-500/40 rounded-xl space-y-2 text-[11px]">
+                        <div className="text-amber-300 font-bold flex items-center space-x-1.5">
+                          <Globe className="w-3.5 h-3.5" />
+                          <span>ফায়ারবেস অথেন্টিকেশন ডোমেইন অনুমোদনের ধাপসমূহ:</span>
+                        </div>
+                        <p className="text-slate-300">
+                          ১. Firebase Console &gt; <strong>Authentication</strong> &gt; <strong>Settings</strong> &gt; <strong>Authorized domains</strong>-এ যান।<br />
+                          ২. <strong>Add domain</strong> বাটনে ক্লিক করে নিচের ডোমেইনটি পেস্ট করুন:
+                        </p>
+                        <div className="flex items-center space-x-2 bg-slate-900 px-2.5 py-1.5 rounded-lg border border-slate-700">
+                          <span className="font-mono text-cyan-300 select-all flex-1">{domainError}</span>
+                          <button
+                            type="button"
+                            onClick={copyDomainToClipboard}
+                            className="px-2 py-1 bg-amber-500 hover:bg-amber-400 text-slate-950 rounded font-bold text-[10px] flex items-center space-x-1 transition-all"
+                          >
+                            {copiedDomain ? <Check className="w-3 h-3 text-slate-950" /> : <Copy className="w-3 h-3 text-slate-950" />}
+                            <span>{copiedDomain ? 'কপি হয়েছে!' : 'কপি করুন'}</span>
+                          </button>
+                        </div>
+                      </div>
+                    )}
+                  </div>
                 </div>
               )}
 

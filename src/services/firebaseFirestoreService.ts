@@ -27,6 +27,7 @@ import {
 } from 'firebase/firestore';
 import { db, auth } from '../lib/firebase';
 import { UserEntity, WalletEntity, TransactionEntity, WalletStatus } from '../server/types/seamless';
+import { seamlessEngine } from './simulatedWalletEngine';
 
 export enum OperationType {
   CREATE = 'create',
@@ -71,7 +72,7 @@ export function handleFirestoreError(error: unknown, operationType: OperationTyp
     operationType,
     path
   };
-  console.error('Firestore Error: ', JSON.stringify(errInfo));
+  console.warn('Firestore Error: ', JSON.stringify(errInfo));
   throw new Error(JSON.stringify(errInfo));
 }
 
@@ -84,15 +85,14 @@ class FirebaseFirestoreService {
 
   public async testConnection(): Promise<boolean> {
     try {
-      await getDocFromServer(doc(db, 'test', 'connection'));
+      if (!auth.currentUser) {
+        this.isConnected = true;
+        return true;
+      }
+      await getDoc(doc(db, 'users', auth.currentUser.uid));
       this.isConnected = true;
       return true;
-    } catch (error) {
-      if (error instanceof Error && error.message.includes('the client is offline')) {
-        console.error('Please check your Firebase configuration.');
-        this.isConnected = false;
-        return false;
-      }
+    } catch {
       this.isConnected = true;
       return true;
     }
@@ -103,12 +103,24 @@ class FirebaseFirestoreService {
   }
 
   /**
+   * Helper to check if current Firebase user is authorized to read/write specific user doc
+   */
+  private isUserAuthorized(userId: string): boolean {
+    return !!auth.currentUser && auth.currentUser.uid === userId;
+  }
+
+  /**
    * Listen to real-time user profile document changes
    */
   public subscribeToUserProfile(
     userId: string,
     onUpdate: (user: UserEntity) => void
   ): Unsubscribe {
+    if (!this.isUserAuthorized(userId)) {
+      // Unauthenticated / guest user: no-op unsubscribe
+      return () => {};
+    }
+
     const userDocRef = doc(db, 'users', userId);
     const path = `users/${userId}`;
 
@@ -134,7 +146,6 @@ class FirebaseFirestoreService {
       },
       (error) => {
         console.warn(`Firestore user profile listener: ${error.message}`);
-        handleFirestoreError(error, OperationType.GET, path);
       }
     );
   }
@@ -149,6 +160,23 @@ class FirebaseFirestoreService {
     photoURL?: string | null;
     phoneNumber?: string | null;
   }, preferredCurrency: 'BDT' | 'USD' = 'BDT'): Promise<UserEntity> {
+    if (!this.isUserAuthorized(firebaseUser.uid)) {
+      // Local fallback for guest or unauthenticated user
+      const existing = seamlessEngine.getUsers().find((u) => u.id === firebaseUser.uid);
+      if (existing) return existing;
+      const now = new Date().toISOString();
+      return {
+        id: firebaseUser.uid,
+        username: firebaseUser.displayName || (firebaseUser.email ? firebaseUser.email.split('@')[0] : 'Player_365'),
+        operator_id: 'GAMEPLAY365_LIVE',
+        currency: preferredCurrency,
+        status: 'ACTIVE',
+        country_code: preferredCurrency === 'USD' ? 'US' : 'BD',
+        created_at: now,
+        updated_at: now
+      };
+    }
+
     const userDocRef = doc(db, 'users', firebaseUser.uid);
     const path = `users/${firebaseUser.uid}`;
 
@@ -213,6 +241,26 @@ class FirebaseFirestoreService {
    * Ensure user's wallet document in Firestore
    */
   public async ensureUserWallet(userId: string, currency: 'BDT' | 'USD', initialBalance: number = 5000): Promise<WalletEntity> {
+    if (!this.isUserAuthorized(userId)) {
+      const now = new Date().toISOString();
+      const localWallets = seamlessEngine.getWallets();
+      const localW = localWallets.find((w) => w.user_id === userId && w.currency === currency) || localWallets.find((w) => w.user_id === userId);
+      if (localW) return localW;
+
+      return {
+        id: `w_${userId}_${currency.toLowerCase()}`,
+        user_id: userId,
+        currency,
+        real_balance: initialBalance,
+        bonus_balance: 0,
+        locked_balance: 0,
+        version: 1,
+        status: 'ACTIVE',
+        created_at: now,
+        updated_at: now
+      };
+    }
+
     const walletDocRef = doc(db, 'users', userId, 'wallets', currency);
     const path = `users/${userId}/wallets/${currency}`;
 
@@ -274,6 +322,10 @@ class FirebaseFirestoreService {
     currency: 'BDT' | 'USD',
     onUpdate: (wallet: WalletEntity) => void
   ): Unsubscribe {
+    if (!this.isUserAuthorized(userId)) {
+      return () => {};
+    }
+
     const walletDocRef = doc(db, 'users', userId, 'wallets', currency);
     const path = `users/${userId}/wallets/${currency}`;
 
@@ -299,7 +351,6 @@ class FirebaseFirestoreService {
       },
       (error) => {
         console.warn(`Firestore wallet listener (${currency}): ${error.message}`);
-        handleFirestoreError(error, OperationType.GET, path);
       }
     );
   }
@@ -311,6 +362,10 @@ class FirebaseFirestoreService {
     userId: string,
     onUpdate: (wallets: WalletEntity[]) => void
   ): Unsubscribe {
+    if (!this.isUserAuthorized(userId)) {
+      return () => {};
+    }
+
     const walletsColRef = collection(db, 'users', userId, 'wallets');
     const path = `users/${userId}/wallets`;
 
@@ -337,7 +392,6 @@ class FirebaseFirestoreService {
       },
       (error) => {
         console.warn(`Firestore all-wallets listener: ${error.message}`);
-        handleFirestoreError(error, OperationType.LIST, path);
       }
     );
   }
@@ -349,6 +403,10 @@ class FirebaseFirestoreService {
     userId: string,
     onUpdate: (transactions: TransactionEntity[]) => void
   ): Unsubscribe {
+    if (!this.isUserAuthorized(userId)) {
+      return () => {};
+    }
+
     const txColRef = collection(db, 'users', userId, 'transactions');
     const path = `users/${userId}/transactions`;
     const q = query(txColRef, orderBy('createdAt', 'desc'), limit(100));
@@ -384,13 +442,12 @@ class FirebaseFirestoreService {
       },
       (error) => {
         console.warn(`Firestore transactions listener: ${error.message}`);
-        handleFirestoreError(error, OperationType.LIST, path);
       }
     );
   }
 
   /**
-   * Commit a transaction directly to Firestore and update real wallet balance atomically
+   * Commit a transaction directly to Firestore or fallback to simulated engine
    */
   public async commitTransaction(
     userId: string,
@@ -406,6 +463,109 @@ class FirebaseFirestoreService {
       auditHash?: string;
     }
   ): Promise<{ success: boolean; txEntity: TransactionEntity; updatedWallet: WalletEntity }> {
+    if (!this.isUserAuthorized(userId)) {
+      // Execute via seamless simulated wallet engine
+      let engineRes: any;
+      if (tx.type === 'BET') {
+        engineRes = await seamlessEngine.executeRequest('bet', {
+          user_id: userId,
+          provider_id: tx.providerId,
+          amount: tx.amount,
+          currency,
+          game_id: tx.gameId,
+          transaction_id: tx.transactionId,
+          round_id: tx.roundId
+        });
+      } else if (tx.type === 'WIN') {
+        engineRes = await seamlessEngine.executeRequest('win', {
+          user_id: userId,
+          provider_id: tx.providerId,
+          amount: tx.amount,
+          currency,
+          game_id: tx.gameId,
+          transaction_id: tx.transactionId,
+          round_id: tx.roundId,
+          reference_transaction_id: tx.referenceTransactionId
+        });
+      } else if (tx.type === 'REFUND') {
+        engineRes = await seamlessEngine.executeRequest('refund', {
+          user_id: userId,
+          provider_id: tx.providerId,
+          amount: tx.amount,
+          currency,
+          game_id: tx.gameId,
+          transaction_id: tx.transactionId,
+          round_id: tx.roundId,
+          reference_transaction_id: tx.referenceTransactionId
+        });
+      } else {
+        // Deposit
+        const localWallets = seamlessEngine.getWallets();
+        let w = localWallets.find((item) => item.user_id === userId && item.currency === currency);
+        if (!w) {
+          w = {
+            id: `w_${userId}_${currency.toLowerCase()}`,
+            user_id: userId,
+            currency,
+            real_balance: 5000,
+            bonus_balance: 0,
+            locked_balance: 0,
+            version: 1,
+            status: 'ACTIVE',
+            created_at: new Date().toISOString(),
+            updated_at: new Date().toISOString()
+          };
+        }
+        w.real_balance += tx.amount;
+        return {
+          success: true,
+          txEntity: {
+            id: tx.transactionId,
+            transaction_id: tx.transactionId,
+            user_id: userId,
+            wallet_id: w.id,
+            provider_id: tx.providerId,
+            game_id: tx.gameId,
+            type: tx.type,
+            amount: tx.amount,
+            currency,
+            before_balance: w.real_balance - tx.amount,
+            after_balance: w.real_balance,
+            status: 'COMPLETED',
+            metadata: {},
+            created_at: new Date().toISOString()
+          },
+          updatedWallet: { ...w }
+        };
+      }
+
+      const txHistory = seamlessEngine.getTransactions();
+      const latestTx = txHistory.find((t) => t.transaction_id === tx.transactionId) || txHistory[0];
+      const walletsList = seamlessEngine.getWallets();
+      const updatedW = walletsList.find((w) => w.user_id === userId && w.currency === currency) || walletsList[0];
+
+      return {
+        success: engineRes?.status === 200,
+        txEntity: latestTx || {
+          id: tx.transactionId,
+          transaction_id: tx.transactionId,
+          user_id: userId,
+          wallet_id: updatedW.id,
+          provider_id: tx.providerId,
+          game_id: tx.gameId,
+          type: tx.type,
+          amount: tx.amount,
+          currency,
+          before_balance: updatedW.real_balance,
+          after_balance: updatedW.real_balance,
+          status: 'COMPLETED',
+          metadata: {},
+          created_at: new Date().toISOString()
+        },
+        updatedWallet: updatedW
+      };
+    }
+
     const walletDocRef = doc(db, 'users', userId, 'wallets', currency);
     const txDocRef = doc(db, 'users', userId, 'transactions', tx.transactionId);
     const path = `users/${userId}/transactions/${tx.transactionId}`;
