@@ -512,6 +512,10 @@ class CasinoSoundEngine {
     }, 600);
   }
 
+  public playBigWinCelebration() {
+    this.playMegaWin();
+  }
+
   /**
    * Golden Tile Transform / Scatter Mystical Shimmer
    */

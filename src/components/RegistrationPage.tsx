@@ -2,6 +2,7 @@
  * @file RegistrationPage.tsx
  * @description Premium Authentication & User Onboarding Hub for Playall 365.
  * Designed with elegant proportions, harmonious luxury color palette, responsive mobile layout,
+ * real-time URL referral parameter capture (?ref=username), automatic referral validation,
  * and direct Firebase Auth & Firestore synchronization.
  */
 
@@ -36,13 +37,15 @@ import {
   ChevronRight,
   ShieldAlert,
   Sliders,
-  DollarSign
+  DollarSign,
+  Share2
 } from 'lucide-react';
 import { useAuth } from '../contexts/AuthContext';
 import { UserEntity, WalletEntity } from '../server/types/seamless';
 import { seamlessEngine } from '../services/simulatedWalletEngine';
 import { firebaseFirestore } from '../services/firebaseFirestoreService';
 import { soundEngine } from '../services/soundEngine';
+import { referralService } from '../services/referralService';
 
 interface RegistrationPageProps {
   onLoginSuccess: (user: UserEntity, wallet: WalletEntity) => void;
@@ -66,6 +69,7 @@ export const RegistrationPage: React.FC<RegistrationPageProps> = ({
   const [confirmPassword, setConfirmPassword] = useState('');
   const [currency, setCurrency] = useState<'BDT' | 'USD'>('BDT');
   const [promoCode, setPromoCode] = useState('WELCOME365');
+  const [detectedReferral, setDetectedReferral] = useState<string | null>(null);
   const [termsAgreed, setTermsAgreed] = useState(true);
   const [showPassword, setShowPassword] = useState(false);
 
@@ -83,6 +87,16 @@ export const RegistrationPage: React.FC<RegistrationPageProps> = ({
     amount: '৳48,500',
     game: 'Aviator 12.8x'
   });
+
+  // Capture Real-time Referral Code on Mount
+  useEffect(() => {
+    const capturedRef = referralService.captureReferralFromUrl();
+    if (capturedRef) {
+      setPromoCode(capturedRef);
+      setDetectedReferral(capturedRef);
+      soundEngine.playWalletCredit();
+    }
+  }, []);
 
   useEffect(() => {
     const interval = setInterval(() => {
@@ -195,7 +209,20 @@ export const RegistrationPage: React.FC<RegistrationPageProps> = ({
 
         const targetUserId = authUid || engineResult.user.id;
 
-        // 3. Sync to Real Firestore Enterprise Database
+        // 3. Process Real-Time Referral Registration
+        try {
+          await referralService.processReferralRegistration({
+            newUserId: targetUserId,
+            newUsername: username.trim(),
+            newUserEmail: authEmail,
+            referralCode: promoCode.trim(),
+            currency: currency
+          });
+        } catch (refErr) {
+          console.warn('Referral processing note:', refErr);
+        }
+
+        // 4. Sync to Real Firestore Enterprise Database
         try {
           await firebaseFirestore.syncUserProfile(
             {
@@ -279,6 +306,19 @@ export const RegistrationPage: React.FC<RegistrationPageProps> = ({
           });
 
           const targetUid = authUid || result.user.id;
+
+          try {
+            await referralService.processReferralRegistration({
+              newUserId: targetUid,
+              newUsername: username.trim(),
+              newUserEmail: effectiveEmail,
+              referralCode: promoCode.trim(),
+              currency: currency
+            });
+          } catch (refErr) {
+            console.warn('Referral auto processing notice:', refErr);
+          }
+
           try {
             await firebaseFirestore.syncUserProfile(
               {
@@ -355,9 +395,22 @@ export const RegistrationPage: React.FC<RegistrationPageProps> = ({
           email: emailAddress,
           phone: googleUser?.phoneNumber || '',
           currency: 'BDT',
-          promoCode: 'GOOGLE_OFFICIAL'
+          promoCode: promoCode || 'GOOGLE_OFFICIAL'
         });
         foundUser = result.user;
+
+        // Process referral reward
+        try {
+          await referralService.processReferralRegistration({
+            newUserId: foundUser.id,
+            newUsername: displayName,
+            newUserEmail: emailAddress,
+            referralCode: promoCode.trim(),
+            currency: 'BDT'
+          });
+        } catch (refErr) {
+          console.warn('Google Auth referral processing notice:', refErr);
+        }
       }
 
       const wallets = seamlessEngine.getWallets();
@@ -454,47 +507,25 @@ export const RegistrationPage: React.FC<RegistrationPageProps> = ({
             </button>
           </div>
 
-          <button
-            onClick={() => {
-              soundEngine.playClick(900);
-              setAuthMode(authMode === 'REGISTER' ? 'LOGIN' : 'REGISTER');
-              setErrorMessage(null);
-            }}
-            className="px-4 py-2 rounded-xl bg-gradient-to-r from-amber-500/10 via-amber-500/20 to-amber-500/10 border border-amber-500/40 hover:border-amber-400 text-amber-300 hover:text-white font-mono font-bold text-xs shadow-lg shadow-amber-500/10 transition-all flex items-center space-x-1.5"
-          >
-            {authMode === 'REGISTER' ? (
-              <>
-                <LogIn className="w-3.5 h-3.5 text-amber-400" />
-                <span>লগইন করুন (Sign In)</span>
-              </>
-            ) : (
-              <>
-                <UserPlus className="w-3.5 h-3.5 text-amber-400" />
-                <span>নতুন একাউন্ট (Register)</span>
-              </>
-            )}
-          </button>
+          <div className="flex items-center space-x-2 bg-emerald-500/10 border border-emerald-500/30 px-3 py-1.5 rounded-xl font-mono text-xs text-emerald-400">
+            <ShieldCheck className="w-4 h-4" />
+            <span className="hidden sm:inline">256-Bit SSL Enforced</span>
+            <span className="sm:hidden">SSL SECURE</span>
+          </div>
         </div>
       </header>
 
-      {/* Main Content Layout */}
-      <main className="relative z-10 max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-6 sm:py-10 flex-1 flex items-center">
-        <div className="w-full grid grid-cols-1 lg:grid-cols-12 gap-8 lg:gap-12 items-center">
+      {/* Main Showcase Hero & Registration Container */}
+      <main className="relative z-10 flex-1 max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-6 sm:py-10 w-full flex items-center">
+        <div className="grid grid-cols-1 lg:grid-cols-12 gap-8 lg:gap-12 items-center w-full">
           
-          {/* Left Column: Clean Platform Introduction & Key Highlights */}
+          {/* Left Column: Casino Presentation, Progressive Jackpot & Value Props */}
           <div className="lg:col-span-7 space-y-6 text-left">
             
-            {/* Welcome Tag */}
-            <div className="flex flex-wrap items-center gap-2">
-              <div className="inline-flex items-center space-x-2 px-3.5 py-1.5 rounded-full bg-gradient-to-r from-amber-500/20 via-yellow-500/10 to-transparent border border-amber-400/40 text-amber-300 text-xs font-mono font-bold tracking-wide">
-                <Sparkles className="w-3.5 h-3.5 text-amber-300 animate-spin" />
-                <span>১০০% ওয়েলকাম বোনাস • ১০,০০০ ৳ পর্যন্ত উপহার</span>
-              </div>
-
-              <div className="inline-flex items-center space-x-1.5 px-3 py-1 rounded-full bg-emerald-500/15 border border-emerald-500/30 text-emerald-300 text-xs font-mono">
-                <span className="w-2 h-2 rounded-full bg-emerald-400 animate-ping" />
-                <span>০% বিকাশ ও নগদ চার্জ</span>
-              </div>
+            {/* Live Indicator Pill */}
+            <div className="inline-flex items-center space-x-2 px-3.5 py-1.5 rounded-full bg-amber-500/10 border border-amber-400/30 text-amber-300 text-xs font-mono font-bold tracking-wide">
+              <span className="w-2 h-2 rounded-full bg-amber-400 animate-ping" />
+              <span>বাংলাদেশ ও আন্তর্জাতিক গেমিং প্ল্যাটফর্ম</span>
             </div>
 
             {/* Main Headline */}
@@ -511,7 +542,7 @@ export const RegistrationPage: React.FC<RegistrationPageProps> = ({
             </div>
 
             {/* Jackpot & Live Metric Banner */}
-            <div className="golden-ratio-card rounded-[24px] p-5 relative overflow-hidden">
+            <div className="golden-ratio-card rounded-[24px] p-5 relative overflow-hidden border border-amber-500/30">
               <div className="absolute top-0 right-0 w-48 h-48 bg-amber-400/10 rounded-full blur-3xl pointer-events-none" />
               <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-4">
                 <div>
@@ -565,18 +596,18 @@ export const RegistrationPage: React.FC<RegistrationPageProps> = ({
 
               <div className="bg-slate-950/70 border border-slate-800/90 hover:border-amber-500/40 p-3.5 rounded-2xl transition-all">
                 <div className="w-8 h-8 rounded-xl bg-cyan-500/10 border border-cyan-500/30 flex items-center justify-center text-cyan-400 mb-2">
-                  <Gift className="w-4 h-4" />
+                  <Share2 className="w-4 h-4" />
                 </div>
-                <div className="font-bold text-white text-xs">ভিআইপি রিওয়ার্ডস</div>
+                <div className="font-bold text-white text-xs">রেফারেল বোনাস</div>
                 <div className="text-[11px] text-slate-400 mt-1">
-                  দৈনিক ক্যাশব্যাক ও বিশেষ বোনাস
+                  প্রতি রেফারে ৳৫০০ + আজীবন কমিশন
                 </div>
               </div>
             </div>
 
           </div>
 
-          {/* Right Column: Authentication Form */}
+          {/* Right Column: Authentication & Referral Registration Form */}
           <div className="lg:col-span-5">
             <div className="relative golden-ratio-card rounded-[32px] p-6 sm:p-8 backdrop-blur-2xl border-2 border-amber-500/40 shadow-2xl">
               
@@ -584,7 +615,7 @@ export const RegistrationPage: React.FC<RegistrationPageProps> = ({
               <div className="absolute top-0 left-8 right-8 h-[2px] bg-gradient-to-r from-transparent via-amber-400 to-transparent" />
 
               {/* Form Navigation Tabs */}
-              <div className="flex items-center bg-slate-950 p-1.5 rounded-2xl border border-slate-800 mb-6 font-mono text-xs">
+              <div className="flex items-center bg-slate-950 p-1.5 rounded-2xl border border-slate-800 mb-5 font-mono text-xs">
                 <button
                   type="button"
                   onClick={() => {
@@ -619,6 +650,16 @@ export const RegistrationPage: React.FC<RegistrationPageProps> = ({
                   <span>লগইন (Sign In)</span>
                 </button>
               </div>
+
+              {/* Detected Real-Time Referral Badge */}
+              {detectedReferral && authMode === 'REGISTER' && (
+                <div className="mb-4 p-3 bg-gradient-to-r from-amber-500/20 via-yellow-500/10 to-amber-500/20 border border-amber-400/50 rounded-2xl flex items-center space-x-2.5 text-amber-300 text-xs font-mono shadow-md">
+                  <Gift className="w-4 h-4 text-amber-400 shrink-0 animate-bounce" />
+                  <div className="text-left">
+                    <span className="font-black text-white">🎉 রেফারেল সক্রিয়:</span> আপনি <strong className="text-amber-400">@{detectedReferral}</strong> এর ইনভাইটে বিশেষ ৳৫০০ বোনাস পাচ্ছেন!
+                  </div>
+                </div>
+              )}
 
               {/* Error Notification */}
               {errorMessage && (
@@ -837,20 +878,26 @@ export const RegistrationPage: React.FC<RegistrationPageProps> = ({
                   </div>
                 )}
 
-                {/* Promo Code Pill */}
+                {/* Referral Code / Promo Code Pill */}
                 {authMode === 'REGISTER' && (
-                  <div className="bg-slate-950 p-2.5 rounded-xl border border-slate-800 flex items-center space-x-2">
-                    <Gift className="w-4 h-4 text-amber-400 shrink-0" />
-                    <input
-                      type="text"
-                      placeholder="PROMO CODE"
-                      value={promoCode}
-                      onChange={(e) => setPromoCode(e.target.value)}
-                      className="bg-transparent text-xs font-mono text-white uppercase focus:outline-none flex-1 placeholder-slate-600"
-                    />
-                    <span className="px-2 py-0.5 rounded bg-amber-500/20 text-amber-300 text-[10px] font-bold">
-                      +100% WELCOME BONUS
-                    </span>
+                  <div>
+                    <label className="block text-slate-300 mb-1 font-bold text-left flex items-center justify-between">
+                      <span>রেফারেল বা প্রোমো কোড (Referral Code)</span>
+                      <span className="text-amber-400 text-[10px]">বোনাস যুক্ত হবে</span>
+                    </label>
+                    <div className="bg-slate-950 p-2.5 rounded-xl border border-slate-800 flex items-center space-x-2">
+                      <Gift className="w-4 h-4 text-amber-400 shrink-0" />
+                      <input
+                        type="text"
+                        placeholder="রেফারেল কোড লিখুন"
+                        value={promoCode}
+                        onChange={(e) => setPromoCode(e.target.value)}
+                        className="bg-transparent text-xs font-mono text-white uppercase focus:outline-none flex-1 placeholder-slate-600 font-bold"
+                      />
+                      <span className="px-2 py-0.5 rounded bg-amber-500/20 text-amber-300 text-[10px] font-bold">
+                        +৳৫০০ বোনাস
+                      </span>
+                    </div>
                   </div>
                 )}
 
@@ -861,7 +908,7 @@ export const RegistrationPage: React.FC<RegistrationPageProps> = ({
                       type="checkbox"
                       checked={termsAgreed}
                       onChange={(e) => setTermsAgreed(e.target.checked)}
-                      className="w-4 h-4 rounded bg-slate-950 border-slate-700 text-amber-500 focus:ring-0"
+                      className="w-4 h-4 rounded bg-slate-950 border-slate-700 text-amber-500 focus:ring-0 cursor-pointer"
                     />
                     <span>আমার বয়স ১৮+ বছর এবং আমি টার্মস ও কন্ডিশনসে সম্মত।</span>
                   </div>
@@ -905,7 +952,7 @@ export const RegistrationPage: React.FC<RegistrationPageProps> = ({
         <div className="max-w-7xl mx-auto flex flex-col sm:flex-row items-center justify-between gap-2.5">
           <div className="flex items-center space-x-2">
             <span className="w-2 h-2 rounded-full bg-emerald-400 animate-ping" />
-            <span className="text-slate-300 font-bold">GamePlay 365 Official Platform</span>
+            <span className="text-slate-300 font-bold">Playall 365 Official Platform</span>
           </div>
           <div>bKash • Nagad • Rocket • Upay • USDT • 256-bit SSL Encrypted</div>
         </div>

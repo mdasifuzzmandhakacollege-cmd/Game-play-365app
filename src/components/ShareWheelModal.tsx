@@ -2,9 +2,10 @@
  * @file ShareWheelModal.tsx
  * @description Lucky Wheel Spin & Referral Reward Share Modal.
  * Matches the "পুরস্কার শেয়ার" icon in the mobile top status bar.
+ * Uses real-time dynamic origin referral link and 1-click social sharing.
  */
 
-import React, { useState } from 'react';
+import React, { useState, useMemo } from 'react';
 import {
   Sparkles,
   X,
@@ -14,10 +15,14 @@ import {
   Gift,
   Coins,
   Crown,
-  RotateCcw
+  RotateCcw,
+  MessageCircle,
+  Send,
+  Facebook
 } from 'lucide-react';
 import { useWalletGame } from '../contexts/WalletGameContext';
 import { soundEngine } from '../services/soundEngine';
+import { referralService } from '../services/referralService';
 
 interface ShareWheelModalProps {
   isOpen: boolean;
@@ -32,9 +37,16 @@ export const ShareWheelModal: React.FC<ShareWheelModalProps> = ({ isOpen, onClos
   const [wonPrize, setWonPrize] = useState<string | null>(null);
   const [copiedLink, setCopiedLink] = useState(false);
 
-  if (!isOpen) return null;
+  // Dynamic real referral link
+  const referralUrl = useMemo(() => {
+    return referralService.generateReferralLink(currentUser.username);
+  }, [currentUser.username]);
 
-  const referralUrl = `https://playall365.vip/register?ref=${currentUser.username.toLowerCase()}`;
+  const shareLinks = useMemo(() => {
+    return referralService.getShareLinks(referralUrl, currentUser.username);
+  }, [referralUrl, currentUser.username]);
+
+  if (!isOpen) return null;
 
   const handleCopy = () => {
     navigator.clipboard.writeText(referralUrl);
@@ -133,12 +145,12 @@ export const ShareWheelModal: React.FC<ShareWheelModalProps> = ({ isOpen, onClos
           </button>
         </div>
 
-        {/* Referral Share Box */}
-        <div className="bg-slate-950 p-3.5 rounded-2xl border border-slate-800 space-y-2">
+        {/* Real-Time Referral Share Box */}
+        <div className="bg-slate-950 p-3.5 rounded-2xl border border-slate-800 space-y-2.5">
           <div className="flex items-center justify-between text-xs font-mono">
             <span className="text-slate-300 font-bold flex items-center space-x-1">
               <Share2 className="w-3.5 h-3.5 text-cyan-400" />
-              <span>আপনার ইনভাইট লিংক:</span>
+              <span>আপনার আসল রেফারেল লিংক:</span>
             </span>
             <span className="text-amber-400 text-[10px] font-bold">+৳৫০০ বোনাস/ফ্রেন্ড</span>
           </div>
@@ -148,15 +160,46 @@ export const ShareWheelModal: React.FC<ShareWheelModalProps> = ({ isOpen, onClos
               type="text"
               readOnly
               value={referralUrl}
-              className="flex-1 bg-slate-900 border border-slate-800 rounded-xl px-2.5 py-1.5 text-[11px] font-mono text-slate-300 truncate focus:outline-none"
+              className="flex-1 bg-slate-900 border border-slate-800 rounded-xl px-2.5 py-2 text-[11px] font-mono text-slate-200 truncate focus:outline-none"
             />
             <button
               onClick={handleCopy}
-              className="px-3 py-1.5 rounded-xl bg-amber-500 text-slate-950 font-bold text-xs active:scale-95 transition-all flex items-center space-x-1"
+              className="px-3.5 py-2 rounded-xl bg-amber-400 hover:bg-yellow-400 text-slate-950 font-bold text-xs active:scale-95 transition-all flex items-center space-x-1 cursor-pointer"
             >
-              {copiedLink ? <Check className="w-3.5 h-3.5" /> : <Copy className="w-3.5 h-3.5" />}
-              <span>কপি</span>
+              {copiedLink ? <Check className="w-3.5 h-3.5 text-slate-950" /> : <Copy className="w-3.5 h-3.5 text-slate-950" />}
+              <span>{copiedLink ? 'কপি!' : 'কপি'}</span>
             </button>
+          </div>
+
+          {/* Social Share Buttons */}
+          <div className="grid grid-cols-3 gap-2 pt-1">
+            <a
+              href={shareLinks.whatsapp}
+              target="_blank"
+              rel="noopener noreferrer"
+              className="p-2 rounded-xl bg-emerald-600/20 hover:bg-emerald-600/30 border border-emerald-500/40 text-emerald-300 text-[11px] font-mono font-bold flex items-center justify-center space-x-1"
+            >
+              <MessageCircle className="w-3.5 h-3.5" />
+              <span>WhatsApp</span>
+            </a>
+            <a
+              href={shareLinks.telegram}
+              target="_blank"
+              rel="noopener noreferrer"
+              className="p-2 rounded-xl bg-cyan-600/20 hover:bg-cyan-600/30 border border-cyan-500/40 text-cyan-300 text-[11px] font-mono font-bold flex items-center justify-center space-x-1"
+            >
+              <Send className="w-3.5 h-3.5" />
+              <span>Telegram</span>
+            </a>
+            <a
+              href={shareLinks.facebook}
+              target="_blank"
+              rel="noopener noreferrer"
+              className="p-2 rounded-xl bg-blue-600/20 hover:bg-blue-600/30 border border-blue-500/40 text-blue-300 text-[11px] font-mono font-bold flex items-center justify-center space-x-1"
+            >
+              <Facebook className="w-3.5 h-3.5" />
+              <span>Facebook</span>
+            </a>
           </div>
         </div>
       </div>

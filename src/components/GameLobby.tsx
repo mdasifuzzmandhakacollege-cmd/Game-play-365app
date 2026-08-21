@@ -1,9 +1,13 @@
 /**
  * @file GameLobby.tsx
- * @description Master Golden Ratio (Φ ≈ 1.618) iGaming Dashboard & Casino Hub for Playall 365.
- * Implements Fibonacci spacing, 61.8% / 38.2% visual hierarchy, live Firestore wallet integration,
- * real-time VIP progression, official provider filters (PG Soft, JILI, Spribe, Pragmatic, Evolution),
- * and instant cashout/deposit gateways without mock or demo artifacts.
+ * @description Master Redesigned Asian-Market iGaming Dashboard & Casino Hub for GamePlay365.
+ * Strictly adheres to the "Emerald & Gold" Design System:
+ * - Rich, consistent Emerald Green backgrounds (bg-emerald-900 / bg-emerald-950 / #02180e)
+ * - Exclusive Gold/Yellow accents for VIP highlights, badges, and primary action buttons
+ * - Horizontal scrollable category tabs (Best, Slots, Mini Games, Sports, Live Casino, Fishing)
+ * - Clean 2-column (mobile) and 3/4-column (desktop) strictly aligned game grid without text clutter
+ * - Gamified Treasure Chest & Daily Unclaimed Rewards Quick Launchers
+ * - Live Demo Arena & Real-Time Live Activity Ticker
  */
 
 import React, { useState, useEffect, useMemo } from 'react';
@@ -14,12 +18,12 @@ import {
   Zap,
   Play,
   Search,
-  ArrowRight,
   Gamepad2,
-  Tv,
   Trophy,
-  Layers,
   ChevronRight,
+  ChevronDown,
+  ChevronUp,
+  Maximize2,
   Copy,
   Check,
   RotateCw,
@@ -27,23 +31,16 @@ import {
   Share2,
   Users,
   Headphones,
-  SlidersHorizontal,
-  Mail,
-  Download,
   Star,
   ShieldCheck,
   Send,
-  MessageCircle,
   X,
   CreditCard,
   TrendingUp,
   Wallet,
   Coins,
-  DollarSign,
-  Award,
   ArrowUpRight,
   ArrowDownLeft,
-  CheckCircle2,
   Clock
 } from 'lucide-react';
 import { UserEntity, WalletEntity } from '../server/types/seamless';
@@ -54,6 +51,9 @@ import { InboxMailModal } from './InboxMailModal';
 import { SupportModal } from './SupportModal';
 import { ShareWheelModal } from './ShareWheelModal';
 import { LiveActivityTicker } from './LiveActivityTicker';
+import { DemoIframe, OFFICIAL_DEMO_GAMES } from './games/DemoIframe';
+import { TreasureChestModal } from './TreasureChestModal';
+import { DailyUnclaimedRewardsModal } from './DailyUnclaimedRewardsModal';
 import { motion, AnimatePresence } from 'framer-motion';
 
 export interface GameItem {
@@ -101,7 +101,7 @@ const CASINO_GAMES: GameItem[] = assetLoader.getAllAssets().map((asset) => ({
 
 // Real Certified Game Providers
 const PROVIDER_CHIPS = [
-  { id: 'all', name: 'সকল গেম (All)', icon: '🎲' },
+  { id: 'all', name: 'সকল (All)', icon: '🎲' },
   { id: 'pgsoft', name: 'PG Soft', icon: '💎' },
   { id: 'jili', name: 'JILI Games', icon: '⚡' },
   { id: 'spribe', name: 'Spribe Aviator', icon: '🚀' },
@@ -111,12 +111,13 @@ const PROVIDER_CHIPS = [
 ];
 
 const CATEGORY_TABS = [
-  { id: 'hot', label: 'সেরা গেমস (Featured)', icon: '🔥' },
-  { id: 'minigames', label: 'ক্র্যাশ ও ইনস্ট্যান্ট', icon: '🚀' },
-  { id: 'slots', label: 'ভিডিও স্লট (Slots)', icon: '🎰' },
+  { id: 'hot', label: 'সেরা (Best)', icon: '🔥' },
+  { id: 'slots', label: 'স্লটস (Slots)', icon: '🎰' },
+  { id: 'minigames', label: 'মিনি গেমস (Mini Games)', icon: '🚀' },
+  { id: 'sports', label: 'স্পোর্টস (Sports)', icon: '⚽' },
   { id: 'casino', label: 'লাইভ ক্যাসিনো', icon: '♠️' },
-  { id: 'sports', label: 'স্পোর্টস বুক', icon: '⚽' },
-  { id: 'fishing', label: 'ফিশিং আর্কেড', icon: '🎣' }
+  { id: 'fishing', label: 'ফিশিং (Fishing)', icon: '🎣' },
+  { id: 'demo', label: '👑 অফিসিয়াল রিয়েল ডেমো', icon: '👑' }
 ];
 
 interface GameLobbyProps {
@@ -136,7 +137,7 @@ export const GameLobby: React.FC<GameLobbyProps> = ({
   onOpenCashier,
   onNavigateTab
 }) => {
-  const { topUpWallet, showToast, refreshState } = useWalletGame();
+  const { topUpWallet, showToast, refreshState, formattedBalance } = useWalletGame();
 
   const [activeCategory, setActiveCategory] = useState<string>('hot');
   const [selectedProvider, setSelectedProvider] = useState<string>('all');
@@ -145,12 +146,18 @@ export const GameLobby: React.FC<GameLobbyProps> = ({
   const [copiedId, setCopiedId] = useState<boolean>(false);
   const [syncingBalance, setSyncingBalance] = useState<boolean>(false);
 
-  // Modals
+  // Live Dashboard Real Demo Arena State
+  const [dashboardDemoGameId, setDashboardDemoGameId] = useState<string>('vs20olympgate');
+  const [isDemoArenaExpanded, setIsDemoArenaExpanded] = useState<boolean>(true);
+
+  // Gamified Modals
+  const [isTreasureOpen, setIsTreasureOpen] = useState<boolean>(false);
+  const [isRewardsOpen, setIsRewardsOpen] = useState<boolean>(false);
   const [isInboxOpen, setIsInboxOpen] = useState<boolean>(false);
   const [isSupportOpen, setIsSupportOpen] = useState<boolean>(false);
   const [isShareWheelOpen, setIsShareWheelOpen] = useState<boolean>(false);
 
-  // Live Golden Ratio Progressive Jackpot Counter
+  // Live Progressive Jackpot Counter
   const [liveJackpot, setLiveJackpot] = useState(18942550);
 
   useEffect(() => {
@@ -189,262 +196,215 @@ export const GameLobby: React.FC<GameLobbyProps> = ({
       const matchCategory =
         activeCategory === 'hot'
           ? true
-          : activeCategory === 'minigames'
-          ? game.category === 'minigames'
-          : activeCategory === 'slots'
-          ? game.category === 'slots'
-          : activeCategory === 'casino'
-          ? game.category === 'casino'
-          : activeCategory === 'sports'
-          ? game.category === 'sports'
-          : activeCategory === 'fishing'
-          ? game.category === 'fishing'
-          : true;
+          : activeCategory === 'demo'
+          ? OFFICIAL_DEMO_GAMES.some((d) => d.id === game.id)
+          : game.category === activeCategory;
 
       // Provider Filter
       const matchProvider =
-        selectedProvider === 'all'
-          ? true
-          : selectedProvider === 'pgsoft'
-          ? game.providerId === 'pgsoft' || game.provider.toLowerCase().includes('pg')
-          : selectedProvider === 'jili'
-          ? game.providerId === 'jili' || game.provider.toLowerCase().includes('jili')
-          : selectedProvider === 'spribe'
-          ? game.providerId === 'spribe' || game.name.toLowerCase().includes('aviator')
-          : selectedProvider === 'pragmatic'
-          ? game.providerId === 'pragmatic' || game.provider.toLowerCase().includes('pragmatic')
-          : selectedProvider === 'evolution'
-          ? game.providerId === 'evolution' || game.category === 'casino'
-          : selectedProvider === 'fast'
-          ? game.category === 'minigames'
-          : true;
+        selectedProvider === 'all' || game.providerId === selectedProvider;
 
       // Search Query
       const matchSearch =
-        searchQuery.trim() === '' ||
+        !searchQuery ||
         game.name.toLowerCase().includes(searchQuery.toLowerCase()) ||
-        (game.nameBn && game.nameBn.toLowerCase().includes(searchQuery.toLowerCase())) ||
         game.provider.toLowerCase().includes(searchQuery.toLowerCase());
 
       return matchCategory && matchProvider && matchSearch;
     });
   }, [activeCategory, selectedProvider, searchQuery]);
 
-  const formattedBalance =
-    currency === 'BDT'
-      ? `৳ ${Number(currentWallet?.real_balance || 0).toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`
-      : `$ ${Number(currentWallet?.real_balance || 0).toFixed(2)}`;
-
   return (
     <motion.div
-      initial={{ opacity: 0, y: 13 }}
-      animate={{ opacity: 1, y: 0 }}
-      transition={{ duration: 0.4, ease: 'easeOut' }}
-      className="max-w-7xl mx-auto px-3 sm:px-6 lg:px-8 py-4 sm:py-6 space-y-6 pb-28 font-sans text-slate-100 selection:bg-amber-400 selection:text-slate-950"
+      initial={{ opacity: 0 }}
+      animate={{ opacity: 1 }}
+      className="max-w-7xl mx-auto px-3 sm:px-6 lg:px-8 py-4 sm:py-6 space-y-6 text-slate-100 font-sans"
     >
-      {/* 1. GOLDEN RATIO HERO & USER DASHBOARD MATRIX (61.8% / 38.2% Split) */}
-      <div className="grid grid-cols-1 lg:grid-cols-12 gap-4 sm:gap-5 items-stretch w-full max-w-full">
+      {/* 1. EMERALD & GOLD QUICK REWARDS & TREASURE LAUNCHER BANNER */}
+      <div className="grid grid-cols-1 md:grid-cols-12 gap-4 items-stretch">
         
-        {/* Left Column (61.8% Golden Prominence): User VIP Status & Quick Cashier Vault */}
-        <div className="lg:col-span-7 golden-ratio-card rounded-[24px] sm:rounded-[28px] p-4 sm:p-7 relative overflow-hidden flex flex-col justify-between w-full max-w-full">
-          {/* Subtle Ambient Golden Shimmer */}
-          <div className="absolute top-0 right-0 w-64 h-64 bg-amber-400/10 rounded-full blur-3xl pointer-events-none" />
-          <div className="absolute top-0 left-8 right-8 h-[1.5px] bg-gradient-to-r from-transparent via-amber-400/50 to-transparent" />
+        {/* Left Card: Clean User Status, Balance & Quick Modals */}
+        <div className="md:col-span-8 rounded-2xl bg-gradient-to-r from-emerald-900 via-emerald-950 to-emerald-900 border-2 border-amber-400/50 p-5 sm:p-6 shadow-xl relative overflow-hidden flex flex-col justify-between">
+          <div className="absolute top-0 right-0 w-80 h-32 bg-amber-400/10 rounded-full blur-3xl pointer-events-none" />
 
-          {/* User Profile Bar */}
-          <div className="space-y-3.5 sm:space-y-4">
-            <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3">
-              
-              {/* User Identity Info */}
-              <div className="flex items-center space-x-3 min-w-0">
-                <div className="relative shrink-0">
-                  <div className="w-12 h-12 sm:w-14 sm:h-14 rounded-2xl bg-gradient-to-br from-amber-300 via-yellow-500 to-amber-700 p-[2px] shadow-lg shadow-amber-500/25">
-                    <div className="w-full h-full bg-[#080c14] rounded-[14px] flex items-center justify-center font-black text-amber-300 text-base sm:text-lg">
-                      {currentUser.username.substring(0, 2).toUpperCase()}
-                    </div>
-                  </div>
-                  <span className="absolute -bottom-1 -right-1 w-3.5 h-3.5 sm:w-4 sm:h-4 rounded-full bg-emerald-500 border-2 border-[#080c14] flex items-center justify-center">
-                    <span className="w-1.5 h-1.5 bg-white rounded-full animate-ping" />
+          <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 relative z-10">
+            <div className="flex items-center space-x-3.5">
+              <div className="w-13 h-13 rounded-2xl bg-gradient-to-br from-amber-400 via-yellow-400 to-amber-600 p-0.5 shadow-lg shadow-amber-500/25 shrink-0">
+                <div className="w-full h-full bg-emerald-950 rounded-[14px] flex items-center justify-center font-black text-amber-300 text-lg font-mono">
+                  {currentUser.username.substring(0, 2).toUpperCase()}
+                </div>
+              </div>
+
+              <div>
+                <div className="flex items-center space-x-2">
+                  <h2 className="text-base sm:text-lg font-black text-white">
+                    {currentUser.username}
+                  </h2>
+                  <span className="px-2 py-0.5 rounded-full bg-amber-400/20 text-amber-300 text-[10px] font-mono font-bold border border-amber-400/40">
+                    VIP 1
                   </span>
                 </div>
-
-                <div className="min-w-0">
-                  <div className="flex items-center space-x-1.5 sm:space-x-2">
-                    <h2 className="text-base sm:text-xl font-black text-white tracking-tight truncate max-w-[150px] xs:max-w-[200px] sm:max-w-none">
-                      {currentUser.username}
-                    </h2>
-                    <span className="px-2 py-0.5 rounded-full bg-amber-500/20 border border-amber-400/40 text-amber-300 text-[9px] sm:text-[10px] font-mono font-bold tracking-wider shrink-0">
-                      VIP LEVEL 2
-                    </span>
-                  </div>
-
-                  <div className="flex flex-wrap items-center gap-1.5 text-[11px] sm:text-xs text-slate-400 font-mono mt-0.5">
-                    <span className="truncate max-w-[120px] xs:max-w-[160px]">ID: {currentUser.id.substring(0, 8)}...</span>
-                    <button
-                      onClick={handleCopyId}
-                      className="text-amber-400 hover:text-amber-300 p-0.5 transition-colors"
-                      title="ইউজারনেম কপি করুন"
-                    >
-                      {copiedId ? <Check className="w-3.5 h-3.5 text-emerald-400" /> : <Copy className="w-3.5 h-3.5" />}
-                    </button>
-                    <span>•</span>
-                    <span className="text-emerald-400 font-semibold flex items-center space-x-0.5 text-[10px] sm:text-xs">
-                      <ShieldCheck className="w-3.5 h-3.5" />
-                      <span>KYC Verified</span>
-                    </span>
-                  </div>
+                <div className="text-xs text-emerald-200/80 font-mono mt-0.5">
+                  ব্যালেন্স: <strong className="text-amber-300 text-sm">{formattedBalance}</strong>
                 </div>
-              </div>
-
-              {/* Real-time Balance Box */}
-              <div className="bg-[#05070d]/90 border border-amber-500/30 rounded-2xl p-2.5 sm:px-4 sm:py-2.5 flex items-center justify-between sm:justify-start space-x-3 shadow-inner shrink-0">
-                <div className="min-w-0">
-                  <div className="text-[9px] sm:text-[10px] uppercase font-mono text-slate-400 tracking-wider">
-                    উপলব্ধ ব্যালেন্স (Wallet Balance)
-                  </div>
-                  <div className="text-lg sm:text-2xl font-black text-transparent bg-gradient-to-r from-amber-300 via-yellow-200 to-amber-400 bg-clip-text font-mono truncate">
-                    {formattedBalance}
-                  </div>
-                </div>
-
-                <button
-                  onClick={handleSyncBalance}
-                  className={`p-2 rounded-xl bg-slate-900 border border-slate-800 text-slate-400 hover:text-amber-400 transition-all shrink-0 cursor-pointer ${
-                    syncingBalance ? 'animate-spin text-amber-400' : ''
-                  }`}
-                  title="রিয়েল-টাইম ব্যালেন্স সিঙ্ক"
-                >
-                  <RotateCw className="w-3.5 h-3.5 sm:w-4 sm:h-4" />
-                </button>
               </div>
             </div>
 
-            {/* VIP Turnover & Progress Bar (Golden Ratio 61.8% Indicator) */}
-            <div className="bg-[#05070d]/60 border border-slate-800/80 rounded-2xl p-2.5 sm:p-3 space-y-1.5 font-mono text-xs">
-              <div className="flex items-center justify-between text-[10px] sm:text-[11px]">
-                <span className="text-slate-400 flex items-center space-x-1 sm:space-x-1.5 truncate">
-                  <Award className="w-3 h-3 sm:w-3.5 sm:h-3.5 text-amber-400 shrink-0" />
-                  <span className="truncate">VIP 3 আনলক প্রগ্রেস</span>
-                </span>
-                <span className="text-amber-300 font-bold shrink-0">৬৩% (৳৩১.৫k / ৳৫০k)</span>
-              </div>
-              <div className="w-full h-1.5 sm:h-2 rounded-full bg-slate-900 overflow-hidden border border-slate-800">
-                <div className="h-full bg-gradient-to-r from-amber-500 via-yellow-400 to-amber-500 w-[61.8%] rounded-full shadow-md shadow-amber-500/50" />
-              </div>
+            {/* Quick Action Badges */}
+            <div className="flex items-center space-x-2">
+              <button
+                onClick={() => {
+                  soundEngine.playClick(1000);
+                  setIsRewardsOpen(true);
+                }}
+                className="px-3.5 py-2 rounded-xl bg-amber-400/20 hover:bg-amber-400/30 border border-amber-400/50 text-amber-300 font-bold text-xs flex items-center space-x-1.5 transition-all cursor-pointer shadow-sm active:scale-95"
+              >
+                <Gift className="w-4 h-4 text-amber-400" />
+                <span>রিওয়ার্ডস ভল্ট (5)</span>
+              </button>
+
+              <button
+                onClick={() => {
+                  soundEngine.playClick(1000);
+                  setIsTreasureOpen(true);
+                }}
+                className="px-3.5 py-2 rounded-xl bg-gradient-to-r from-amber-400 via-yellow-400 to-amber-500 hover:from-amber-300 hover:to-yellow-300 text-slate-950 font-black text-xs flex items-center space-x-1.5 transition-all cursor-pointer shadow-md shadow-amber-500/20 active:scale-95"
+              >
+                <Sparkles className="w-4 h-4 fill-slate-950" />
+                <span>ট্রেজার চেস্ট (2x2)</span>
+              </button>
             </div>
-          </div>
-
-          {/* Instant Cashier Action Buttons */}
-          <div className="grid grid-cols-2 sm:grid-cols-4 gap-2 sm:gap-2.5 pt-3 sm:pt-4 mt-2 border-t border-slate-800/80 font-mono text-xs">
-            <button
-              onClick={() => {
-                soundEngine.playClick(1000);
-                onOpenCashier();
-              }}
-              className="py-2.5 sm:py-3 px-2 sm:px-3 rounded-xl bg-gradient-to-r from-amber-400 via-yellow-400 to-amber-500 text-slate-950 font-black text-[11px] sm:text-xs shadow-md shadow-amber-500/20 active:scale-95 transition-all flex items-center justify-center space-x-1 cursor-pointer"
-            >
-              <ArrowUpRight className="w-3.5 h-3.5 sm:w-4 sm:h-4 stroke-[3]" />
-              <span>ডিপোজিট (+৫%)</span>
-            </button>
-
-            <button
-              onClick={() => {
-                soundEngine.playClick(900);
-                onOpenCashier();
-              }}
-              className="py-2.5 sm:py-3 px-2 sm:px-3 rounded-xl bg-slate-900 hover:bg-slate-800 border border-slate-700 text-white font-bold text-[11px] sm:text-xs active:scale-95 transition-all flex items-center justify-center space-x-1 cursor-pointer"
-            >
-              <ArrowDownLeft className="w-3.5 h-3.5 sm:w-4 sm:h-4 text-emerald-400" />
-              <span>উইথড্রয়াল (৪ সেক)</span>
-            </button>
-
-            <button
-              onClick={() => {
-                soundEngine.playClick(850);
-                if (onNavigateTab) onNavigateTab('promo');
-              }}
-              className="py-2.5 sm:py-3 px-2 sm:px-3 rounded-xl bg-slate-900 hover:bg-slate-800 border border-slate-700 text-amber-300 font-bold text-[11px] sm:text-xs active:scale-95 transition-all flex items-center justify-center space-x-1 cursor-pointer"
-            >
-              <Gift className="w-3.5 h-3.5 sm:w-4 sm:h-4 text-amber-400" />
-              <span>দৈনিক বোনাস</span>
-            </button>
-
-            <button
-              onClick={() => {
-                soundEngine.playClick(850);
-                if (onNavigateTab) onNavigateTab('affiliate');
-              }}
-              className="py-2.5 sm:py-3 px-2 sm:px-3 rounded-xl bg-slate-900 hover:bg-slate-800 border border-slate-700 text-cyan-300 font-bold text-[11px] sm:text-xs active:scale-95 transition-all flex items-center justify-center space-x-1 cursor-pointer"
-            >
-              <Users className="w-3.5 h-3.5 sm:w-4 sm:h-4 text-cyan-400" />
-              <span>অ্যাফিলিয়েট</span>
-            </button>
           </div>
         </div>
 
-        {/* Right Column (38.2% Golden Ratio Focus): Progressive Golden Vault & Instant Jackpot */}
-        <div className="lg:col-span-5 golden-ratio-card rounded-[28px] p-5 sm:p-7 relative overflow-hidden flex flex-col justify-between bg-gradient-to-br from-[#0c1220] to-[#05070d]">
-          
-          <div className="space-y-3">
-            <div className="flex items-center justify-between">
-              <div className="inline-flex items-center space-x-1.5 px-3 py-1 rounded-full bg-amber-500/15 border border-amber-400/30 text-amber-300 text-xs font-mono font-bold">
-                <Crown className="w-3.5 h-3.5 text-amber-400" />
-                <span>GOLDEN JACKPOT POOL</span>
-              </div>
-              <span className="w-2 h-2 rounded-full bg-emerald-400 animate-ping" />
-            </div>
-
-            <div>
-              <div className="text-2xl sm:text-4xl font-black text-transparent bg-gradient-to-r from-yellow-200 via-amber-300 to-yellow-400 bg-clip-text font-mono tracking-tight">
-                ৳ {liveJackpot.toLocaleString('en-US')}
-              </div>
-              <p className="text-xs text-slate-400 font-mono mt-1">
-                প্রতিটি স্পিনে জ্যাকপট ভল্ট বৃদ্ধি পাচ্ছে • ০.০% কমিশন ফি
-              </p>
-            </div>
-
-            {/* Instant Speed & Trust Guarantees */}
-            <div className="grid grid-cols-2 gap-2 pt-2 font-mono text-[11px]">
-              <div className="p-2.5 bg-slate-950/80 rounded-xl border border-slate-800">
-                <div className="text-emerald-400 font-bold flex items-center space-x-1">
-                  <Zap className="w-3.5 h-3.5" />
-                  <span>০-৪ সেক স্পিড</span>
-                </div>
-                <div className="text-slate-400 mt-0.5">বিকাশ ও নগদ অটো API</div>
-              </div>
-
-              <div className="p-2.5 bg-slate-950/80 rounded-xl border border-slate-800">
-                <div className="text-cyan-400 font-bold flex items-center space-x-1">
-                  <ShieldCheck className="w-3.5 h-3.5" />
-                  <span>ACID লেজার</span>
-                </div>
-                <div className="text-slate-400 mt-0.5">১০০% ফান্ড সিকিউরড</div>
-              </div>
-            </div>
+        {/* Right Card: Progressive Jackpot Counter */}
+        <div className="md:col-span-4 rounded-2xl bg-gradient-to-br from-emerald-950 via-emerald-900 to-[#02180e] border-2 border-emerald-600/50 p-5 flex flex-col justify-between shadow-lg">
+          <div className="flex items-center justify-between">
+            <span className="text-[11px] font-bold text-emerald-300 uppercase flex items-center gap-1.5">
+              <Trophy className="w-4 h-4 text-amber-400" />
+              <span>প্রোগ্রেসিভ মেগা জ্যাকপট</span>
+            </span>
+            <span className="w-2 h-2 rounded-full bg-emerald-400 animate-ping" />
           </div>
 
-          {/* Quick Play CTA */}
+          <div className="my-2">
+            <div className="text-2xl sm:text-3xl font-black font-mono text-transparent bg-gradient-to-r from-amber-300 via-yellow-200 to-amber-400 bg-clip-text">
+              {currency === 'BDT' ? '৳ ' : '$ '}
+              {liveJackpot.toLocaleString()}
+            </div>
+            <p className="text-[10px] text-emerald-300/80 font-mono mt-0.5">
+              যেকোনো স্লট বা ক্র্যাশ গেমে স্পিন করে জ্যাকপট জিতুন
+            </p>
+          </div>
+
           <button
             onClick={() => {
               soundEngine.playClick(1000);
               onLaunchGame('spribe_aviator');
             }}
-            className="w-full mt-4 py-3.5 px-4 rounded-2xl bg-gradient-to-r from-rose-500 via-amber-500 to-yellow-500 text-slate-950 font-black text-xs sm:text-sm shadow-xl shadow-amber-500/25 active:scale-95 transition-all flex items-center justify-center space-x-2 cursor-pointer font-mono"
+            className="w-full py-2 rounded-xl bg-gradient-to-r from-amber-400 via-yellow-400 to-amber-500 text-slate-950 font-black text-xs shadow-md shadow-amber-500/20 active:scale-95 transition-all flex items-center justify-center space-x-1.5 cursor-pointer font-mono"
           >
-            <Play className="w-4 h-4 fill-slate-950" />
+            <Play className="w-3.5 h-3.5 fill-slate-950" />
             <span>সরাসরি Aviator (1000x) খেলুন</span>
           </button>
         </div>
 
       </div>
 
-      {/* 2. REAL-TIME LIVE WINNERS & HIGH ROLLER TICKER */}
+      {/* 2. REAL-TIME LIVE WINNERS TICKER */}
       <LiveActivityTicker onLaunchGame={onLaunchGame} />
 
-      {/* 3. GAME CATEGORIES & PROVIDER FILTER CHIPS (Golden Ratio Navigation Bar) */}
+      {/* 2.5 EMBEDDED REAL DEMO ARENA */}
+      <section className="relative rounded-2xl overflow-hidden border-2 border-emerald-600/40 bg-gradient-to-b from-emerald-950 via-[#02180e] to-emerald-950 shadow-xl transition-all">
+        <div className="bg-gradient-to-r from-emerald-950 via-emerald-900 to-emerald-950 px-4 py-3 border-b border-emerald-800 flex flex-wrap items-center justify-between gap-3">
+          <div className="flex items-center space-x-3">
+            <div className="w-9 h-9 rounded-xl bg-gradient-to-tr from-amber-400 to-yellow-500 p-0.5 shadow-md shadow-amber-500/20 shrink-0">
+              <div className="w-full h-full bg-emerald-950 rounded-[10px] flex items-center justify-center text-lg">
+                👑
+              </div>
+            </div>
+            <div>
+              <div className="flex items-center space-x-2">
+                <h3 className="text-sm sm:text-base font-black text-white tracking-tight">
+                  অফিসিয়াল রিয়েল ডেমো অ্যারেনা
+                </h3>
+                <span className="px-2 py-0.5 rounded-full bg-amber-400 text-slate-950 text-[9px] font-mono font-black">
+                  LIVE DEMO
+                </span>
+              </div>
+              <p className="text-[11px] text-emerald-200/80">
+                ড্যাশবোর্ডেই সরাসরি খেলুন আসল লাইভ প্রোভাইডার ডেমো • আনলিমিটেড ফ্রি ব্যালেন্স
+              </p>
+            </div>
+          </div>
+
+          <div className="flex items-center space-x-2">
+            <button
+              onClick={() => {
+                soundEngine.playClick(1000);
+                onLaunchGame(dashboardDemoGameId);
+              }}
+              className="px-3 py-1.5 rounded-xl bg-gradient-to-r from-amber-400 to-yellow-400 text-slate-950 text-xs font-mono font-black shadow-md active:scale-95 transition-all flex items-center space-x-1 cursor-pointer"
+            >
+              <Maximize2 className="w-3.5 h-3.5" />
+              <span>ফুল গেম মোড</span>
+            </button>
+
+            <button
+              onClick={() => {
+                soundEngine.playClick(800);
+                setIsDemoArenaExpanded(!isDemoArenaExpanded);
+              }}
+              className="p-1.5 rounded-xl bg-emerald-900 hover:bg-emerald-800 border border-emerald-700 text-emerald-300 transition-all cursor-pointer"
+            >
+              {isDemoArenaExpanded ? <ChevronUp className="w-4 h-4 text-amber-400" /> : <ChevronDown className="w-4 h-4 text-amber-400" />}
+            </button>
+          </div>
+        </div>
+
+        {/* Real Demo Switcher */}
+        <div className="bg-emerald-950/90 px-4 py-2 border-b border-emerald-800/80 flex items-center space-x-2 overflow-x-auto scrollbar-none">
+          <span className="text-[11px] font-mono font-bold text-amber-400 shrink-0 flex items-center gap-1">
+            <Flame className="w-3.5 h-3.5 text-amber-400 fill-amber-400" />
+            <span>স্লট ডেমো:</span>
+          </span>
+
+          {OFFICIAL_DEMO_GAMES.map((demo) => {
+            const isSelected = dashboardDemoGameId === demo.id;
+            return (
+              <button
+                key={demo.id}
+                onClick={() => {
+                  soundEngine.playClick(950);
+                  setDashboardDemoGameId(demo.id);
+                  if (!isDemoArenaExpanded) setIsDemoArenaExpanded(true);
+                  showToast(`ড্যাশবোর্ডে লোড হচ্ছে: ${demo.name}`);
+                }}
+                className={`px-3 py-1 rounded-xl text-xs font-mono font-bold whitespace-nowrap transition-all flex items-center space-x-1.5 cursor-pointer shrink-0 ${
+                  isSelected
+                    ? 'bg-gradient-to-r from-amber-400 to-yellow-400 text-slate-950 shadow-md font-black'
+                    : 'bg-emerald-900/60 hover:bg-emerald-800/80 text-emerald-200 border border-emerald-700/60'
+                }`}
+              >
+                <span>{demo.icon}</span>
+                <span>{demo.name}</span>
+              </button>
+            );
+          })}
+        </div>
+
+        {isDemoArenaExpanded && (
+          <div className="p-3 bg-[#01120a]">
+            <DemoIframe
+              gameId={dashboardDemoGameId}
+              onSelectGame={(gId) => setDashboardDemoGameId(gId)}
+            />
+          </div>
+        )}
+      </section>
+
+      {/* 3. HORIZONTAL SCROLLABLE CATEGORY TABS (Strict Asian Market Spec) */}
       <div className="space-y-3">
-        
-        {/* Main Category Tabs */}
         <div className="flex items-center justify-between gap-3 overflow-x-auto pb-1 scrollbar-none">
           <div className="flex items-center space-x-2 shrink-0">
             {CATEGORY_TABS.map((cat) => {
@@ -456,10 +416,10 @@ export const GameLobby: React.FC<GameLobbyProps> = ({
                     soundEngine.playClick(800);
                     setActiveCategory(cat.id);
                   }}
-                  className={`min-h-[42px] px-4 py-2 rounded-2xl font-bold text-xs sm:text-sm flex items-center space-x-2 transition-all active:scale-95 cursor-pointer whitespace-nowrap ${
+                  className={`min-h-[42px] px-4 py-2 rounded-xl font-bold text-xs sm:text-sm flex items-center space-x-2 transition-all active:scale-95 cursor-pointer whitespace-nowrap ${
                     isSelected
-                      ? 'bg-gradient-to-r from-amber-400 via-yellow-400 to-amber-500 text-slate-950 font-black shadow-lg shadow-amber-500/25 scale-[1.02]'
-                      : 'bg-[#080d1a] border border-slate-800 text-slate-300 hover:text-white hover:border-amber-500/40'
+                      ? 'bg-gradient-to-r from-amber-400 via-yellow-400 to-amber-500 text-slate-950 font-black shadow-md shadow-amber-500/20'
+                      : 'bg-emerald-950/80 border border-emerald-700/60 text-emerald-200 hover:text-white hover:border-amber-400/50'
                   }`}
                 >
                   <span>{cat.icon}</span>
@@ -469,22 +429,22 @@ export const GameLobby: React.FC<GameLobbyProps> = ({
             })}
           </div>
 
-          {/* Search Trigger Button */}
+          {/* Search Button */}
           <button
             onClick={() => {
               soundEngine.playClick(900);
               setShowSearchModal(true);
             }}
-            className="min-h-[42px] px-4 rounded-2xl bg-[#080d1a] border border-amber-500/30 hover:border-amber-400 text-amber-300 text-xs font-mono font-bold flex items-center space-x-2 transition-all shrink-0 cursor-pointer"
+            className="min-h-[42px] px-4 rounded-xl bg-emerald-950/80 border border-emerald-700/60 hover:border-amber-400 text-amber-300 text-xs font-mono font-bold flex items-center space-x-2 transition-all shrink-0 cursor-pointer"
           >
             <Search className="w-3.5 h-3.5" />
-            <span>অনুসন্ধান (Search)</span>
+            <span>সার্চ</span>
           </button>
         </div>
 
-        {/* Certified Provider Filter Chips */}
+        {/* Provider Filter Chips */}
         <div className="flex items-center space-x-2 overflow-x-auto pb-1 scrollbar-none font-mono text-xs">
-          <span className="text-slate-400 text-[11px] shrink-0 font-sans">প্রোভাইডার:</span>
+          <span className="text-emerald-300/80 text-[11px] shrink-0 font-sans">প্রোভাইডার:</span>
           {PROVIDER_CHIPS.map((p) => {
             const isSelected = selectedProvider === p.id;
             return (
@@ -496,8 +456,8 @@ export const GameLobby: React.FC<GameLobbyProps> = ({
                 }}
                 className={`px-3 py-1.5 rounded-xl transition-all whitespace-nowrap cursor-pointer ${
                   isSelected
-                    ? 'bg-amber-500/20 border border-amber-400 text-amber-300 font-bold shadow-sm'
-                    : 'bg-slate-950 border border-slate-800 text-slate-400 hover:text-slate-200'
+                    ? 'bg-amber-400 text-slate-950 font-black shadow-sm'
+                    : 'bg-emerald-950/80 border border-emerald-700/60 text-emerald-200 hover:text-white'
                 }`}
               >
                 <span>{p.icon} </span>
@@ -508,80 +468,67 @@ export const GameLobby: React.FC<GameLobbyProps> = ({
         </div>
       </div>
 
-      {/* 4. GOLDEN RATIO CASINO GAME GRID (Aspect 1 : 1.618 Golden Proportion) */}
-      <div className="space-y-2">
-        <div className="flex items-center justify-between px-1">
-          <div className="flex items-center space-x-2 font-mono text-xs text-slate-400">
-            <span>প্রদর্শিত গেমস: <strong className="text-amber-400 font-bold">{filteredGames.length}</strong></span>
-          </div>
-          <div className="text-[11px] font-mono text-slate-400">
-            RTP 96.5% - 98.9% • Provably Fair
-          </div>
+      {/* 4. CLEAN STRICTLY ALIGNED GAME GRID (2-col Mobile / 3-4 col Desktop without text clutter) */}
+      <div className="space-y-3">
+        <div className="flex items-center justify-between px-1 text-xs font-mono text-emerald-300/80">
+          <span>মোট গেম: <strong className="text-amber-300">{filteredGames.length}টি</strong></span>
+          <span>RTP 96.5% - 98.9% • Provably Fair</span>
         </div>
 
         <motion.div
           layout
-          className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-5 gap-3.5 sm:gap-4"
+          className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-5 gap-3 sm:gap-4"
         >
           <AnimatePresence>
             {filteredGames.map((game, idx) => (
               <motion.div
                 layout
-                initial={{ opacity: 0, scale: 0.94 }}
+                initial={{ opacity: 0, scale: 0.95 }}
                 animate={{ opacity: 1, scale: 1 }}
-                exit={{ opacity: 0, scale: 0.94 }}
-                transition={{ duration: 0.25, delay: idx * 0.02 }}
+                exit={{ opacity: 0, scale: 0.95 }}
+                transition={{ duration: 0.2, delay: idx * 0.015 }}
                 key={game.id}
                 onClick={() => {
                   soundEngine.playClick(1000);
                   onLaunchGame(game.id);
                 }}
-                className="group relative bg-[#090d16] border border-slate-800 hover:border-amber-500/80 rounded-2xl overflow-hidden shadow-lg hover:shadow-[0_0_25px_rgba(245,158,11,0.25)] transition-all duration-300 hover:-translate-y-1.5 active:scale-[0.98] cursor-pointer flex flex-col justify-between"
+                className="group relative bg-emerald-950/80 border-2 border-emerald-700/50 hover:border-amber-400 rounded-xl overflow-hidden shadow-md hover:shadow-[0_0_20px_rgba(245,158,11,0.3)] transition-all duration-200 active:scale-[0.98] cursor-pointer flex flex-col justify-between"
               >
-                {/* Thumbnail Container (1.618 Ratio Aspect) */}
-                <div className="relative aspect-[1.3] w-full overflow-hidden bg-slate-950">
+                {/* Thumbnail Container */}
+                <div className="relative aspect-[1.3] w-full overflow-hidden bg-emerald-950">
                   <img
                     src={game.imageUrl}
                     alt={game.name}
-                    className="w-full h-full object-cover group-hover:scale-110 transition-transform duration-500 opacity-90 group-hover:opacity-100"
+                    className="w-full h-full object-cover group-hover:scale-108 transition-transform duration-300"
                   />
-                  <div className="absolute inset-0 bg-gradient-to-t from-[#090d16] via-transparent to-transparent opacity-90" />
+                  <div className="absolute inset-0 bg-gradient-to-t from-emerald-950/90 via-transparent to-transparent" />
 
-                  {/* Hot & Multiplier Badges */}
-                  <div className="absolute top-2 left-2 flex flex-col space-y-1">
-                    {game.badge && (
-                      <span className="px-2 py-0.5 rounded-md bg-rose-600/90 text-white font-mono text-[9px] font-black shadow-md uppercase tracking-wider backdrop-blur-sm">
-                        {game.badge}
-                      </span>
-                    )}
-                    <span className="px-1.5 py-0.5 rounded-md bg-slate-950/80 text-amber-300 font-mono text-[9px] font-bold border border-amber-500/30">
-                      RTP {game.rtp}
-                    </span>
-                  </div>
+                  {/* Top Badge */}
+                  {game.badge && (
+                    <div className="absolute top-2 left-2 px-2 py-0.5 rounded-md bg-amber-400 text-slate-950 font-mono text-[9px] font-black shadow-md uppercase">
+                      {game.badge}
+                    </div>
+                  )}
 
-                  <div className="absolute top-2 right-2 p-1.5 rounded-full bg-black/60 text-amber-400">
-                    <Star className="w-3 h-3 fill-amber-400" />
-                  </div>
-
-                  {/* Play Overlay */}
-                  <div className="absolute inset-0 flex flex-col items-center justify-center gap-2 opacity-0 group-hover:opacity-100 transition-opacity bg-black/60 backdrop-blur-[2px] p-2 text-center">
-                    <div className="w-11 h-11 rounded-2xl bg-gradient-to-r from-amber-400 via-yellow-400 to-amber-500 text-slate-950 flex items-center justify-center shadow-xl shadow-amber-400/50 scale-90 group-hover:scale-100 transition-transform">
+                  {/* Play Overlay Button on Hover */}
+                  <div className="absolute inset-0 flex flex-col items-center justify-center gap-1.5 opacity-0 group-hover:opacity-100 transition-opacity bg-black/50 backdrop-blur-[1px] p-2 text-center">
+                    <div className="w-10 h-10 rounded-xl bg-gradient-to-r from-amber-400 to-yellow-400 text-slate-950 flex items-center justify-center shadow-lg scale-90 group-hover:scale-100 transition-transform">
                       <Play className="w-5 h-5 fill-slate-950 ml-0.5" />
                     </div>
-                    <span className="text-[10px] font-mono font-black text-amber-300 bg-black/80 px-2.5 py-0.5 rounded-full border border-amber-400/40">
-                      ▶ লাইভ ডেমো প্লে
+                    <span className="text-[10px] font-mono font-black text-amber-300">
+                      প্লে করুন
                     </span>
                   </div>
                 </div>
 
-                {/* Bottom Game Details */}
-                <div className="p-3 space-y-1.5">
-                  <div className="font-black text-xs sm:text-sm text-white group-hover:text-amber-300 transition-colors truncate">
+                {/* Clean Uncluttered Game Header */}
+                <div className="p-2.5 space-y-1">
+                  <div className="font-bold text-xs sm:text-sm text-white group-hover:text-amber-300 transition-colors truncate">
                     {game.name}
                   </div>
-                  <div className="flex items-center justify-between text-[11px] font-mono text-slate-400">
-                    <span className="text-slate-400 truncate pr-1">{game.provider}</span>
-                    <span className="text-amber-400 font-black shrink-0">{game.maxMultiplier}</span>
+                  <div className="flex items-center justify-between text-[10px] font-mono text-emerald-300/80">
+                    <span className="truncate">{game.provider}</span>
+                    <span className="text-amber-300 font-bold">{game.maxMultiplier}</span>
                   </div>
                 </div>
               </motion.div>
@@ -590,31 +537,33 @@ export const GameLobby: React.FC<GameLobbyProps> = ({
         </motion.div>
       </div>
 
-      {/* 5. FLOATING QUICK ACTIONS */}
+      {/* Floating Quick Action Button */}
       <div className="fixed bottom-20 right-4 z-40 flex flex-col space-y-2.5">
-        <a
-          href="https://t.me/playall365_official"
-          target="_blank"
-          rel="noreferrer"
-          className="w-12 h-12 rounded-2xl bg-gradient-to-tr from-sky-600 to-blue-500 text-white flex items-center justify-center shadow-xl shadow-sky-500/30 hover:scale-110 active:scale-95 transition-all"
-          title="Telegram VIP Channel"
-        >
-          <Send className="w-5 h-5 ml-[-2px] mt-[-1px]" />
-        </a>
-
         <button
           onClick={() => {
-            soundEngine.playClick(900);
-            setIsShareWheelOpen(true);
+            soundEngine.playClick(1000);
+            setIsTreasureOpen(true);
           }}
-          className="w-12 h-12 rounded-2xl bg-gradient-to-tr from-rose-600 via-amber-500 to-yellow-400 text-slate-950 flex items-center justify-center shadow-xl shadow-rose-500/30 hover:scale-110 active:scale-95 transition-all animate-bounce cursor-pointer font-black"
-          title="Lucky Wheel Bonus"
+          className="w-12 h-12 rounded-2xl bg-gradient-to-tr from-amber-400 via-yellow-400 to-amber-500 text-slate-950 flex items-center justify-center shadow-xl shadow-amber-500/30 hover:scale-110 active:scale-95 transition-all cursor-pointer font-black"
+          title="ট্রেজার চেস্ট ওপেন করুন"
         >
-          <Gift className="w-5 h-5 stroke-[2.5]" />
+          <Sparkles className="w-5 h-5 fill-slate-950" />
         </button>
       </div>
 
-      {/* Interactive Modals */}
+      {/* Modals */}
+      <TreasureChestModal
+        isOpen={isTreasureOpen}
+        onClose={() => setIsTreasureOpen(false)}
+        currency={currency}
+      />
+
+      <DailyUnclaimedRewardsModal
+        isOpen={isRewardsOpen}
+        onClose={() => setIsRewardsOpen(false)}
+        currency={currency}
+      />
+
       <InboxMailModal
         isOpen={isInboxOpen}
         onClose={() => setIsInboxOpen(false)}
@@ -631,36 +580,36 @@ export const GameLobby: React.FC<GameLobbyProps> = ({
         onClose={() => setIsShareWheelOpen(false)}
       />
 
-      {/* Fast Game Search Modal */}
+      {/* Search Modal */}
       {showSearchModal && (
-        <div className="fixed inset-0 z-50 flex items-start justify-center p-4 pt-20 bg-black/80 backdrop-blur-md animate-in fade-in">
-          <div className="bg-[#090d16] border-2 border-amber-500/40 rounded-3xl w-full max-w-lg p-5 space-y-4 shadow-2xl">
-            <div className="flex items-center justify-between border-b border-slate-800 pb-3">
+        <div className="fixed inset-0 z-50 flex items-start justify-center p-4 pt-20 bg-black/80 backdrop-blur-md">
+          <div className="bg-emerald-950 border-2 border-amber-400/50 rounded-2xl w-full max-w-lg p-5 space-y-4 shadow-2xl">
+            <div className="flex items-center justify-between border-b border-emerald-800 pb-3">
               <h3 className="text-sm font-black text-white flex items-center space-x-2 font-mono">
                 <Search className="w-4 h-4 text-amber-400" />
                 <span>গেম অনুসন্ধান (Live Game Search)</span>
               </h3>
               <button
                 onClick={() => setShowSearchModal(false)}
-                className="p-1 rounded-xl bg-slate-900 text-slate-400 hover:text-white"
+                className="p-1 rounded-lg bg-emerald-900 text-emerald-300 hover:text-white"
               >
                 <X className="w-4 h-4" />
               </button>
             </div>
 
             <div className="relative">
-              <Search className="w-4 h-4 absolute left-3.5 top-3.5 text-slate-500" />
+              <Search className="w-4 h-4 absolute left-3.5 top-3.5 text-emerald-400" />
               <input
                 type="text"
                 autoFocus
-                placeholder="গেম বা প্রোভাইডারের নাম লিখুন (e.g. Aviator, Super Ace, PG Soft)..."
+                placeholder="গেম বা প্রোভাইডারের নাম লিখুন..."
                 value={searchQuery}
                 onChange={(e) => setSearchQuery(e.target.value)}
-                className="w-full bg-slate-950 border border-slate-800 rounded-xl pl-10 pr-4 py-3 text-xs text-white placeholder-slate-500 focus:outline-none focus:border-amber-500 font-mono"
+                className="w-full bg-emerald-900/60 border border-emerald-700 rounded-xl pl-10 pr-4 py-3 text-xs text-white placeholder-emerald-400/60 focus:outline-none focus:border-amber-400 font-mono"
               />
             </div>
 
-            <div className="max-h-72 overflow-y-auto space-y-2 divide-y divide-slate-800/40 font-mono">
+            <div className="max-h-72 overflow-y-auto space-y-2 divide-y divide-emerald-800/60 font-mono">
               {filteredGames.slice(0, 8).map((g) => (
                 <div
                   key={g.id}
@@ -668,16 +617,16 @@ export const GameLobby: React.FC<GameLobbyProps> = ({
                     setShowSearchModal(false);
                     onLaunchGame(g.id);
                   }}
-                  className="pt-2 flex items-center justify-between p-2 rounded-xl hover:bg-slate-900 cursor-pointer"
+                  className="pt-2 flex items-center justify-between p-2 rounded-xl hover:bg-emerald-900/60 cursor-pointer"
                 >
                   <div className="flex items-center space-x-3">
                     <img src={g.imageUrl} alt={g.name} className="w-10 h-10 rounded-xl object-cover" />
                     <div>
                       <div className="text-xs font-bold text-white">{g.name}</div>
-                      <div className="text-[10px] text-slate-400">{g.provider} • {g.maxMultiplier}</div>
+                      <div className="text-[10px] text-emerald-300/80">{g.provider} • {g.maxMultiplier}</div>
                     </div>
                   </div>
-                  <span className="px-3 py-1 rounded-lg bg-amber-500/20 text-amber-300 text-[10px] font-black border border-amber-500/30">
+                  <span className="px-3 py-1 rounded-lg bg-amber-400 text-slate-950 text-[10px] font-black">
                     প্লে করুন 🚀
                   </span>
                 </div>

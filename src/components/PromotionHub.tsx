@@ -348,22 +348,21 @@ export const PromotionHub: React.FC<PromotionHubProps> = ({
       transition={{ duration: 0.35, ease: 'easeOut' }}
       className="max-w-7xl mx-auto px-3 sm:px-6 lg:px-8 py-4 sm:py-6 space-y-6 pb-28 font-sans text-slate-100 selection:bg-amber-400 selection:text-slate-950"
     >
-      {/* 1. MASTER PROMOTIONS HERO BANNER (Harmonious 61.8% / 38.2% Visual Layout) */}
+      {/* 1. MASTER PROMOTIONS HERO BANNER */}
       <div className="grid grid-cols-1 lg:grid-cols-12 gap-5 items-stretch">
         
-        {/* Left Column (61.8% Hero Highlight): 300% Mega Welcome Bonus */}
-        <div className="lg:col-span-7 golden-ratio-card rounded-[28px] p-5 sm:p-7 relative overflow-hidden flex flex-col justify-between">
+        {/* Left Column: 300% Mega Welcome Bonus */}
+        <div className="lg:col-span-7 rounded-2xl bg-gradient-to-br from-emerald-900 via-emerald-950 to-emerald-900 border-2 border-amber-400/50 p-5 sm:p-7 relative overflow-hidden flex flex-col justify-between shadow-xl">
           <div className="absolute top-0 right-0 w-72 h-72 bg-gradient-to-br from-amber-400/20 to-yellow-500/5 rounded-full blur-3xl pointer-events-none" />
-          <div className="absolute top-0 left-8 right-8 h-[1.5px] bg-gradient-to-r from-transparent via-amber-400/50 to-transparent" />
 
-          <div className="space-y-3.5">
+          <div className="space-y-3.5 relative z-10">
             <div className="flex flex-wrap items-center justify-between gap-2">
-              <div className="inline-flex items-center space-x-2 px-3.5 py-1 rounded-full bg-amber-500/20 border border-amber-400/40 text-amber-300 text-xs font-mono font-bold tracking-wider uppercase">
+              <div className="inline-flex items-center space-x-2 px-3.5 py-1 rounded-full bg-amber-400/20 border border-amber-400/40 text-amber-300 text-xs font-mono font-bold tracking-wider uppercase">
                 <Flame className="w-3.5 h-3.5 text-amber-400 animate-bounce" />
                 <span>মেগা ওয়েলকাম ক্যাম্পেইন ২০২৬</span>
               </div>
 
-              <div className="flex items-center space-x-1.5 text-slate-300 text-xs font-mono bg-slate-950/80 px-3 py-1 rounded-full border border-slate-800">
+              <div className="flex items-center space-x-1.5 text-emerald-200 text-xs font-mono bg-emerald-950/80 px-3 py-1 rounded-full border border-emerald-700/60">
                 <Clock className="w-3.5 h-3.5 text-amber-400" />
                 <span>মেয়াদ বাকি: <strong>১৩ ঘণ্টা ৪২ মিনিট</strong></span>
               </div>
@@ -373,40 +372,40 @@ export const PromotionHub: React.FC<PromotionHubProps> = ({
               ৩০০% ডিপোজিট বোনাস + ১০০ ফ্রি স্পিন
             </h1>
 
-            <p className="text-xs sm:text-sm text-slate-300 leading-relaxed font-sans max-w-xl">
+            <p className="text-xs sm:text-sm text-emerald-200/90 leading-relaxed font-sans max-w-xl">
               প্রথম ডিপোজিটে পান সর্বোচ্চ <strong className="text-amber-300 font-mono">৳৩০,০০০</strong> পর্যন্ত নিশ্চিত বোনাস। সহজ ১৫x টার্নওভার এবং সাথে সাথে ১০০ ফ্রি স্পিন স্লট খেলায় ব্যবহার করুন।
             </p>
 
             {/* Feature Highlights Pill Grid */}
             <div className="grid grid-cols-3 gap-2.5 pt-1 font-mono text-[11px]">
-              <div className="p-2.5 rounded-xl bg-slate-950/80 border border-slate-800">
+              <div className="p-2.5 rounded-xl bg-emerald-950/90 border border-emerald-700/60">
                 <div className="text-amber-300 font-bold flex items-center space-x-1">
                   <Percent className="w-3.5 h-3.5" />
                   <span>১৫x টার্নওভার</span>
                 </div>
-                <div className="text-slate-400 text-[10px] mt-0.5">সহজ রূপান্তর শর্ত</div>
+                <div className="text-emerald-300/80 text-[10px] mt-0.5">সহজ রূপান্তর শর্ত</div>
               </div>
 
-              <div className="p-2.5 rounded-xl bg-slate-950/80 border border-slate-800">
-                <div className="text-emerald-400 font-bold flex items-center space-x-1">
+              <div className="p-2.5 rounded-xl bg-emerald-950/90 border border-emerald-700/60">
+                <div className="text-emerald-300 font-bold flex items-center space-x-1">
                   <Zap className="w-3.5 h-3.5" />
                   <span>ইনস্ট্যান্ট ক্রেডিট</span>
                 </div>
-                <div className="text-slate-400 text-[10px] mt-0.5">০-৪ সেকেন্ডে ডিপোজিট</div>
+                <div className="text-emerald-300/80 text-[10px] mt-0.5">০-৪ সেকেন্ডে ডিপোজিট</div>
               </div>
 
-              <div className="p-2.5 rounded-xl bg-slate-950/80 border border-slate-800">
-                <div className="text-cyan-400 font-bold flex items-center space-x-1">
+              <div className="p-2.5 rounded-xl bg-emerald-950/90 border border-emerald-700/60">
+                <div className="text-amber-300 font-bold flex items-center space-x-1">
                   <ShieldCheck className="w-3.5 h-3.5" />
                   <span>১০০% সুরক্ষিত</span>
                 </div>
-                <div className="text-slate-400 text-[10px] mt-0.5">অফিসিয়াল গেমিং লাইসেন্স</div>
+                <div className="text-emerald-300/80 text-[10px] mt-0.5">অফিসিয়াল গেমিং লাইসেন্স</div>
               </div>
             </div>
           </div>
 
           {/* Action Trigger Buttons */}
-          <div className="flex flex-wrap items-center gap-3 pt-5 mt-3 border-t border-slate-800/80 font-mono text-xs">
+          <div className="flex flex-wrap items-center gap-3 pt-5 mt-3 border-t border-emerald-800/80 font-mono text-xs relative z-10">
             <button
               onClick={() => {
                 const welcomePromo = PROMOTIONAL_OFFERS[0];
@@ -423,7 +422,7 @@ export const PromotionHub: React.FC<PromotionHubProps> = ({
                 setSelectedOffer(PROMOTIONAL_OFFERS[0]);
                 soundEngine.playClick(800);
               }}
-              className="min-h-[46px] px-5 py-3 rounded-xl bg-slate-950 hover:bg-slate-900 border border-slate-700 text-slate-300 hover:text-white font-bold active:scale-95 transition-all flex items-center justify-center space-x-1.5 cursor-pointer"
+              className="min-h-[46px] px-5 py-3 rounded-xl bg-emerald-950 hover:bg-emerald-900 border border-emerald-700 text-emerald-200 hover:text-white font-bold active:scale-95 transition-all flex items-center justify-center space-x-1.5 cursor-pointer"
             >
               <HelpCircle className="w-4 h-4 text-amber-400" />
               <span>শর্তাবলী দেখুন</span>
@@ -431,44 +430,44 @@ export const PromotionHub: React.FC<PromotionHubProps> = ({
           </div>
         </div>
 
-        {/* Right Column (38.2% Daily Rewards Snapshot) */}
-        <div className="lg:col-span-5 golden-ratio-card rounded-[28px] p-5 sm:p-7 relative overflow-hidden flex flex-col justify-between bg-gradient-to-br from-[#0c1220] to-[#05070d]">
+        {/* Right Column: Daily Rewards Snapshot */}
+        <div className="lg:col-span-5 rounded-2xl p-5 sm:p-7 relative overflow-hidden flex flex-col justify-between bg-gradient-to-br from-emerald-950 via-emerald-900 to-[#02180e] border-2 border-emerald-600/40 shadow-xl">
           <div className="space-y-3 font-mono">
-            <div className="flex items-center justify-between border-b border-slate-800 pb-3">
+            <div className="flex items-center justify-between border-b border-emerald-800 pb-3">
               <div className="flex items-center space-x-2">
                 <Calendar className="w-4 h-4 text-amber-400" />
                 <h2 className="text-sm font-bold text-white uppercase">৭-দিনের ডেইলি স্ট্রিক</h2>
               </div>
-              <span className="px-2.5 py-0.5 rounded-full bg-amber-500/20 text-amber-300 text-[10px] font-bold border border-amber-500/30">
+              <span className="px-2.5 py-0.5 rounded-full bg-amber-400/20 text-amber-300 text-[10px] font-bold border border-amber-400/40">
                 DAY {currentStreak}/7
               </span>
             </div>
 
-            <div className="p-3 bg-slate-950/80 rounded-2xl border border-slate-800 space-y-2">
+            <div className="p-3 bg-emerald-950/80 rounded-xl border border-emerald-700/60 space-y-2">
               <div className="flex justify-between items-center text-xs">
-                <span className="text-slate-400">আজকের নিশ্চিত রিওয়ার্ড:</span>
-                <span className="text-emerald-400 font-bold text-sm">
+                <span className="text-emerald-200/80">আজকের নিশ্চিত রিওয়ার্ড:</span>
+                <span className="text-amber-300 font-bold text-sm">
                   ৳{DAILY_CHECKIN_REWARDS[currentStreak - 1]?.reward || 150} বোনাস
                 </span>
               </div>
               <div className="flex justify-between items-center text-xs">
-                <span className="text-slate-400">পরবর্তী গ্র্যান্ড প্রাইজ:</span>
+                <span className="text-emerald-200/80">পরবর্তী গ্র্যান্ড প্রাইজ:</span>
                 <span className="text-amber-300 font-bold">৳১,০০০ + লাকি টিকিট</span>
               </div>
             </div>
 
-            <div className="p-3 bg-purple-500/10 rounded-2xl border border-purple-500/30 flex items-center justify-between text-xs">
+            <div className="p-3 bg-emerald-900/60 rounded-xl border border-emerald-700/60 flex items-center justify-between text-xs">
               <div className="flex items-center space-x-2">
-                <Crown className="w-4 h-4 text-purple-400 shrink-0" />
-                <span className="text-slate-200">লাকি ফরচুন হুইল স্পিন বাকি:</span>
+                <Crown className="w-4 h-4 text-amber-400 shrink-0" />
+                <span className="text-emerald-200">লাকি ফরচুন হুইল স্পিন বাকি:</span>
               </div>
-              <span className="px-2 py-0.5 rounded-lg bg-purple-500/30 text-purple-300 font-bold">
+              <span className="px-2 py-0.5 rounded-lg bg-amber-400 text-slate-950 font-bold">
                 {spinsRemaining} স্পিন
               </span>
             </div>
           </div>
 
-          <div className="grid grid-cols-2 gap-2.5 pt-4 mt-2 border-t border-slate-800/80 font-mono text-xs">
+          <div className="grid grid-cols-2 gap-2.5 pt-4 mt-2 border-t border-emerald-800/80 font-mono text-xs">
             <button
               onClick={handleCheckIn}
               disabled={hasCheckedInToday || checkInLoading}
@@ -483,9 +482,9 @@ export const PromotionHub: React.FC<PromotionHubProps> = ({
                 soundEngine.playClick(850);
                 setActiveTab('STREAK_WHEEL');
               }}
-              className="py-3 px-3 rounded-xl bg-slate-900 hover:bg-slate-800 border border-slate-700 text-purple-300 font-bold active:scale-95 transition-all flex items-center justify-center space-x-1.5 cursor-pointer"
+              className="py-3 px-3 rounded-xl bg-emerald-950 hover:bg-emerald-900 border border-emerald-700 text-amber-300 font-bold active:scale-95 transition-all flex items-center justify-center space-x-1.5 cursor-pointer"
             >
-              <RotateCcw className="w-4 h-4 text-purple-400" />
+              <RotateCcw className="w-4 h-4 text-amber-400" />
               <span>ফরচুন স্পিন</span>
             </button>
           </div>
@@ -493,8 +492,8 @@ export const PromotionHub: React.FC<PromotionHubProps> = ({
 
       </div>
 
-      {/* 2. TABBED NAVIGATION (Offers / Lucky Spin & Streak / Missions / Turnover) */}
-      <div className="flex items-center space-x-2 bg-slate-950 p-1.5 rounded-2xl border border-slate-800 font-mono text-xs overflow-x-auto scrollbar-none">
+      {/* 2. TABBED NAVIGATION */}
+      <div className="flex items-center space-x-2 bg-emerald-950/80 p-1.5 rounded-2xl border border-emerald-700/60 font-mono text-xs overflow-x-auto scrollbar-none">
         <button
           onClick={() => {
             soundEngine.playClick(750);
@@ -503,7 +502,7 @@ export const PromotionHub: React.FC<PromotionHubProps> = ({
           className={`min-h-[42px] px-4 py-2 rounded-xl font-bold flex items-center space-x-2 transition-all cursor-pointer whitespace-nowrap ${
             activeTab === 'OFFERS'
               ? 'bg-gradient-to-r from-amber-400 via-yellow-400 to-amber-500 text-slate-950 font-black shadow-md'
-              : 'text-slate-400 hover:text-white'
+              : 'text-emerald-200 hover:text-white'
           }`}
         >
           <Gift className="w-3.5 h-3.5" />
@@ -518,7 +517,7 @@ export const PromotionHub: React.FC<PromotionHubProps> = ({
           className={`min-h-[42px] px-4 py-2 rounded-xl font-bold flex items-center space-x-2 transition-all cursor-pointer whitespace-nowrap ${
             activeTab === 'STREAK_WHEEL'
               ? 'bg-gradient-to-r from-amber-400 via-yellow-400 to-amber-500 text-slate-950 font-black shadow-md'
-              : 'text-slate-400 hover:text-white'
+              : 'text-emerald-200 hover:text-white'
           }`}
         >
           <RotateCcw className="w-3.5 h-3.5" />
@@ -533,7 +532,7 @@ export const PromotionHub: React.FC<PromotionHubProps> = ({
           className={`min-h-[42px] px-4 py-2 rounded-xl font-bold flex items-center space-x-2 transition-all cursor-pointer whitespace-nowrap ${
             activeTab === 'MISSIONS'
               ? 'bg-gradient-to-r from-amber-400 via-yellow-400 to-amber-500 text-slate-950 font-black shadow-md'
-              : 'text-slate-400 hover:text-white'
+              : 'text-emerald-200 hover:text-white'
           }`}
         >
           <Target className="w-3.5 h-3.5" />
@@ -548,7 +547,7 @@ export const PromotionHub: React.FC<PromotionHubProps> = ({
           className={`min-h-[42px] px-4 py-2 rounded-xl font-bold flex items-center space-x-2 transition-all cursor-pointer whitespace-nowrap ${
             activeTab === 'TURNOVER'
               ? 'bg-gradient-to-r from-amber-400 via-yellow-400 to-amber-500 text-slate-950 font-black shadow-md'
-              : 'text-slate-400 hover:text-white'
+              : 'text-emerald-200 hover:text-white'
           }`}
         >
           <TrendingUp className="w-3.5 h-3.5" />
@@ -588,12 +587,12 @@ export const PromotionHub: React.FC<PromotionHubProps> = ({
             ))}
           </div>
 
-          {/* Promotional Offer Cards Grid (Proportional Harmony) */}
+          {/* Promotional Offer Cards Grid */}
           <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-5">
             {filteredOffers.map((offer) => (
               <div
                 key={offer.id}
-                className="golden-ratio-card rounded-3xl p-5 sm:p-6 flex flex-col justify-between relative overflow-hidden transition-all duration-300 hover:border-amber-500/50 hover:shadow-xl hover:shadow-amber-500/10 group"
+                className="rounded-2xl bg-gradient-to-b from-emerald-950 via-emerald-900/60 to-[#02180e] border-2 border-emerald-600/40 p-5 sm:p-6 flex flex-col justify-between relative overflow-hidden transition-all duration-300 hover:border-amber-400 hover:shadow-xl hover:shadow-emerald-900/40 group shadow-md"
               >
                 <div className="space-y-3">
                   {/* Top Badge & Code */}
@@ -601,7 +600,7 @@ export const PromotionHub: React.FC<PromotionHubProps> = ({
                     <span className={`px-2.5 py-1 rounded-full text-[10px] font-mono font-bold ${offer.badgeColor}`}>
                       {offer.badge}
                     </span>
-                    <span className="font-mono text-[10px] text-slate-500 bg-slate-950 px-2 py-0.5 rounded-lg border border-slate-800">
+                    <span className="font-mono text-[10px] text-emerald-300 bg-emerald-950 px-2 py-0.5 rounded-lg border border-emerald-700/60">
                       {offer.claimCode}
                     </span>
                   </div>
@@ -611,40 +610,40 @@ export const PromotionHub: React.FC<PromotionHubProps> = ({
                     <h3 className="text-base sm:text-lg font-black text-white group-hover:text-amber-300 transition-colors leading-snug">
                       {offer.title}
                     </h3>
-                    <p className="text-xs text-slate-400 font-sans mt-1 leading-relaxed">
+                    <p className="text-xs text-emerald-200/80 font-sans mt-1 leading-relaxed">
                       {offer.subtitle}
                     </p>
                   </div>
 
                   {/* Highlight Bonus Value */}
-                  <div className="p-3 bg-[#05070d] rounded-2xl border border-slate-800/80 font-mono flex items-center justify-between">
-                    <span className="text-slate-400 text-xs">বোনাস পরিমাণ:</span>
+                  <div className="p-3 bg-emerald-950/90 rounded-xl border border-emerald-700/60 font-mono flex items-center justify-between">
+                    <span className="text-emerald-200/80 text-xs">বোনাস পরিমাণ:</span>
                     <span className="text-sm font-black text-transparent bg-gradient-to-r from-yellow-300 via-amber-300 to-yellow-400 bg-clip-text">
                       {offer.bonusAmount}
                     </span>
                   </div>
 
                   {/* Meta Details */}
-                  <div className="grid grid-cols-2 gap-2 text-[11px] font-mono text-slate-300 pt-1">
-                    <div className="bg-slate-950/60 p-2 rounded-xl border border-slate-800">
-                      <span className="text-[10px] text-slate-500 block">টার্নওভার</span>
+                  <div className="grid grid-cols-2 gap-2 text-[11px] font-mono text-emerald-200 pt-1">
+                    <div className="bg-emerald-950/80 p-2 rounded-xl border border-emerald-700/60">
+                      <span className="text-[10px] text-emerald-400/80 block">টার্নওভার</span>
                       <span className="font-bold text-amber-300">{offer.turnover}</span>
                     </div>
-                    <div className="bg-slate-950/60 p-2 rounded-xl border border-slate-800">
-                      <span className="text-[10px] text-slate-500 block">মিনিমাম ডিপোজিট</span>
-                      <span className="font-bold text-emerald-400">{offer.minDeposit}</span>
+                    <div className="bg-emerald-950/80 p-2 rounded-xl border border-emerald-700/60">
+                      <span className="text-[10px] text-emerald-400/80 block">মিনিমাম ডিপোজিট</span>
+                      <span className="font-bold text-amber-300">{offer.minDeposit}</span>
                     </div>
                   </div>
                 </div>
 
                 {/* Bottom Card Actions */}
-                <div className="grid grid-cols-2 gap-2 pt-4 mt-3 border-t border-slate-800/80 font-mono text-xs">
+                <div className="grid grid-cols-2 gap-2 pt-4 mt-3 border-t border-emerald-800/80 font-mono text-xs">
                   <button
                     onClick={() => {
                       soundEngine.playClick(800);
                       setSelectedOffer(offer);
                     }}
-                    className="py-2.5 rounded-xl bg-slate-950 hover:bg-slate-900 border border-slate-800 text-slate-300 hover:text-white font-bold transition-all flex items-center justify-center space-x-1 cursor-pointer"
+                    className="py-2.5 rounded-xl bg-emerald-950 hover:bg-emerald-900 border border-emerald-700 text-emerald-200 hover:text-white font-bold transition-all flex items-center justify-center space-x-1 cursor-pointer"
                   >
                     <HelpCircle className="w-3.5 h-3.5 text-amber-400" />
                     <span>শর্তাবলী</span>
@@ -672,8 +671,8 @@ export const PromotionHub: React.FC<PromotionHubProps> = ({
         <div className="grid grid-cols-1 lg:grid-cols-12 gap-6 items-stretch">
           
           {/* Left Column (6-cols): 7-Day Daily Check-In Streak */}
-          <div className="lg:col-span-6 golden-ratio-card rounded-3xl p-5 sm:p-7 space-y-4 font-mono text-xs flex flex-col justify-between">
-            <div className="flex items-center justify-between border-b border-slate-800 pb-3">
+          <div className="lg:col-span-6 rounded-2xl bg-gradient-to-b from-emerald-950 via-emerald-900/60 to-[#02180e] border-2 border-emerald-600/40 p-5 sm:p-7 space-y-4 font-mono text-xs flex flex-col justify-between shadow-xl">
+            <div className="flex items-center justify-between border-b border-emerald-800 pb-3">
               <div className="flex items-center space-x-2">
                 <Calendar className="w-4 h-4 text-amber-400" />
                 <h2 className="text-sm font-bold text-white uppercase">৭-দিনের ধারাবাহিক চেক-ইন স্ট্রিক</h2>
@@ -681,7 +680,7 @@ export const PromotionHub: React.FC<PromotionHubProps> = ({
               <span className="text-[11px] text-amber-300 font-bold">Streak: Day {currentStreak}/7</span>
             </div>
 
-            <p className="text-slate-300 font-sans text-xs leading-relaxed">
+            <p className="text-emerald-200/90 font-sans text-xs leading-relaxed">
               প্রতিদিন লগইন করে রিওয়ার্ড ক্লেইম করুন। ৭ম দিনে পৌঁছালে নিশ্চিত পাবেন ৳১,০০০ গ্র্যান্ড রিওয়ার্ড এবং ভিআইপি লাকি স্পিন টিকিট।
             </p>
 
@@ -696,10 +695,10 @@ export const PromotionHub: React.FC<PromotionHubProps> = ({
                     key={item.day}
                     className={`relative p-2.5 rounded-2xl border text-center transition-all flex flex-col justify-between ${
                       isClaimed
-                        ? 'bg-emerald-500/15 border-emerald-500/40 text-emerald-300'
+                        ? 'bg-emerald-500/20 border-emerald-500/50 text-emerald-300'
                         : isToday
-                        ? 'bg-amber-500/20 border-amber-500 shadow-md shadow-amber-500/20 text-white animate-pulse'
-                        : 'bg-slate-950/70 border-slate-800 text-slate-500'
+                        ? 'bg-amber-500/20 border-amber-400 shadow-md shadow-amber-500/20 text-white animate-pulse'
+                        : 'bg-emerald-950/70 border-emerald-800 text-emerald-500'
                     }`}
                   >
                     <div className="text-[10px] font-bold">ডে {item.day}</div>
@@ -714,7 +713,7 @@ export const PromotionHub: React.FC<PromotionHubProps> = ({
                           আজকের
                         </span>
                       ) : (
-                        <Lock className="w-3.5 h-3.5 mx-auto text-slate-700" />
+                        <Lock className="w-3.5 h-3.5 mx-auto text-emerald-700" />
                       )}
                     </div>
                   </div>
@@ -739,13 +738,13 @@ export const PromotionHub: React.FC<PromotionHubProps> = ({
           </div>
 
           {/* Right Column (6-cols): Lucky Fortune Wheel */}
-          <div className="lg:col-span-6 golden-ratio-card rounded-3xl p-5 sm:p-7 space-y-4 font-mono text-xs flex flex-col justify-between">
-            <div className="flex items-center justify-between border-b border-slate-800 pb-3">
+          <div className="lg:col-span-6 rounded-2xl bg-gradient-to-b from-emerald-950 via-emerald-900/60 to-[#02180e] border-2 border-emerald-600/40 p-5 sm:p-7 space-y-4 font-mono text-xs flex flex-col justify-between shadow-xl">
+            <div className="flex items-center justify-between border-b border-emerald-800 pb-3">
               <div className="flex items-center space-x-2">
-                <RotateCcw className="w-4 h-4 text-purple-400" />
+                <RotateCcw className="w-4 h-4 text-amber-400" />
                 <h2 className="text-sm font-bold text-white uppercase">লাকি ফরচুন হুইল (Spin &amp; Win)</h2>
               </div>
-              <span className="text-[10px] text-purple-300 font-bold">100% Provably Fair RNG</span>
+              <span className="text-[10px] text-amber-300 font-bold">100% Provably Fair RNG</span>
             </div>
 
             {/* Wheel Graphic Container */}
@@ -755,14 +754,14 @@ export const PromotionHub: React.FC<PromotionHubProps> = ({
 
               {/* Rotating Wheel Disk */}
               <div
-                className="w-52 h-52 sm:w-60 sm:h-60 rounded-full border-4 border-amber-400/80 shadow-2xl relative overflow-hidden transition-transform duration-[3500ms] ease-out flex items-center justify-center"
+                className="w-52 h-52 sm:w-60 sm:h-60 rounded-full border-4 border-amber-400 shadow-2xl relative overflow-hidden transition-transform duration-[3500ms] ease-out flex items-center justify-center"
                 style={{
                   transform: `rotate(${wheelRotation}deg)`,
-                  background: 'conic-gradient(#f59e0b 0deg 45deg, #06b6d4 45deg 90deg, #a855f7 90deg 135deg, #10b981 135deg 180deg, #3b82f6 180deg 225deg, #ec4899 225deg 270deg, #eab308 270deg 315deg, #6366f1 315deg 360deg)'
+                  background: 'conic-gradient(#059669 0deg 45deg, #f59e0b 45deg 90deg, #047857 90deg 135deg, #eab308 135deg 180deg, #10b981 180deg 225deg, #d97706 225deg 270deg, #065f46 270deg 315deg, #fbbf24 315deg 360deg)'
                 }}
               >
                 {/* Center Cap */}
-                <div className="w-14 h-14 rounded-full bg-slate-950 border-2 border-amber-400 flex items-center justify-center z-10 shadow-xl">
+                <div className="w-14 h-14 rounded-full bg-emerald-950 border-2 border-amber-400 flex items-center justify-center z-10 shadow-xl">
                   <Crown className="w-5 h-5 text-amber-400" />
                 </div>
               </div>
@@ -771,7 +770,7 @@ export const PromotionHub: React.FC<PromotionHubProps> = ({
             {/* Spin Result & Action */}
             <div className="space-y-2">
               {wonPrize && (
-                <div className="p-3 bg-purple-500/20 border border-purple-500/40 rounded-xl text-center text-purple-300 font-bold animate-pulse">
+                <div className="p-3 bg-amber-400/20 border border-amber-400/40 rounded-xl text-center text-amber-300 font-bold animate-pulse">
                   🎉 আপনি জিতেছেন: {wonPrize.label}!
                 </div>
               )}
@@ -779,7 +778,7 @@ export const PromotionHub: React.FC<PromotionHubProps> = ({
               <button
                 onClick={handleSpinWheel}
                 disabled={spinning || spinsRemaining <= 0}
-                className="w-full min-h-[48px] py-3 rounded-2xl bg-gradient-to-r from-purple-500 via-pink-500 to-amber-500 text-white font-black text-xs shadow-lg shadow-purple-500/25 hover:scale-[1.01] active:scale-[0.99] disabled:opacity-50 transition-all flex items-center justify-center space-x-2 cursor-pointer"
+                className="w-full min-h-[48px] py-3 rounded-2xl bg-gradient-to-r from-amber-400 via-yellow-400 to-amber-500 text-slate-950 font-black text-xs shadow-lg shadow-amber-500/25 hover:scale-[1.01] active:scale-[0.99] disabled:opacity-50 transition-all flex items-center justify-center space-x-2 cursor-pointer"
               >
                 <RotateCcw className={`w-4 h-4 ${spinning ? 'animate-spin' : ''}`} />
                 <span>{spinning ? 'হুইল ঘুরছে...' : `স্পিন করুন (${spinsRemaining} স্পিন বাকি)`}</span>
@@ -824,25 +823,25 @@ export const PromotionHub: React.FC<PromotionHubProps> = ({
               initial={{ scale: 0.95, opacity: 0 }}
               animate={{ scale: 1, opacity: 1 }}
               exit={{ scale: 0.95, opacity: 0 }}
-              className="bg-[#080d1a] border border-amber-500/40 rounded-[28px] max-w-xl w-full p-6 sm:p-8 space-y-5 shadow-2xl relative overflow-hidden font-sans text-slate-100 max-h-[90vh] overflow-y-auto"
+              className="bg-emerald-950 border-2 border-amber-400/60 rounded-[28px] max-w-xl w-full p-6 sm:p-8 space-y-5 shadow-2xl relative overflow-hidden font-sans text-slate-100 max-h-[90vh] overflow-y-auto"
             >
               {/* Close Button */}
               <button
                 onClick={() => setSelectedOffer(null)}
-                className="absolute top-5 right-5 p-2 rounded-full bg-slate-900 text-slate-400 hover:text-white border border-slate-800 transition-colors"
+                className="absolute top-5 right-5 p-2 rounded-full bg-emerald-900 text-emerald-300 hover:text-white border border-emerald-700 transition-colors"
               >
                 <X className="w-5 h-5" />
               </button>
 
               {/* Modal Header */}
-              <div className="space-y-1.5 border-b border-slate-800 pb-4">
+              <div className="space-y-1.5 border-b border-emerald-800 pb-4">
                 <span className={`px-2.5 py-0.5 rounded-full text-[10px] font-mono font-bold ${selectedOffer.badgeColor}`}>
                   {selectedOffer.badge}
                 </span>
                 <h2 className="text-xl sm:text-2xl font-black text-white mt-1">
                   {selectedOffer.title}
                 </h2>
-                <p className="text-xs text-slate-400">
+                <p className="text-xs text-emerald-200">
                   অফার কোড: <strong className="text-amber-300 font-mono">{selectedOffer.claimCode}</strong>
                 </p>
               </div>

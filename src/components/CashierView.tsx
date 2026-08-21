@@ -332,62 +332,61 @@ export const CashierView: React.FC<CashierViewProps> = ({
       transition={{ duration: 0.35, ease: 'easeOut' }}
       className="max-w-7xl mx-auto px-3 sm:px-6 lg:px-8 py-4 sm:py-6 space-y-6 pb-28 font-sans text-slate-100 selection:bg-amber-400 selection:text-slate-950"
     >
-      {/* 1. MASTER VAULT HEADER & BALANCE SUMMARY (Harmonious Visual Split) */}
+      {/* 1. MASTER VAULT HEADER & BALANCE SUMMARY */}
       <div className="grid grid-cols-1 lg:grid-cols-12 gap-5 items-stretch">
         
         {/* Left Column: Quick Header & Trust Status */}
-        <div className="lg:col-span-7 golden-ratio-card rounded-[28px] p-5 sm:p-7 relative overflow-hidden flex flex-col justify-between">
+        <div className="lg:col-span-7 rounded-2xl bg-gradient-to-br from-emerald-900 via-emerald-950 to-emerald-900 border-2 border-amber-400/50 p-5 sm:p-7 relative overflow-hidden flex flex-col justify-between shadow-xl">
           <div className="absolute top-0 right-0 w-64 h-64 bg-amber-400/10 rounded-full blur-3xl pointer-events-none" />
-          <div className="absolute top-0 left-8 right-8 h-[1.5px] bg-gradient-to-r from-transparent via-amber-400/50 to-transparent" />
 
-          <div className="space-y-3">
-            <div className="inline-flex items-center space-x-2 px-3.5 py-1 rounded-full bg-amber-500/15 border border-amber-400/40 text-amber-300 text-xs font-mono font-bold">
-              <CreditCard className="w-3.5 h-3.5" />
+          <div className="space-y-3 relative z-10">
+            <div className="inline-flex items-center space-x-2 px-3.5 py-1 rounded-full bg-amber-400/20 border border-amber-400/40 text-amber-300 text-xs font-mono font-bold">
+              <CreditCard className="w-3.5 h-3.5 text-amber-400" />
               <span>নিরাপদ ক্যাশিয়ার ও পেমেন্ট গেটওয়ে</span>
             </div>
 
             <h1 className="text-xl sm:text-3xl font-black text-white tracking-tight">
               ইনস্ট্যান্ট ডিপোজিট ও দ্রুত ক্যাশ-আউট ভল্ট
             </h1>
-            <p className="text-xs sm:text-sm text-slate-300 leading-relaxed font-sans">
+            <p className="text-xs sm:text-sm text-emerald-200/90 leading-relaxed font-sans">
               বিকাশ, নগদ, রকেট, উপায় এবং ইউএসডিটিতে ০% ফি-তে স্বয়ংক্রিয় ডিপোজিট সম্পন্ন করুন।
             </p>
           </div>
 
           {/* Speed Guarantees */}
-          <div className="grid grid-cols-3 gap-2.5 pt-4 mt-2 border-t border-slate-800/80 font-mono text-[11px]">
-            <div className="p-2.5 bg-slate-950/80 rounded-xl border border-slate-800">
-              <div className="text-emerald-400 font-bold flex items-center space-x-1">
+          <div className="grid grid-cols-3 gap-2.5 pt-4 mt-2 border-t border-emerald-800/80 font-mono text-[11px] relative z-10">
+            <div className="p-2.5 bg-emerald-950/90 rounded-xl border border-emerald-700/60">
+              <div className="text-emerald-300 font-bold flex items-center space-x-1">
                 <Zap className="w-3.5 h-3.5" />
                 <span>০-৪ সেক স্পিড</span>
               </div>
-              <div className="text-slate-400 text-[10px] mt-0.5">অটোমেটিক ব্যালেন্স ক্রেডিট</div>
+              <div className="text-emerald-300/80 text-[10px] mt-0.5">অটোমেটিক ব্যালেন্স ক্রেডিট</div>
             </div>
 
-            <div className="p-2.5 bg-slate-950/80 rounded-xl border border-slate-800">
+            <div className="p-2.5 bg-emerald-950/90 rounded-xl border border-emerald-700/60">
               <div className="text-amber-300 font-bold flex items-center space-x-1">
                 <ShieldCheck className="w-3.5 h-3.5" />
                 <span>০% কমিশন ফি</span>
               </div>
-              <div className="text-slate-400 text-[10px] mt-0.5">১০০% ফ্রি ট্রানজেকশন</div>
+              <div className="text-emerald-300/80 text-[10px] mt-0.5">১০০% ফ্রি ট্রানজেকশন</div>
             </div>
 
-            <div className="p-2.5 bg-slate-950/80 rounded-xl border border-slate-800">
-              <div className="text-cyan-400 font-bold flex items-center space-x-1">
+            <div className="p-2.5 bg-emerald-950/90 rounded-xl border border-emerald-700/60">
+              <div className="text-amber-300 font-bold flex items-center space-x-1">
                 <Lock className="w-3.5 h-3.5" />
                 <span>256-Bit SSL</span>
               </div>
-              <div className="text-slate-400 text-[10px] mt-0.5">এনক্রিপ্টেড পেমেন্ট গেটওয়ে</div>
+              <div className="text-emerald-300/80 text-[10px] mt-0.5">এনক্রিপ্টেড পেমেন্ট গেটওয়ে</div>
             </div>
           </div>
         </div>
 
         {/* Right Column: Real-time Balance Box */}
-        <div className="lg:col-span-5 golden-ratio-card rounded-[28px] p-5 sm:p-7 relative overflow-hidden flex flex-col justify-between bg-gradient-to-br from-[#0c1220] to-[#05070d]">
+        <div className="lg:col-span-5 rounded-2xl p-5 sm:p-7 relative overflow-hidden flex flex-col justify-between bg-gradient-to-br from-emerald-950 via-emerald-900 to-[#02180e] border-2 border-emerald-600/40 shadow-xl">
           <div className="space-y-3 font-mono">
-            <div className="flex items-center justify-between text-xs text-slate-400">
+            <div className="flex items-center justify-between text-xs text-emerald-300">
               <span className="uppercase font-bold tracking-wider">উপলব্ধ রিয়াল ব্যালেন্স</span>
-              <span className="px-2 py-0.5 rounded-full bg-emerald-500/20 text-emerald-300 text-[10px] font-bold border border-emerald-500/30">
+              <span className="px-2 py-0.5 rounded-full bg-emerald-500/20 text-emerald-300 text-[10px] font-bold border border-emerald-500/40">
                 ACTIVE
               </span>
             </div>
@@ -399,31 +398,31 @@ export const CashierView: React.FC<CashierViewProps> = ({
             </div>
 
             <div className="grid grid-cols-2 gap-2 pt-2 text-xs">
-              <div className="bg-slate-950/80 p-2.5 rounded-xl border border-slate-800">
-                <span className="text-[10px] text-slate-400">বোনাস ফান্ড</span>
-                <div className="text-emerald-400 font-bold mt-0.5">
+              <div className="bg-emerald-950/80 p-2.5 rounded-xl border border-emerald-700/60">
+                <span className="text-[10px] text-emerald-300/80">বোনাস ফান্ড</span>
+                <div className="text-amber-300 font-bold mt-0.5">
                   {currentUser.currency === 'BDT' ? '৳' : '$'}{Number(currentWallet?.bonus_balance || 0).toFixed(2)}
                 </div>
               </div>
-              <div className="bg-slate-950/80 p-2.5 rounded-xl border border-slate-800">
-                <span className="text-[10px] text-slate-400">লকড ওয়েজার</span>
-                <div className="text-slate-300 font-bold mt-0.5">
+              <div className="bg-emerald-950/80 p-2.5 rounded-xl border border-emerald-700/60">
+                <span className="text-[10px] text-emerald-300/80">লকড ওয়েজার</span>
+                <div className="text-emerald-200 font-bold mt-0.5">
                   {currentUser.currency === 'BDT' ? '৳' : '$'}{Number(currentWallet?.locked_balance || 0).toFixed(2)}
                 </div>
               </div>
             </div>
           </div>
 
-          <div className="flex items-center justify-between pt-4 mt-2 border-t border-slate-800/80 text-[11px] font-mono text-slate-400">
+          <div className="flex items-center justify-between pt-4 mt-2 border-t border-emerald-800/80 text-[11px] font-mono text-emerald-300">
             <span>দৈনিক উত্তোলন সীমা: <strong>{currentUser.currency === 'BDT' ? '৳৫০,০০,০০০' : '$50,000'}</strong></span>
-            <span className="text-amber-400 font-bold">ভিআইপি আনলিমিটেড</span>
+            <span className="text-amber-300 font-bold">ভিআইপি আনলিমিটেড</span>
           </div>
         </div>
 
       </div>
 
-      {/* 2. MODE NAVIGATION TABS (Deposit / Withdrawal / History) */}
-      <div className="flex items-center space-x-2 bg-slate-950 p-1.5 rounded-2xl border border-slate-800 font-mono text-xs overflow-x-auto scrollbar-none">
+      {/* 2. MODE NAVIGATION TABS */}
+      <div className="flex items-center space-x-2 bg-emerald-950/80 p-1.5 rounded-2xl border border-emerald-700/60 font-mono text-xs overflow-x-auto scrollbar-none">
         <button
           onClick={() => {
             soundEngine.playClick(850);
@@ -434,7 +433,7 @@ export const CashierView: React.FC<CashierViewProps> = ({
           className={`flex-1 min-h-[44px] px-4 py-2.5 rounded-xl font-bold flex items-center justify-center space-x-2 transition-all active:scale-95 cursor-pointer whitespace-nowrap ${
             activeMode === 'DEPOSIT'
               ? 'bg-gradient-to-r from-amber-400 via-yellow-400 to-amber-500 text-slate-950 font-black shadow-lg shadow-amber-500/25'
-              : 'text-slate-400 hover:text-white'
+              : 'text-emerald-200 hover:text-white'
           }`}
         >
           <ArrowUpRight className="w-4 h-4 stroke-[2.5]" />
@@ -451,10 +450,10 @@ export const CashierView: React.FC<CashierViewProps> = ({
           className={`flex-1 min-h-[44px] px-4 py-2.5 rounded-xl font-bold flex items-center justify-center space-x-2 transition-all active:scale-95 cursor-pointer whitespace-nowrap ${
             activeMode === 'WITHDRAWAL'
               ? 'bg-gradient-to-r from-amber-400 via-yellow-400 to-amber-500 text-slate-950 font-black shadow-lg shadow-amber-500/25'
-              : 'text-slate-400 hover:text-white'
+              : 'text-emerald-200 hover:text-white'
           }`}
         >
-          <ArrowDownLeft className="w-4 h-4 text-emerald-400 stroke-[2.5]" />
+          <ArrowDownLeft className="w-4 h-4 stroke-[2.5]" />
           <span>ক্যাশ-আউট (Withdrawal)</span>
         </button>
 
@@ -467,8 +466,8 @@ export const CashierView: React.FC<CashierViewProps> = ({
           }}
           className={`min-h-[44px] px-5 py-2.5 rounded-xl font-bold flex items-center justify-center space-x-2 transition-all active:scale-95 cursor-pointer whitespace-nowrap ${
             activeMode === 'HISTORY'
-              ? 'bg-slate-800 text-cyan-300 border border-cyan-500/40 font-black shadow-md'
-              : 'text-slate-400 hover:text-white'
+              ? 'bg-amber-400 text-slate-950 font-black shadow-md'
+              : 'text-emerald-200 hover:text-white'
           }`}
         >
           <Receipt className="w-4 h-4" />
@@ -478,52 +477,52 @@ export const CashierView: React.FC<CashierViewProps> = ({
 
       {/* Error Alert */}
       {errorMsg && (
-        <div className="p-4 bg-red-500/10 border border-red-500/30 rounded-2xl text-red-400 text-xs font-mono flex items-center space-x-2 animate-in fade-in">
-          <AlertCircle className="w-4 h-4 shrink-0" />
+        <div className="p-4 bg-red-500/10 border border-red-500/30 rounded-2xl text-red-300 text-xs font-mono flex items-center space-x-2 animate-in fade-in">
+          <AlertCircle className="w-4 h-4 shrink-0 text-red-400" />
           <span>{errorMsg}</span>
         </div>
       )}
 
       {/* Success Receipt Modal / Card */}
       {successReceipt && (
-        <div className="golden-ratio-card border-2 border-emerald-500/50 rounded-3xl p-6 text-white space-y-4 shadow-2xl animate-in zoom-in-95">
-          <div className="flex items-center justify-between border-b border-emerald-500/30 pb-3">
-            <div className="flex items-center space-x-2 text-emerald-400 font-bold font-mono text-sm">
-              <CheckCircle2 className="w-5 h-5" />
+        <div className="rounded-2xl bg-gradient-to-br from-emerald-950 via-emerald-900 to-emerald-950 border-2 border-amber-400/80 rounded-3xl p-6 text-white space-y-4 shadow-2xl animate-in zoom-in-95">
+          <div className="flex items-center justify-between border-b border-emerald-700/60 pb-3">
+            <div className="flex items-center space-x-2 text-amber-300 font-bold font-mono text-sm">
+              <CheckCircle2 className="w-5 h-5 text-amber-400" />
               <span>{successReceipt.type} রিকোয়েস্ট নিশ্চিত সম্পন্ন হয়েছে!</span>
             </div>
-            <span className="px-3 py-1 rounded-full text-xs font-mono font-bold bg-emerald-500/20 text-emerald-300 border border-emerald-500/30">
+            <span className="px-3 py-1 rounded-full text-xs font-mono font-bold bg-amber-400/20 text-amber-300 border border-amber-400/40">
               STATUS: {successReceipt.status}
             </span>
           </div>
 
           <div className="grid grid-cols-2 sm:grid-cols-4 gap-4 font-mono text-xs">
-            <div className="bg-slate-950/80 p-3 rounded-xl border border-slate-800">
-              <span className="text-slate-400 text-[10px]">রিকোয়েস্ট আইডি</span>
+            <div className="bg-emerald-950/80 p-3 rounded-xl border border-emerald-700/60">
+              <span className="text-emerald-300/80 text-[10px]">রিকোয়েস্ট আইডি</span>
               <div className="font-bold text-white mt-0.5 truncate">{successReceipt.id}</div>
             </div>
-            <div className="bg-slate-950/80 p-3 rounded-xl border border-slate-800">
-              <span className="text-slate-400 text-[10px]">পেমেন্ট মেথড</span>
+            <div className="bg-emerald-950/80 p-3 rounded-xl border border-emerald-700/60">
+              <span className="text-emerald-300/80 text-[10px]">পেমেন্ট মেথড</span>
               <div className="font-bold text-amber-300 mt-0.5">{successReceipt.method}</div>
             </div>
-            <div className="bg-slate-950/80 p-3 rounded-xl border border-slate-800">
-              <span className="text-slate-400 text-[10px]">টাকার পরিমাণ</span>
-              <div className="font-black text-emerald-400 text-sm mt-0.5">
+            <div className="bg-emerald-950/80 p-3 rounded-xl border border-emerald-700/60">
+              <span className="text-emerald-300/80 text-[10px]">টাকার পরিমাণ</span>
+              <div className="font-black text-amber-300 text-sm mt-0.5">
                 {successReceipt.currency === 'BDT' ? '৳' : '$'} {successReceipt.amount.toLocaleString()}
               </div>
             </div>
-            <div className="bg-slate-950/80 p-3 rounded-xl border border-slate-800">
-              <span className="text-slate-400 text-[10px]">TrxID / হ্যাশ</span>
-              <div className="font-bold text-cyan-300 mt-0.5 truncate">{successReceipt.trx_id}</div>
+            <div className="bg-emerald-950/80 p-3 rounded-xl border border-emerald-700/60">
+              <span className="text-emerald-300/80 text-[10px]">TrxID / হ্যাশ</span>
+              <div className="font-bold text-emerald-300 mt-0.5 truncate">{successReceipt.trx_id}</div>
             </div>
           </div>
 
-          <div className="p-3 bg-slate-950/90 rounded-xl text-xs font-mono text-slate-300 border border-slate-800 flex items-center justify-between">
-            <span className="flex items-center space-x-1.5 text-emerald-400">
+          <div className="p-3 bg-emerald-950/90 rounded-xl text-xs font-mono text-emerald-200 border border-emerald-700/60 flex items-center justify-between">
+            <span className="flex items-center space-x-1.5 text-amber-300">
               <ShieldCheck className="w-4 h-4" />
               <span>{successReceipt.admin_note || 'স্বয়ংক্রিয়ভাবে ফান্ড ক্রেডিট করা হয়েছে'}</span>
             </span>
-            <span className="text-[10px] text-slate-500">
+            <span className="text-[10px] text-emerald-400">
               {new Date(successReceipt.created_at).toLocaleTimeString()}
             </span>
           </div>
@@ -531,14 +530,14 @@ export const CashierView: React.FC<CashierViewProps> = ({
       )}
 
       {/* ========================================================================= */}
-      {/* 3. DEPOSIT INTERFACE (Harmonious 61.8% Form & 38.2% Channel Selector) */}
+      {/* 3. DEPOSIT INTERFACE */}
       {/* ========================================================================= */}
       {activeMode === 'DEPOSIT' && (
         <div className="grid grid-cols-1 lg:grid-cols-12 gap-5 items-start">
           
-          {/* Left Column (38.2% Focus): Payment Channel Selector */}
+          {/* Left Column: Payment Channel Selector */}
           <div className="lg:col-span-5 space-y-3 font-mono">
-            <label className="block text-xs uppercase tracking-wider text-slate-400 font-bold px-1">
+            <label className="block text-xs uppercase tracking-wider text-emerald-300 font-bold px-1">
               ১. পেমেন্ট চ্যানেল বেছে নিন (Select Gateway)
             </label>
 
@@ -552,10 +551,10 @@ export const CashierView: React.FC<CashierViewProps> = ({
                       soundEngine.playClick(800);
                       setSelectedMethod(ch.id);
                     }}
-                    className={`w-full text-left p-3.5 sm:p-4 rounded-2xl border transition-all duration-200 flex items-center justify-between cursor-pointer active:scale-[0.98] ${
+                    className={`w-full text-left p-3.5 sm:p-4 rounded-2xl border-2 transition-all duration-200 flex items-center justify-between cursor-pointer active:scale-[0.98] ${
                       isSelected
-                        ? `bg-gradient-to-r ${ch.themeGradient} text-white border-white/40 shadow-xl shadow-amber-500/15 scale-[1.01]`
-                        : 'bg-[#080d1a] border-slate-800 hover:border-amber-500/40 text-slate-300'
+                        ? `bg-gradient-to-r ${ch.themeGradient} text-white border-amber-400 shadow-xl shadow-emerald-950/60 scale-[1.01]`
+                        : 'bg-emerald-950/80 border-emerald-700/60 hover:border-amber-400/60 text-emerald-200'
                     }`}
                   >
                     <div className="space-y-0.5">
@@ -567,7 +566,7 @@ export const CashierView: React.FC<CashierViewProps> = ({
 
                     <div className="text-right space-y-1">
                       <span className={`px-2.5 py-0.5 rounded-full text-[10px] font-mono font-bold uppercase ${
-                        isSelected ? 'bg-black/40 text-white' : 'bg-slate-900 text-slate-400 border border-slate-800'
+                        isSelected ? 'bg-black/40 text-white' : 'bg-emerald-900/80 text-emerald-300 border border-emerald-700'
                       }`}>
                         {ch.fee}
                       </span>
@@ -579,11 +578,11 @@ export const CashierView: React.FC<CashierViewProps> = ({
             </div>
           </div>
 
-          {/* Right Column (61.8% Focus): Deposit Form, Number & Instructions */}
-          <div className="lg:col-span-7 golden-ratio-card rounded-[30px] p-5 sm:p-7 space-y-5">
+          {/* Right Column: Deposit Form, Number & Instructions */}
+          <div className="lg:col-span-7 rounded-2xl bg-gradient-to-b from-emerald-950 via-emerald-900/60 to-[#02180e] border-2 border-emerald-600/40 p-5 sm:p-7 space-y-5 shadow-xl">
             
             {/* Header with Selected Channel info */}
-            <div className="border-b border-slate-800/80 pb-4 flex flex-wrap items-center justify-between gap-3">
+            <div className="border-b border-emerald-800 pb-4 flex flex-wrap items-center justify-between gap-3">
               <div>
                 <h2 className="text-base sm:text-lg font-black text-white flex items-center space-x-2">
                   <span>{activeChannel.name} ডিপোজিট</span>
@@ -591,43 +590,43 @@ export const CashierView: React.FC<CashierViewProps> = ({
                     {activeChannel.type}
                   </span>
                 </h2>
-                <p className="text-xs text-slate-400 font-mono mt-0.5">
+                <p className="text-xs text-emerald-300 font-mono mt-0.5">
                   সীমা: {currentUser.currency === 'BDT' ? `৳${activeChannel.minDepositBDT}` : `$${activeChannel.minDepositUSD}`} - {currentUser.currency === 'BDT' ? `৳${activeChannel.maxDepositBDT.toLocaleString()}` : `$${activeChannel.maxDepositUSD.toLocaleString()}`}
                 </p>
               </div>
 
               {/* Instant Credit Toggle */}
-              <div className="flex items-center space-x-2 bg-slate-950 px-3 py-1.5 rounded-xl border border-slate-800 text-xs font-mono text-slate-300">
-                <span className="text-[10px] text-slate-400">অটো-ক্রেডিট:</span>
+              <div className="flex items-center space-x-2 bg-emerald-950 px-3 py-1.5 rounded-xl border border-emerald-700 text-xs font-mono text-emerald-200">
+                <span className="text-[10px] text-emerald-400">অটো-ক্রেডিট:</span>
                 <input
                   type="checkbox"
                   checked={autoApproveSimulation}
                   onChange={(e) => setAutoApproveSimulation(e.target.checked)}
-                  className="w-4 h-4 rounded bg-slate-800 border-slate-700 text-amber-500 focus:ring-0 cursor-pointer"
+                  className="w-4 h-4 rounded bg-emerald-900 border-emerald-600 text-amber-500 focus:ring-0 cursor-pointer"
                 />
               </div>
             </div>
 
             {/* Agent / Gateway Number Display with 1-Click Copy */}
-            <div className="bg-[#05070d] p-4 rounded-2xl border border-amber-500/30 space-y-2">
+            <div className="bg-emerald-950/90 p-4 rounded-2xl border-2 border-amber-400/50 space-y-2 shadow-md">
               <div className="flex items-center justify-between text-[11px] font-mono">
-                <span className="font-bold uppercase tracking-wider text-slate-400">
+                <span className="font-bold uppercase tracking-wider text-emerald-200">
                   {activeChannel.name} ভেরিফাইড নম্বর:
                 </span>
-                <span className="text-emerald-400 font-bold flex items-center space-x-1">
+                <span className="text-amber-300 font-bold flex items-center space-x-1">
                   <ShieldCheck className="w-3.5 h-3.5" />
                   <span>অফিসিয়াল মার্চেন্ট</span>
                 </span>
               </div>
 
-              <div className="flex items-center justify-between bg-slate-950 px-4 py-3 rounded-xl border border-slate-800/90">
+              <div className="flex items-center justify-between bg-emerald-900/80 px-4 py-3 rounded-xl border border-emerald-700/80">
                 <span className="font-mono text-base sm:text-xl font-black text-amber-300 select-all tracking-wider">
                   {activeChannel.accountNumber}
                 </span>
                 <button
                   type="button"
                   onClick={handleCopyAccount}
-                  className="flex items-center space-x-1.5 px-3.5 py-2 rounded-xl bg-amber-500 hover:bg-amber-400 text-slate-950 font-mono text-xs font-black transition-all active:scale-95 cursor-pointer shadow-md"
+                  className="flex items-center space-x-1.5 px-3.5 py-2 rounded-xl bg-amber-400 hover:bg-amber-300 text-slate-950 font-mono text-xs font-black transition-all active:scale-95 cursor-pointer shadow-md"
                 >
                   {copiedAccount ? <Check className="w-3.5 h-3.5 text-slate-950" /> : <Copy className="w-3.5 h-3.5 text-slate-950" />}
                   <span>{copiedAccount ? 'কপি হয়েছে' : 'কপি করুন'}</span>
@@ -640,7 +639,7 @@ export const CashierView: React.FC<CashierViewProps> = ({
               
               {/* Quick Amount Selector */}
               <div>
-                <label className="block text-slate-300 mb-1.5 font-bold">
+                <label className="block text-emerald-200 mb-1.5 font-bold">
                   ডিপোজিট পরিমাণ ({currentUser.currency}) *
                 </label>
                 <div className="grid grid-cols-3 sm:grid-cols-6 gap-2 mb-2.5">
@@ -655,7 +654,7 @@ export const CashierView: React.FC<CashierViewProps> = ({
                       className={`min-h-[42px] py-2 rounded-xl text-xs font-bold transition-all active:scale-95 cursor-pointer ${
                         depositAmount === amt
                           ? 'bg-gradient-to-r from-amber-400 to-yellow-400 text-slate-950 shadow-md font-black'
-                          : 'bg-slate-950 border border-slate-800 text-slate-300 hover:border-amber-500/40'
+                          : 'bg-emerald-950 border border-emerald-700/80 text-emerald-200 hover:border-amber-400/60'
                       }`}
                     >
                       {currentUser.currency === 'BDT' ? `৳${amt}` : `$${amt}`}
@@ -670,14 +669,14 @@ export const CashierView: React.FC<CashierViewProps> = ({
                   max={currentUser.currency === 'BDT' ? activeChannel.maxDepositBDT : activeChannel.maxDepositUSD}
                   value={depositAmount}
                   onChange={(e) => setDepositAmount(Number(e.target.value))}
-                  className="w-full min-h-[44px] bg-slate-950 border border-slate-800 focus:border-amber-500 rounded-xl px-3.5 py-2.5 text-base font-black text-white focus:outline-none transition-colors"
+                  className="w-full min-h-[44px] bg-emerald-950 border-2 border-emerald-700/80 focus:border-amber-400 rounded-xl px-3.5 py-2.5 text-base font-black text-white focus:outline-none transition-colors"
                 />
               </div>
 
               {/* Sender Phone & Transaction ID */}
               <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
                 <div>
-                  <label className="block text-slate-300 mb-1 font-semibold">
+                  <label className="block text-emerald-200 mb-1 font-semibold">
                     আপনার প্রেরক নম্বর (Sender Number)
                   </label>
                   <input
@@ -685,7 +684,7 @@ export const CashierView: React.FC<CashierViewProps> = ({
                     value={senderNumber}
                     onChange={(e) => setSenderNumber(e.target.value)}
                     placeholder="01XXXXXXXXX"
-                    className="w-full min-h-[44px] bg-slate-950 border border-slate-800 focus:border-amber-500 rounded-xl px-3.5 py-2.5 text-white placeholder-slate-600 focus:outline-none"
+                    className="w-full min-h-[44px] bg-emerald-950 border border-emerald-700/80 focus:border-amber-400 rounded-xl px-3.5 py-2.5 text-white placeholder-emerald-600 focus:outline-none"
                   />
                 </div>
 
@@ -699,33 +698,33 @@ export const CashierView: React.FC<CashierViewProps> = ({
                     value={trxId}
                     onChange={(e) => setTrxId(e.target.value)}
                     placeholder="e.g. BK98A2104X"
-                    className="w-full min-h-[44px] bg-slate-950 border-2 border-amber-500/60 focus:border-amber-400 rounded-xl px-3.5 py-2.5 text-amber-300 font-black uppercase placeholder-slate-600 focus:outline-none"
+                    className="w-full min-h-[44px] bg-emerald-950 border-2 border-amber-400/60 focus:border-amber-400 rounded-xl px-3.5 py-2.5 text-amber-300 font-black uppercase placeholder-emerald-600 focus:outline-none"
                   />
                 </div>
               </div>
 
               {/* Promo Code Pill */}
-              <div className="flex items-center space-x-2 bg-slate-950 p-2.5 rounded-xl border border-slate-800">
+              <div className="flex items-center space-x-2 bg-emerald-950 p-2.5 rounded-xl border border-emerald-700/80">
                 <Gift className="w-4 h-4 text-amber-400 shrink-0" />
                 <input
                   type="text"
                   value={promoCode}
                   onChange={(e) => setPromoCode(e.target.value)}
                   placeholder="PROMO CODE"
-                  className="bg-transparent text-xs font-mono text-white uppercase focus:outline-none flex-1 placeholder-slate-600"
+                  className="bg-transparent text-xs font-mono text-white uppercase focus:outline-none flex-1 placeholder-emerald-600"
                 />
-                <span className="px-2 py-0.5 rounded bg-emerald-500/20 text-emerald-400 text-[10px] font-bold">
+                <span className="px-2 py-0.5 rounded bg-amber-400 text-slate-950 text-[10px] font-bold">
                   +100% WELCOME BONUS
                 </span>
               </div>
 
               {/* Step-by-Step Instructions Accordion */}
-              <div className="bg-[#05070d] p-3.5 rounded-xl border border-slate-800/80 space-y-1.5 text-xs text-slate-300">
+              <div className="bg-emerald-950/80 p-3.5 rounded-xl border border-emerald-800 space-y-1.5 text-xs text-emerald-200">
                 <div className="font-bold text-amber-400 flex items-center space-x-1.5">
                   <Info className="w-3.5 h-3.5" />
                   <span>পেমেন্ট নির্দেশিকা (Payment Steps):</span>
                 </div>
-                <ol className="list-decimal list-inside space-y-1 text-[11px] text-slate-400 font-sans">
+                <ol className="list-decimal list-inside space-y-1 text-[11px] text-emerald-300/80 font-sans">
                   {activeChannel.instructions.map((inst, i) => (
                     <li key={i}>{inst}</li>
                   ))}
@@ -755,13 +754,13 @@ export const CashierView: React.FC<CashierViewProps> = ({
       {/* 4. WITHDRAWAL INTERFACE */}
       {/* ========================================================================= */}
       {activeMode === 'WITHDRAWAL' && (
-        <div className="max-w-2xl mx-auto golden-ratio-card rounded-[32px] p-6 sm:p-8 space-y-6">
-          <div className="border-b border-slate-800/80 pb-4">
+        <div className="max-w-2xl mx-auto rounded-2xl bg-gradient-to-b from-emerald-950 via-emerald-900/60 to-[#02180e] border-2 border-emerald-600/40 p-6 sm:p-8 space-y-6 shadow-xl">
+          <div className="border-b border-emerald-800 pb-4">
             <h2 className="text-lg sm:text-xl font-black text-white flex items-center space-x-2">
-              <ArrowDownLeft className="w-5 h-5 text-emerald-400" />
+              <ArrowDownLeft className="w-5 h-5 text-amber-400" />
               <span>ইনস্ট্যান্ট ভিআইপি ক্যাশ-আউট (Withdrawal)</span>
             </h2>
-            <p className="text-xs text-slate-400 font-mono mt-1">
+            <p className="text-xs text-emerald-300 font-mono mt-1">
               বিকাশ, নগদ ও রকেটে সরাসরি ০-৪ সেকেন্ডের মধ্যে দ্রুত ট্রান্সফার।
             </p>
           </div>
@@ -769,7 +768,7 @@ export const CashierView: React.FC<CashierViewProps> = ({
           <form onSubmit={handleWithdrawalSubmit} className="space-y-4 font-mono text-xs">
             {/* Payout Channel Selection */}
             <div>
-              <label className="block text-slate-300 mb-1.5 font-bold">
+              <label className="block text-emerald-200 mb-1.5 font-bold">
                 ক্যাশ-আউট চ্যানেল নির্বাচন করুন *
               </label>
               <div className="grid grid-cols-3 gap-2">
@@ -781,10 +780,10 @@ export const CashierView: React.FC<CashierViewProps> = ({
                       soundEngine.playClick(750);
                       setSelectedMethod(m);
                     }}
-                    className={`py-3 rounded-xl border font-bold transition-all cursor-pointer ${
+                    className={`py-3 rounded-xl border-2 font-bold transition-all cursor-pointer ${
                       selectedMethod === m
                         ? 'bg-gradient-to-r from-amber-400 to-yellow-400 text-slate-950 border-amber-400 shadow-md font-black'
-                        : 'bg-slate-950 border-slate-800 text-slate-300 hover:bg-slate-900'
+                        : 'bg-emerald-950 border-emerald-700 text-emerald-200 hover:bg-emerald-900'
                     }`}
                   >
                     {m}
@@ -795,7 +794,7 @@ export const CashierView: React.FC<CashierViewProps> = ({
 
             {/* Mobile Account Number */}
             <div>
-              <label className="block text-slate-300 mb-1 font-bold">
+              <label className="block text-emerald-200 mb-1 font-bold">
                 আপনার {selectedMethod} মোবাইল নম্বর *
               </label>
               <input
@@ -804,13 +803,13 @@ export const CashierView: React.FC<CashierViewProps> = ({
                 value={receiverNumber}
                 onChange={(e) => setReceiverNumber(e.target.value)}
                 placeholder="01XXXXXXXXX"
-                className="w-full min-h-[44px] bg-slate-950 border border-slate-800 focus:border-amber-500 rounded-xl px-3.5 py-2.5 text-white placeholder-slate-600 focus:outline-none"
+                className="w-full min-h-[44px] bg-emerald-950 border-2 border-emerald-700 focus:border-amber-400 rounded-xl px-3.5 py-2.5 text-white placeholder-emerald-600 focus:outline-none"
               />
             </div>
 
             {/* Amount Input */}
             <div>
-              <label className="block text-slate-300 mb-1 font-bold">
+              <label className="block text-emerald-200 mb-1 font-bold">
                 উত্তোলনের পরিমাণ ({currentUser.currency}) *
               </label>
               <input
@@ -819,21 +818,21 @@ export const CashierView: React.FC<CashierViewProps> = ({
                 value={withdrawAmount}
                 onChange={(e) => setWithdrawAmount(Number(e.target.value))}
                 min={currentUser.currency === 'BDT' ? 500 : 5}
-                className="w-full min-h-[44px] bg-slate-950 border border-slate-800 focus:border-amber-500 rounded-xl px-3.5 py-2.5 text-sm font-black text-white focus:outline-none"
+                className="w-full min-h-[44px] bg-emerald-950 border-2 border-emerald-700 focus:border-amber-400 rounded-xl px-3.5 py-2.5 text-sm font-black text-white focus:outline-none"
               />
             </div>
 
             {/* Fee Breakdown */}
-            <div className="bg-[#05070d] p-3.5 rounded-xl border border-slate-800 space-y-1.5 text-xs">
-              <div className="flex justify-between text-slate-400">
+            <div className="bg-emerald-950/90 p-3.5 rounded-xl border border-emerald-800 space-y-1.5 text-xs">
+              <div className="flex justify-between text-emerald-300">
                 <span>উত্তোলনের পরিমাণ:</span>
                 <span className="font-bold text-white">{currentUser.currency === 'BDT' ? `৳${withdrawAmount}` : `$${withdrawAmount}`}</span>
               </div>
-              <div className="flex justify-between text-slate-400">
+              <div className="flex justify-between text-emerald-300">
                 <span>সার্ভিস ফি (০%):</span>
-                <span className="text-emerald-400 font-bold">৳০.০০ (ফ্রি)</span>
+                <span className="text-amber-300 font-bold">৳০.০০ (ফ্রি)</span>
               </div>
-              <div className="flex justify-between text-white font-black border-t border-slate-800 pt-1.5 text-sm">
+              <div className="flex justify-between text-white font-black border-t border-emerald-800 pt-1.5 text-sm">
                 <span>মোট পাবেন:</span>
                 <span className="text-amber-300">
                   {currentUser.currency === 'BDT' ? `৳${withdrawAmount}` : `$${withdrawAmount}`}
@@ -859,20 +858,20 @@ export const CashierView: React.FC<CashierViewProps> = ({
       {/* 5. HISTORY & PAYMENT REQUESTS LEDGER */}
       {/* ========================================================================= */}
       {activeMode === 'HISTORY' && (
-        <div className="golden-ratio-card rounded-3xl p-5 sm:p-6 space-y-4">
-          <div className="flex items-center justify-between border-b border-slate-800 pb-3">
+        <div className="rounded-2xl bg-gradient-to-b from-emerald-950 via-emerald-900/60 to-[#02180e] border-2 border-emerald-600/40 p-5 sm:p-6 space-y-4 shadow-xl">
+          <div className="flex items-center justify-between border-b border-emerald-800 pb-3">
             <h2 className="text-base font-bold text-white flex items-center space-x-2 font-sans">
-              <Receipt className="w-4 h-4 text-cyan-400" />
+              <Receipt className="w-4 h-4 text-amber-400" />
               <span>পেমেন্ট ও ক্যাশিয়ার ট্রানজেকশন হিস্ট্রি</span>
             </h2>
-            <span className="text-xs text-slate-400 font-mono">
+            <span className="text-xs text-emerald-300 font-mono">
               মোট {paymentRequests.length} টি রেকর্ড
             </span>
           </div>
 
           <div className="overflow-x-auto">
             <table className="w-full text-left font-mono text-xs">
-              <thead className="bg-slate-950 text-slate-400 uppercase text-[10px]">
+              <thead className="bg-emerald-950 text-emerald-300 uppercase text-[10px]">
                 <tr>
                   <th className="p-3">রিকোয়েস্ট আইডি</th>
                   <th className="p-3">ধরন</th>
@@ -883,22 +882,22 @@ export const CashierView: React.FC<CashierViewProps> = ({
                   <th className="p-3">সময়</th>
                 </tr>
               </thead>
-              <tbody className="divide-y divide-slate-800/80">
+              <tbody className="divide-y divide-emerald-800/80">
                 {paymentRequests.length === 0 ? (
                   <tr>
-                    <td colSpan={7} className="p-8 text-center text-slate-500">
+                    <td colSpan={7} className="p-8 text-center text-emerald-500">
                       কোনো পেমেন্ট রেকর্ড পাওয়া যায়নি
                     </td>
                   </tr>
                 ) : (
                   paymentRequests.map((req) => (
-                    <tr key={req.id} className="hover:bg-slate-800/40 transition-colors">
-                      <td className="p-3 font-semibold text-slate-300 truncate max-w-[130px]">{req.id}</td>
+                    <tr key={req.id} className="hover:bg-emerald-900/40 transition-colors">
+                      <td className="p-3 font-semibold text-emerald-200 truncate max-w-[130px]">{req.id}</td>
                       <td className="p-3">
                         <span className={`px-2 py-0.5 rounded text-[10px] font-bold ${
                           req.type === 'DEPOSIT'
-                            ? 'bg-emerald-500/20 text-emerald-400 border border-emerald-500/30'
-                            : 'bg-amber-500/20 text-amber-300 border border-amber-500/30'
+                            ? 'bg-emerald-500/20 text-emerald-300 border border-emerald-500/40'
+                            : 'bg-amber-500/20 text-amber-300 border border-amber-500/40'
                         }`}>
                           {req.type}
                         </span>
@@ -907,9 +906,9 @@ export const CashierView: React.FC<CashierViewProps> = ({
                       <td className="p-3 font-black text-amber-300">
                         {req.currency === 'BDT' ? '৳' : '$'} {req.amount.toLocaleString()}
                       </td>
-                      <td className="p-3 text-slate-300">
+                      <td className="p-3 text-emerald-200">
                         <div className="truncate max-w-[120px]">{req.trx_id}</div>
-                        <div className="text-[10px] text-slate-500">{req.sender_number || req.receiver_number}</div>
+                        <div className="text-[10px] text-emerald-400/80">{req.sender_number || req.receiver_number}</div>
                       </td>
                       <td className="p-3">
                         <span className={`px-2 py-0.5 rounded text-[10px] font-bold ${
@@ -922,7 +921,7 @@ export const CashierView: React.FC<CashierViewProps> = ({
                           {req.status}
                         </span>
                       </td>
-                      <td className="p-3 text-slate-500 text-[11px]">
+                      <td className="p-3 text-emerald-400 text-[11px]">
                         {new Date(req.created_at).toLocaleTimeString()}
                       </td>
                     </tr>

@@ -69,11 +69,11 @@ export const Navbar: React.FC<NavbarProps> = ({
   const [showUserDropdown, setShowUserDropdown] = useState(false);
 
   return (
-    <header className="sticky top-0 z-50 bg-[#07090e]/95 backdrop-blur-xl border-b border-slate-800/80 shadow-2xl transition-all w-full max-w-full overflow-hidden">
+    <header className="sticky top-0 z-50 bg-emerald-950/95 backdrop-blur-xl border-b border-emerald-800/80 shadow-2xl transition-all w-full max-w-full overflow-hidden">
       <div className="w-full max-w-7xl mx-auto px-2 sm:px-6 lg:px-8">
         <div className="flex items-center justify-between h-14 sm:h-20 gap-1 sm:gap-4 w-full">
           
-          {/* Left: Brand Logo (Golden Ratio ~38.2% on Mobile) */}
+          {/* Left: Brand Logo (GamePlay365) */}
           <div className="flex items-center space-x-1.5 sm:space-x-6 shrink-0 min-w-0">
             <button
               onClick={() => {
@@ -84,7 +84,7 @@ export const Navbar: React.FC<NavbarProps> = ({
             >
               <div className="relative shrink-0">
                 <div className="w-8 h-8 sm:w-11 sm:h-11 rounded-xl bg-gradient-to-br from-amber-400 via-yellow-500 to-amber-600 p-[1.5px] shadow-md shadow-amber-500/25 group-hover:shadow-amber-500/50 transition-all duration-300">
-                  <div className="w-full h-full bg-[#090b10] rounded-[10px] sm:rounded-[13px] flex items-center justify-center">
+                  <div className="w-full h-full bg-emerald-950 rounded-[10px] sm:rounded-[13px] flex items-center justify-center">
                     <Crown className="w-4 h-4 sm:w-5 sm:h-5 text-amber-400 group-hover:scale-110 transition-transform duration-300" />
                   </div>
                 </div>
@@ -92,10 +92,10 @@ export const Navbar: React.FC<NavbarProps> = ({
 
               <div className="min-w-0">
                 <div className="flex items-center space-x-1">
-                  <span className="text-sm xs:text-base sm:text-2xl font-black tracking-tight bg-gradient-to-r from-white via-slate-100 to-slate-200 bg-clip-text text-transparent truncate">
-                    Play<span className="text-transparent bg-gradient-to-r from-amber-400 to-yellow-300 bg-clip-text">365</span>
+                  <span className="text-sm xs:text-base sm:text-2xl font-black tracking-tight text-white truncate">
+                    GamePlay<span className="text-transparent bg-gradient-to-r from-amber-400 to-yellow-300 bg-clip-text">365</span>
                   </span>
-                  <span className="hidden sm:inline-block px-1.5 py-0.5 text-[10px] font-bold rounded-md bg-amber-400/20 text-amber-300 border border-amber-500/30 uppercase">
+                  <span className="hidden sm:inline-block px-1.5 py-0.5 text-[10px] font-bold rounded-md bg-amber-400/20 text-amber-300 border border-amber-400/40 uppercase">
                     VIP
                   </span>
                 </div>
@@ -103,7 +103,7 @@ export const Navbar: React.FC<NavbarProps> = ({
             </button>
 
             {/* Desktop Navigation Tabs */}
-            <nav className="hidden xl:flex items-center space-x-2 bg-slate-900/90 p-1.5 rounded-2xl border border-slate-800/80 text-sm font-semibold">
+            <nav className="hidden xl:flex items-center space-x-2 bg-emerald-900/60 p-1.5 rounded-2xl border border-emerald-700/60 text-sm font-semibold">
               <button
                 onClick={() => {
                   audioEngine.playClick();
@@ -111,8 +111,8 @@ export const Navbar: React.FC<NavbarProps> = ({
                 }}
                 className={`min-h-[44px] px-4 rounded-xl flex items-center space-x-2 transition-all cursor-pointer ${
                   activeTab === 'lobby'
-                    ? 'bg-gradient-to-r from-amber-500 to-yellow-500 text-slate-950 font-bold shadow-md shadow-amber-500/20'
-                    : 'text-slate-300 hover:text-white hover:bg-slate-800/60'
+                    ? 'bg-gradient-to-r from-amber-400 via-yellow-400 to-amber-500 text-slate-950 font-black shadow-md shadow-amber-500/20'
+                    : 'text-emerald-200 hover:text-white hover:bg-emerald-800/60'
                 }`}
               >
                 <Gamepad2 className="w-4 h-4" />
@@ -126,8 +126,8 @@ export const Navbar: React.FC<NavbarProps> = ({
                 }}
                 className={`min-h-[44px] px-4 rounded-xl flex items-center space-x-2 transition-all cursor-pointer ${
                   activeTab === 'games'
-                    ? 'bg-gradient-to-r from-cyan-500 to-blue-600 text-white font-bold shadow-md shadow-cyan-500/20'
-                    : 'text-slate-300 hover:text-white hover:bg-slate-800/60'
+                    ? 'bg-gradient-to-r from-amber-400 via-yellow-400 to-amber-500 text-slate-950 font-black shadow-md shadow-amber-500/20'
+                    : 'text-emerald-200 hover:text-white hover:bg-emerald-800/60'
                 }`}
               >
                 <Zap className="w-4 h-4" />
@@ -141,8 +141,8 @@ export const Navbar: React.FC<NavbarProps> = ({
                 }}
                 className={`min-h-[44px] px-4 rounded-xl flex items-center space-x-2 transition-all cursor-pointer ${
                   activeTab === 'vip'
-                    ? 'bg-gradient-to-r from-amber-500 to-yellow-500 text-slate-950 font-bold shadow-md'
-                    : 'text-slate-300 hover:text-white hover:bg-slate-800/60'
+                    ? 'bg-gradient-to-r from-amber-400 via-yellow-400 to-amber-500 text-slate-950 font-black shadow-md shadow-amber-500/20'
+                    : 'text-emerald-200 hover:text-white hover:bg-emerald-800/60'
                 }`}
               >
                 <Award className="w-4 h-4" />
@@ -156,8 +156,8 @@ export const Navbar: React.FC<NavbarProps> = ({
                 }}
                 className={`min-h-[44px] px-4 rounded-xl flex items-center space-x-2 transition-all cursor-pointer ${
                   activeTab === 'affiliate'
-                    ? 'bg-gradient-to-r from-emerald-500 to-teal-600 text-white font-bold shadow-md'
-                    : 'text-slate-300 hover:text-white hover:bg-slate-800/60'
+                    ? 'bg-gradient-to-r from-amber-400 via-yellow-400 to-amber-500 text-slate-950 font-black shadow-md shadow-amber-500/20'
+                    : 'text-emerald-200 hover:text-white hover:bg-emerald-800/60'
                 }`}
               >
                 <Share2 className="w-4 h-4" />
@@ -171,8 +171,8 @@ export const Navbar: React.FC<NavbarProps> = ({
                 }}
                 className={`min-h-[44px] px-4 rounded-xl flex items-center space-x-2 transition-all cursor-pointer ${
                   activeTab === 'promo'
-                    ? 'bg-gradient-to-r from-purple-500 to-pink-600 text-white font-bold shadow-md'
-                    : 'text-slate-300 hover:text-white hover:bg-slate-800/60'
+                    ? 'bg-gradient-to-r from-amber-400 via-yellow-400 to-amber-500 text-slate-950 font-black shadow-md shadow-amber-500/20'
+                    : 'text-emerald-200 hover:text-white hover:bg-emerald-800/60'
                 }`}
               >
                 <Gift className="w-4 h-4" />

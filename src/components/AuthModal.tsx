@@ -23,6 +23,7 @@ import { useLanguage } from '../contexts/LanguageContext';
 import { UserEntity } from '../server/types/seamless';
 import { soundEngine } from '../services/soundEngine';
 import { firebaseFirestore } from '../services/firebaseFirestoreService';
+import { referralService } from '../services/referralService';
 
 interface AuthModalProps {
   isOpen: boolean;
@@ -164,6 +165,10 @@ export const AuthModal: React.FC<AuthModalProps> = ({
     if (isAuthenticated) {
       onClose();
     }
+    const code = referralService.getStoredReferralCode() || referralService.captureReferralFromUrl();
+    if (code) {
+      setPromoCode(code);
+    }
   }, [isAuthenticated, onClose]);
 
   if (!isOpen) return null;
@@ -210,6 +215,18 @@ export const AuthModal: React.FC<AuthModalProps> = ({
             displayName: emailOrUsername,
             phoneNumber: mobileNumber
           }, currency);
+
+          try {
+            await referralService.processReferralRegistration({
+              newUserId: registeredUser.uid,
+              newUsername: emailOrUsername,
+              newUserEmail: registeredUser.email || email,
+              referralCode: promoCode.trim(),
+              currency
+            });
+          } catch (refErr) {
+            console.warn('AuthModal referral processing note:', refErr);
+          }
           
           soundEngine.playWinChime();
           onSelectUser(registeredUser.uid);

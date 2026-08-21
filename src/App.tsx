@@ -109,10 +109,10 @@ function Playall365InnerApp() {
     );
   }
 
-  // 2. Once Registered / Logged In, display the full Playall 365 Casino App
+  // 2. Once Registered / Logged In, display the full GamePlay 365 Casino App
   return (
-    <div className="min-h-screen bg-[#06080d] text-slate-100 flex flex-col font-bengali selection:bg-amber-500 selection:text-slate-950 w-full max-w-full overflow-x-hidden">
-      {/* Luxury Corporate Futurism Navbar */}
+    <div className="min-h-screen bg-[#02180e] bg-gradient-to-b from-emerald-950 via-[#02180e] to-emerald-950 text-slate-100 flex flex-col font-bengali selection:bg-amber-400 selection:text-slate-950 w-full max-w-full overflow-x-hidden">
+      {/* Asian-market Emerald & Gold Navbar */}
       <Navbar
         onOpenCashier={() => setActiveTab('cashier')}
         onOpenProfile={() => setActiveTab('profile')}
@@ -405,7 +405,7 @@ function Playall365InnerApp() {
 
       {/* Toast Notification */}
       {toastMessage && (
-        <div className="fixed bottom-6 right-6 z-50 bg-slate-900/95 backdrop-blur-md border border-amber-500/40 text-amber-300 px-4 py-3 rounded-2xl shadow-2xl flex items-center space-x-3 text-xs font-mono animate-bounce">
+        <div className="fixed bottom-6 right-6 z-50 bg-emerald-950/95 backdrop-blur-md border border-amber-400/60 text-amber-300 px-4 py-3 rounded-2xl shadow-2xl flex items-center space-x-3 text-xs font-mono animate-bounce">
           <CheckCircle2 className="w-4 h-4 text-amber-400 flex-shrink-0" />
           <span>{toastMessage}</span>
         </div>
@@ -421,17 +421,17 @@ function Playall365InnerApp() {
         onOpenCashier={() => setActiveTab('cashier')}
       />
 
-      {/* Luxury Footer */}
-      <footer className="bg-[#05070b] border-t border-slate-800/80 py-6 text-xs text-slate-400 pb-20 lg:pb-6">
+      {/* Emerald & Gold Footer */}
+      <footer className="bg-emerald-950/90 border-t border-emerald-800/80 py-6 text-xs text-emerald-300/80 pb-20 lg:pb-6">
         <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 flex flex-col md:flex-row items-center justify-between gap-4">
           <div className="flex items-center space-x-3">
-            <div className="w-2.5 h-2.5 rounded-full bg-emerald-400 animate-pulse" />
+            <div className="w-2.5 h-2.5 rounded-full bg-amber-400 animate-pulse" />
             <span className="font-bold text-white font-mono">
-              Playall 365 Primary System • B2B Seamless Architecture
+              GamePlay365 Primary System • Asian iGaming Architecture
             </span>
           </div>
 
-          <div className="flex items-center space-x-6 text-[11px] font-mono text-slate-400">
+          <div className="flex items-center space-x-6 text-[11px] font-mono text-emerald-300/80">
             <span>🇧🇩 bKash / Nagad Direct Gateway</span>
             <span>🔒 HMAC-SHA256 Signed</span>
             <span>⚡ SLA &lt; 4s Response Time</span>
