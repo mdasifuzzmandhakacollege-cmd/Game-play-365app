@@ -19,44 +19,58 @@ service cloud.firestore {
       return id is string && id.size() <= 128 && id.matches('^[a-zA-Z0-9_\\-]+$');
     }
 
+    // Role-Based Admin Guard
+    function isAdmin() {
+      return isSignedIn() && (
+        exists(/databases/$(database)/documents/admins/$(request.auth.uid)) ||
+        request.auth.token.email == 'md.asifuzzman.dhakacollege@gmail.com'
+      );
+    }
+
+    // Admins Collection
+    match /admins/{adminId} {
+      allow read: if isSignedIn();
+      allow write: if isAdmin();
+    }
+
     // User Profile
     match /users/{userId} {
-      allow get: if isOwner(userId);
-      allow list: if false;
-      allow create: if isOwner(userId) && isValidId(userId);
-      allow update: if isOwner(userId);
-      allow delete: if false;
+      allow get: if isOwner(userId) || isAdmin();
+      allow list: if isAdmin();
+      allow create: if (isOwner(userId) || isAdmin()) && isValidId(userId);
+      allow update: if isOwner(userId) || isAdmin();
+      allow delete: if isAdmin();
 
       // Real-time Wallets Subcollection
       match /wallets/{walletId} {
-        allow read: if isOwner(userId);
-        allow create: if isOwner(userId) && isValidId(walletId);
-        allow update: if isOwner(userId);
-        allow delete: if false;
+        allow read: if isOwner(userId) || isAdmin();
+        allow create: if (isOwner(userId) || isAdmin()) && isValidId(walletId);
+        allow update: if isOwner(userId) || isAdmin();
+        allow delete: if isAdmin();
       }
 
       // Real-time Transactions Subcollection
       match /transactions/{txId} {
-        allow read: if isOwner(userId);
-        allow create: if isOwner(userId) && isValidId(txId);
+        allow read: if isOwner(userId) || isAdmin();
+        allow create: if (isOwner(userId) || isAdmin()) && isValidId(txId);
         allow update: if false; // Transaction ledger records are append-only & immutable
         allow delete: if false;
       }
 
       // KYC Documents Subcollection
       match /kyc_documents/{docId} {
-        allow read: if isOwner(userId);
+        allow read: if isOwner(userId) || isAdmin();
         allow create: if isOwner(userId) && isValidId(docId);
-        allow update: if isOwner(userId);
-        allow delete: if isOwner(userId);
+        allow update: if isOwner(userId) || isAdmin();
+        allow delete: if isOwner(userId) || isAdmin();
       }
 
       // Real-time Notifications Subcollection
       match /notifications/{notificationId} {
-        allow read: if isOwner(userId);
+        allow read: if isOwner(userId) || isAdmin();
         allow create: if isOwner(userId) && isValidId(notificationId);
-        allow update: if isOwner(userId);
-        allow delete: if isOwner(userId);
+        allow update: if isOwner(userId) || isAdmin();
+        allow delete: if isOwner(userId) || isAdmin();
       }
     }
 

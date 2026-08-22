@@ -160,8 +160,10 @@ function Playall365InnerApp() {
 
   const {
     isAuthenticated,
+    setIsAuthenticated,
     currentUser,
     currentWallet,
+    isAdmin,
     users,
     currency,
     activeTab,
@@ -226,7 +228,7 @@ function Playall365InnerApp() {
     ].includes(activeTab);
   }, [activeTab]);
 
-  // 1. If not authenticated, display the dedicated Registration & Auth Landing Page
+  // 1. If not authenticated, display the dedicated Registration & Auth Landing Page with instant Lobby return option
   if (!isAuthenticated) {
     return (
       <RegistrationPage
@@ -234,6 +236,10 @@ function Playall365InnerApp() {
           loginUser(user, wallet);
         }}
         allUsers={users}
+        onBackToLobby={() => {
+          setIsAuthenticated(true);
+          setActiveTab('lobby');
+        }}
       />
     );
   }
@@ -439,12 +445,13 @@ function Playall365InnerApp() {
       );
     }
 
-    // 7.1 ROLE-BASED OPERATOR ADMIN PANEL
+    // 7.1 ROLE-BASED OPERATOR ADMIN PANEL (Strictly Guarded with Firestore User Doc Check)
     if (activeTab === 'admin') {
       return (
         <AdminPanel
           onStateMutated={refreshState}
           onClose={() => setActiveTab('lobby')}
+          onRedirect={(targetTab) => setActiveTab(targetTab as any)}
         />
       );
     }

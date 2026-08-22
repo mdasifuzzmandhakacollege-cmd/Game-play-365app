@@ -14,6 +14,8 @@ import { UserEntity } from '../server/types/seamless';
 interface AuthContextType {
   user: User | null;
   firestoreUser: UserEntity | null;
+  isAdmin: boolean;
+  userRole: 'ADMIN' | 'PLAYER' | 'VIP';
   loading: boolean;
   token: string | null;
   signInWithGoogle: () => Promise<User | null>;
@@ -26,6 +28,8 @@ interface AuthContextType {
 const AuthContext = createContext<AuthContextType>({
   user: null,
   firestoreUser: null,
+  isAdmin: false,
+  userRole: 'PLAYER',
   loading: true,
   token: null,
   signInWithGoogle: async () => null,
@@ -57,7 +61,7 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
         phoneNumber: currentUser.phoneNumber
       }, preferredCurrency);
 
-      await firebaseFirestore.ensureUserWallet(currentUser.uid, preferredCurrency, 5000);
+      await firebaseFirestore.ensureUserWallet(currentUser.uid, preferredCurrency, 0);
       setFirestoreUser(profile);
       return profile;
     } catch (err) {
@@ -91,7 +95,7 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
             photoURL: authUser.photoURL,
             phoneNumber: authUser.phoneNumber
           }, 'BDT');
-          await firebaseFirestore.ensureUserWallet(authUser.uid, 'BDT', 5000);
+          await firebaseFirestore.ensureUserWallet(authUser.uid, 'BDT', 0);
           if (isMounted) {
             setFirestoreUser(profile);
           }
@@ -130,7 +134,7 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
           localStorage.setItem('playall365_user_id', res.user.uid);
         } catch {}
 
-        // Ensure Firestore document & wallet are linked immediately
+        // Ensure Firestore document & wallet are linked immediately with 0 initial balance
         try {
           const profile = await firebaseFirestore.syncUserProfile({
             uid: res.user.uid,
@@ -139,7 +143,7 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
             photoURL: res.user.photoURL,
             phoneNumber: res.user.phoneNumber
           }, 'BDT');
-          await firebaseFirestore.ensureUserWallet(res.user.uid, 'BDT', 5000);
+          await firebaseFirestore.ensureUserWallet(res.user.uid, 'BDT', 0);
           setFirestoreUser(profile);
         } catch (err) {
           console.warn('Firestore sync during Google Sign In notice:', err);
@@ -173,7 +177,7 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
           localStorage.setItem('playall365_user_id', res.user.uid);
         } catch {}
 
-        // Ensure user document and initial wallet are linked in Firestore
+        // Ensure user document and initial wallet with 0 balance are linked in Firestore
         try {
           const profile = await firebaseFirestore.syncUserProfile({
             uid: res.user.uid,
@@ -181,7 +185,7 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
             displayName: displayName || res.user.displayName,
             phoneNumber: res.user.phoneNumber
           }, preferredCurrency);
-          await firebaseFirestore.ensureUserWallet(res.user.uid, preferredCurrency, 5000);
+          await firebaseFirestore.ensureUserWallet(res.user.uid, preferredCurrency, 0);
           setFirestoreUser(profile);
         } catch (err) {
           console.warn('Firestore initial registration sync notice:', err);
@@ -191,7 +195,7 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
       }
       return null;
     } catch (error: any) {
-      console.error('Email Registration error:', error?.message || error);
+      console.warn('Email Registration notice:', error?.message || error);
       throw error;
     } finally {
       setLoading(false);
@@ -216,7 +220,7 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
             email: res.user.email || email,
             displayName: res.user.displayName
           }, 'BDT');
-          await firebaseFirestore.ensureUserWallet(res.user.uid, 'BDT', 5000);
+          await firebaseFirestore.ensureUserWallet(res.user.uid, 'BDT', 0);
           setFirestoreUser(profile);
         } catch (err) {
           console.warn('Firestore login sync notice:', err);
@@ -226,7 +230,7 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
       }
       return null;
     } catch (error: any) {
-      console.error('Email Login error:', error?.message || error);
+      console.warn('Email Login notice:', error?.message || error);
       throw error;
     } finally {
       setLoading(false);
@@ -248,11 +252,24 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
     }
   };
 
+  const isAdmin = Boolean(
+    firestoreUser?.isAdmin ||
+    firestoreUser?.role === 'ADMIN' ||
+    user?.email === 'md.asifuzzman.dhakacollege@gmail.com' ||
+    (firestoreUser?.email && firestoreUser.email === 'md.asifuzzman.dhakacollege@gmail.com')
+  );
+
+  const userRole: 'ADMIN' | 'PLAYER' | 'VIP' = isAdmin
+    ? 'ADMIN'
+    : (firestoreUser?.role as 'ADMIN' | 'PLAYER' | 'VIP') || 'PLAYER';
+
   return (
     <AuthContext.Provider
       value={{
         user,
         firestoreUser,
+        isAdmin,
+        userRole,
         loading,
         token,
         signInWithGoogle,

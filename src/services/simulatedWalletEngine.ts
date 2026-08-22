@@ -28,6 +28,7 @@ import {
   ExplainAnalyzeOptions,
   ExplainAnalyzeResult
 } from './explainAnalyzeEngine';
+import { acidLockTrackerService } from './acidLockTrackerService';
 
 export const PROVIDER_SECRETS: Record<string, string> = {
   pragmatic_play: 'sk_live_pragmatic_seamless_88492048102',
@@ -904,6 +905,13 @@ class SimulatedSeamlessEngine {
 
   // --- Lock acquisition simulating PostgreSQL `SELECT ... FOR UPDATE` ---
   private async acquireRowLock(walletKey: string): Promise<() => void> {
+    const unregisterTracker = acidLockTrackerService.registerLiveRowLock(
+      'wallets',
+      walletKey,
+      'RowExclusiveLock (FOR UPDATE)',
+      `SELECT id, user_id, currency, real_balance, bonus_balance, version FROM wallets WHERE id = '${walletKey}' FOR UPDATE;`
+    );
+
     while (this.walletLocks.has(walletKey)) {
       await this.walletLocks.get(walletKey);
     }
@@ -912,6 +920,9 @@ class SimulatedSeamlessEngine {
     const lockPromise = new Promise<void>((resolve) => {
       releaseLock = () => {
         this.walletLocks.delete(walletKey);
+        try {
+          unregisterTracker();
+        } catch {}
         resolve();
       };
     });
@@ -2158,8 +2169,8 @@ class SimulatedSeamlessEngine {
     const userId = `u_${Date.now()}_${Math.floor(1000 + Math.random() * 9000)}`;
     const walletId = `w_${Date.now()}_${Math.floor(1000 + Math.random() * 9000)}`;
 
-    const starterBonus = params.currency === 'BDT' ? 10000.0 : 100.0;
-    const starterReal = params.currency === 'BDT' ? 2500.0 : 25.0;
+    const starterBonus = 0.0;
+    const starterReal = 0.0;
 
     const newUser: UserEntity = {
       id: userId,
@@ -2176,8 +2187,8 @@ class SimulatedSeamlessEngine {
       id: walletId,
       user_id: userId,
       currency: params.currency,
-      real_balance: starterReal,
-      bonus_balance: starterBonus,
+      real_balance: 0.0,
+      bonus_balance: 0.0,
       locked_balance: 0.0,
       turnover_ratio: 10,
       version: 1,
@@ -2189,29 +2200,30 @@ class SimulatedSeamlessEngine {
     this.users.set(userId, newUser);
     this.wallets.set(`${userId}:${params.currency}`, newWallet);
 
-    // Add Welcome Bonus Ledger Record
-    const promoTx: TransactionEntity = {
-      id: `LEDGER_WELCOME_${Date.now()}`,
+    // Add Initial Account Opening Ledger Record (Zero Initial Balance)
+    const openTx: TransactionEntity = {
+      id: `LEDGER_OPEN_${Date.now()}`,
       provider_id: 'GAMEPLAY365_AUTH',
-      transaction_id: `WELCOME_PROMO_${Date.now()}`,
+      transaction_id: `ACCT_OPEN_${Date.now()}`,
       reference_transaction_id: `REG_${userId}`,
       user_id: userId,
       wallet_id: walletId,
-      game_id: 'SYSTEM_REGISTRATION_BONUS',
+      game_id: 'SYSTEM_ACCOUNT_OPENING',
       type: 'PROMO',
-      amount: starterBonus,
+      amount: 0.0,
       currency: params.currency,
       before_balance: 0,
-      after_balance: starterReal,
+      after_balance: 0,
       status: 'COMPLETED',
       metadata: {
-        promoCode: params.promoCode || 'GAMEPLAY100',
+        promoCode: params.promoCode || 'STANDARD',
         phone: params.phone,
-        email: params.email
+        email: params.email,
+        note: 'Live User Registered with 0.00 initial balance. Deposit required to play.'
       },
       created_at: now
     };
-    this.transactions.unshift(promoTx);
+    this.transactions.unshift(openTx);
 
     // Create 10x Wagering Requirement for Welcome Bonus
     this.wageringRequirements.push({

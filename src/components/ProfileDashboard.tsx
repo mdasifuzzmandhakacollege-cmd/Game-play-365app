@@ -43,10 +43,12 @@ import {
   Zap,
   Target,
   ChevronRight,
-  TrendingUp
+  TrendingUp,
+  LogOut
 } from 'lucide-react';
 import { UserEntity, WalletEntity } from '../server/types/seamless';
 import { useWalletGame } from '../contexts/WalletGameContext';
+import { useAuth } from '../contexts/AuthContext';
 import { useTheme } from '../contexts/ThemeContext';
 import { soundEngine } from '../services/soundEngine';
 import { TreasureChestModal } from './TreasureChestModal';
@@ -68,12 +70,15 @@ export const ProfileDashboard: React.FC<ProfileDashboardProps> = ({
   onNavigateTab
 }) => {
   const { theme, toggleTheme } = useTheme();
+  const { user: firebaseUser, logout: firebaseLogout } = useAuth();
   const {
     formattedBalance,
     refreshState,
     showToast,
     transactions,
-    setActiveTab
+    setActiveTab,
+    logoutUser,
+    isAdmin
   } = useWalletGame();
 
   const [copiedId, setCopiedId] = useState<boolean>(false);
@@ -238,7 +243,20 @@ export const ProfileDashboard: React.FC<ProfileDashboardProps> = ({
         soundEngine.playClick(900);
         showToast('GamePlay365 লাইভ চ্যাট সাপোর্ট সক্রিয় রয়েছে');
       }
-    }
+    },
+    ...(isAdmin ? [{
+      id: 'admin_panel',
+      title: 'অ্যাডমিন প্যানেল',
+      titleEn: 'Admin Operator',
+      icon: ShieldCheck,
+      badge: 'ADMIN',
+      badgeColor: 'bg-amber-500 text-slate-950 font-black',
+      action: () => {
+        soundEngine.playClick(900);
+        if (onNavigateTab) onNavigateTab('admin');
+        else setActiveTab('admin');
+      }
+    }] : [])
   ];
 
   return (
@@ -292,6 +310,22 @@ export const ProfileDashboard: React.FC<ProfileDashboardProps> = ({
 
               <div className="text-[11px] text-emerald-300/80 font-mono">
                 রিজিওন: 🇧🇩 বাংলাদেশ • কারেন্সি: {currency}
+              </div>
+
+              {/* Prominent Quick Logout Button in User Card */}
+              <div className="pt-1">
+                <button
+                  onClick={() => {
+                    soundEngine.playClick(800);
+                    if (firebaseUser) firebaseLogout();
+                    logoutUser();
+                    showToast('সফলভাবে লগআউট হয়েছে');
+                  }}
+                  className="px-3 py-1.5 rounded-lg bg-rose-500/20 hover:bg-rose-600 border border-rose-500/50 text-rose-300 hover:text-white text-xs font-bold transition-all flex items-center space-x-1.5 cursor-pointer active:scale-95 shadow-sm"
+                >
+                  <LogOut className="w-3.5 h-3.5 stroke-[2.5]" />
+                  <span>লগ আউট (Sign Out)</span>
+                </button>
               </div>
             </div>
           </div>
@@ -419,6 +453,24 @@ export const ProfileDashboard: React.FC<ProfileDashboardProps> = ({
             );
           })}
         </div>
+      </div>
+
+      {/* 4. DEDICATED SIGN OUT / LOGOUT CARD */}
+      <div className="pt-2">
+        <motion.button
+          whileHover={{ scale: 1.01 }}
+          whileTap={{ scale: 0.98 }}
+          onClick={() => {
+            soundEngine.playClick(800);
+            if (firebaseUser) firebaseLogout();
+            logoutUser();
+            showToast('সফলভাবে লগআউট হয়েছে');
+          }}
+          className="w-full py-3.5 px-4 rounded-2xl bg-rose-500/15 hover:bg-rose-500/25 border-2 border-rose-500/40 text-rose-300 hover:text-white flex items-center justify-center space-x-2 font-black text-sm tracking-wide shadow-lg shadow-rose-950/40 cursor-pointer transition-all active:scale-95"
+        >
+          <LogOut className="w-5 h-5 text-rose-400 stroke-[2.5]" />
+          <span>অ্যাকাউন্ট থেকে লগ আউট করুন (Sign Out)</span>
+        </motion.button>
       </div>
 
       {/* Gamified Modals */}

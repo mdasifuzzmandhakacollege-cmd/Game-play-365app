@@ -93,6 +93,8 @@ interface WalletGameContextType {
   // Auth & User Profile
   isAuthenticated: boolean;
   setIsAuthenticated: (auth: boolean) => void;
+  isAdmin: boolean;
+  userRole: 'ADMIN' | 'PLAYER' | 'VIP';
   currentUser: UserEntity;
   currentWallet: WalletEntity | undefined;
   users: UserEntity[];
@@ -151,7 +153,7 @@ export const useWalletGame = () => {
 };
 
 export const WalletGameProvider: React.FC<{ children: React.ReactNode }> = ({ children }) => {
-  const { user: authUser, logout: authLogout } = useAuth();
+  const { user: authUser, logout: authLogout, isAdmin: authIsAdmin, userRole: authUserRole } = useAuth();
 
   // Tab & Game State with Navigation Audio Feedback
   const [activeTab, setActiveTabState] = useState<MainNavTab>('lobby');
@@ -184,6 +186,18 @@ export const WalletGameProvider: React.FC<{ children: React.ReactNode }> = ({ ch
     };
   });
 
+  const isAdmin = Boolean(
+    authIsAdmin ||
+    currentUser.isAdmin ||
+    currentUser.role === 'ADMIN' ||
+    authUser?.email === 'md.asifuzzman.dhakacollege@gmail.com' ||
+    (currentUser.email && currentUser.email === 'md.asifuzzman.dhakacollege@gmail.com')
+  );
+
+  const userRole: 'ADMIN' | 'PLAYER' | 'VIP' = isAdmin
+    ? 'ADMIN'
+    : (authUserRole || (currentUser.role as 'ADMIN' | 'PLAYER' | 'VIP') || 'PLAYER');
+
   const [currentWallet, setCurrentWallet] = useState<WalletEntity>(() => {
     const localWallets = seamlessEngine.getWallets();
     const uid = authUser?.uid || currentUser.id;
@@ -192,7 +206,7 @@ export const WalletGameProvider: React.FC<{ children: React.ReactNode }> = ({ ch
       id: `w_${uid}_bdt`,
       user_id: uid,
       currency: 'BDT',
-      real_balance: 5000,
+      real_balance: 0,
       bonus_balance: 0,
       locked_balance: 0,
       version: 1,
@@ -209,9 +223,11 @@ export const WalletGameProvider: React.FC<{ children: React.ReactNode }> = ({ ch
 
   const [sessionAuthenticated, setSessionAuthenticated] = useState<boolean>(() => {
     try {
-      return localStorage.getItem('playall365_session_active') === 'true' || authUser !== null;
+      const stored = localStorage.getItem('playall365_session_active');
+      if (stored === 'false') return false;
+      return true; // Default to active session for instant casino lobby entry
     } catch {
-      return authUser !== null;
+      return true;
     }
   });
 
@@ -242,7 +258,7 @@ export const WalletGameProvider: React.FC<{ children: React.ReactNode }> = ({ ch
   const [celebrationData, setCelebrationData] = useState<CelebrationData | null>(null);
 
   // Animated Balance State for smooth interpolation
-  const [animatedBalance, setAnimatedBalance] = useState<number>(5000);
+  const [animatedBalance, setAnimatedBalance] = useState<number>(0);
   const [balanceFlash, setBalanceFlash] = useState<'idle' | 'deduct' | 'credit'>('idle');
   const animationTimerRef = useRef<any>(null);
 
@@ -670,6 +686,8 @@ export const WalletGameProvider: React.FC<{ children: React.ReactNode }> = ({ ch
       value={{
         isAuthenticated,
         setIsAuthenticated,
+        isAdmin,
+        userRole,
         currentUser,
         currentWallet,
         users,

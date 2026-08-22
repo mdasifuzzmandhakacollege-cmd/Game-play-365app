@@ -247,7 +247,7 @@ export const AuthModal: React.FC<AuthModalProps> = ({
         }
       }
     } catch (err: any) {
-      console.error('Firebase Auth Form Error:', err);
+      console.warn('Firebase Auth Form Notice:', err?.message || err);
       const code = err?.code || '';
       if (code === 'auth/user-not-found' || code === 'auth/wrong-password' || code === 'auth/invalid-credential') {
         setErrorMessage('ইমেইল অথবা পাসওয়ার্ড সঠিক নয় (Invalid email or password)');
@@ -288,7 +288,7 @@ export const AuthModal: React.FC<AuthModalProps> = ({
         onClose();
       }
     } catch (err: any) {
-      console.error('Google Sign-in failed:', err);
+      console.warn('Google Sign-in notice:', err?.message || err);
       const code = err?.code || '';
       if (code === 'auth/unauthorized-domain') {
         const currentDomain = window.location.hostname;

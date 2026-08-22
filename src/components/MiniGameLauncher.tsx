@@ -37,6 +37,8 @@ import { PgSoftMahjongWays } from './games/PgSoftMahjongWays';
 import { JiliSuperAce } from './games/JiliSuperAce';
 import { AviatorProGame } from './games/AviatorProGame';
 import { DemoIframe, OFFICIAL_DEMO_GAMES } from './games/DemoIframe';
+import { LiveCasinoStudio } from './games/LiveCasinoStudio';
+import { SpribeMinesGame } from './games/SpribeMinesGame';
 
 interface MiniGameLauncherProps {
   onBackToLobby: () => void;
@@ -61,17 +63,23 @@ export const MiniGameLauncher: React.FC<MiniGameLauncherProps> = ({
     showToast
   } = useWalletGame();
 
-  type GameType = 'real_demo' | 'pgsoft' | 'jili' | 'aviator' | 'bonanza' | 'roulette';
+  type GameType = 'real_demo' | 'live_casino' | 'mines' | 'pgsoft' | 'jili' | 'aviator' | 'bonanza' | 'roulette';
 
   const [activeGame, setActiveGame] = useState<GameType>(() => {
+    if (defaultGameId.includes('baccarat') || defaultGameId.includes('dragon') || defaultGameId.includes('teen') || defaultGameId.includes('casino')) {
+      return 'live_casino';
+    }
+    if (defaultGameId.includes('mines')) {
+      return 'mines';
+    }
     if (defaultGameId.startsWith('vs') || defaultGameId.includes('pragmatic') || defaultGameId.includes('olympus') || defaultGameId.includes('sugar') || defaultGameId.includes('doghouse') || defaultGameId.includes('starlight')) {
       return 'real_demo';
     }
-    if (defaultGameId.includes('mahjong') || defaultGameId.includes('pgsoft')) return 'pgsoft';
-    if (defaultGameId.includes('jili') || defaultGameId.includes('ace')) return 'jili';
-    if (defaultGameId.includes('aviator') || defaultGameId.includes('spribe') || defaultGameId.includes('crash')) return 'aviator';
+    if (defaultGameId.includes('mahjong') || defaultGameId.includes('pgsoft') || defaultGameId.includes('tiger')) return 'pgsoft';
+    if (defaultGameId.includes('jili') || defaultGameId.includes('ace') || defaultGameId.includes('boxing') || defaultGameId.includes('gems')) return 'jili';
+    if (defaultGameId.includes('aviator') || defaultGameId.includes('spribe') || defaultGameId.includes('crash') || defaultGameId.includes('flyx')) return 'aviator';
     if (defaultGameId.includes('bonanza')) return 'real_demo';
-    if (defaultGameId.includes('roulette')) return 'roulette';
+    if (defaultGameId.includes('roulette')) return 'live_casino';
     return 'real_demo';
   });
 
@@ -298,6 +306,8 @@ export const MiniGameLauncher: React.FC<MiniGameLauncherProps> = ({
 
   const GAME_ID_MAP: Record<GameType, string> = {
     real_demo: selectedDemoGameId,
+    live_casino: defaultGameId.includes('dragon') ? 'evolution_dragontiger_live' : 'evolution_baccarat_live',
+    mines: 'spribe_mines',
     pgsoft: 'pgsoft_mahjong_ways2',
     jili: 'jili_super_ace',
     aviator: 'spribe_aviator',
@@ -423,13 +433,46 @@ export const MiniGameLauncher: React.FC<MiniGameLauncherProps> = ({
             }`}
           >
             <span>👑</span>
-            <span>অফিসিয়াল রিয়েল ডেমো (Pragmatic / PG)</span>
+            <span>অফিসিয়াল রিয়েল ডেমো</span>
             <span className="text-[9px] px-1.5 py-0.2 rounded bg-rose-600 text-white font-mono">
               HOT 🔥
             </span>
           </button>
 
-          {/* 2. Aviator Pro */}
+          {/* 2. Live Casino Dealer Studio */}
+          <button
+            onClick={() => {
+              soundEngine.playClick(900);
+              setActiveGame('live_casino');
+            }}
+            className={`px-3 py-1.5 rounded-xl font-black text-xs font-mono whitespace-nowrap transition-all flex items-center space-x-1.5 cursor-pointer shrink-0 ${
+              activeGame === 'live_casino'
+                ? 'bg-gradient-to-r from-rose-600 via-red-500 to-amber-500 text-white shadow-lg shadow-rose-500/25 font-black scale-105 border border-rose-400'
+                : 'bg-slate-900 border border-slate-800 text-slate-300 hover:text-white'
+            }`}
+          >
+            <span>🎴</span>
+            <span>লাইভ ক্যাসিনো স্টুডিও (Baccarat / Dragon)</span>
+            <span className="w-1.5 h-1.5 rounded-full bg-red-400 animate-ping" />
+          </button>
+
+          {/* 3. Spribe Mines */}
+          <button
+            onClick={() => {
+              soundEngine.playClick(900);
+              setActiveGame('mines');
+            }}
+            className={`px-3 py-1.5 rounded-xl font-black text-xs font-mono whitespace-nowrap transition-all flex items-center space-x-1.5 cursor-pointer shrink-0 ${
+              activeGame === 'mines'
+                ? 'bg-gradient-to-r from-cyan-500 to-blue-500 text-slate-950 shadow-lg shadow-cyan-500/25 font-black scale-105 border border-cyan-300'
+                : 'bg-slate-900 border border-slate-800 text-slate-400 hover:text-white'
+            }`}
+          >
+            <span>💣</span>
+            <span>Spribe Mines 10000X</span>
+          </button>
+
+          {/* 4. Aviator Pro */}
           <button
             onClick={() => {
               soundEngine.playClick(900);
@@ -445,7 +488,7 @@ export const MiniGameLauncher: React.FC<MiniGameLauncherProps> = ({
             <span>Spribe Aviator Pro</span>
           </button>
 
-          {/* 3. PG Soft Mahjong 2 */}
+          {/* 5. PG Soft Mahjong 2 */}
           <button
             onClick={() => {
               soundEngine.playClick(850);
@@ -461,7 +504,7 @@ export const MiniGameLauncher: React.FC<MiniGameLauncherProps> = ({
             <span>PG Mahjong 2</span>
           </button>
 
-          {/* 4. JILI Super Ace */}
+          {/* 6. JILI Super Ace */}
           <button
             onClick={() => {
               soundEngine.playClick(850);
@@ -475,22 +518,6 @@ export const MiniGameLauncher: React.FC<MiniGameLauncherProps> = ({
           >
             <span>🃏</span>
             <span>JILI Super Ace</span>
-          </button>
-
-          {/* 5. Lightning Roulette */}
-          <button
-            onClick={() => {
-              soundEngine.playClick(850);
-              setActiveGame('roulette');
-            }}
-            className={`px-3 py-1.5 rounded-xl font-black text-xs font-mono whitespace-nowrap transition-all flex items-center space-x-1.5 cursor-pointer shrink-0 ${
-              activeGame === 'roulette'
-                ? 'bg-gradient-to-r from-cyan-500 to-blue-500 text-white shadow-lg shadow-cyan-500/25 font-black scale-105 border border-cyan-400'
-                : 'bg-slate-900 border border-slate-800 text-slate-400 hover:text-white'
-            }`}
-          >
-            <span>⚡</span>
-            <span>Lightning Roulette</span>
           </button>
         </div>
       </div>
@@ -511,7 +538,21 @@ export const MiniGameLauncher: React.FC<MiniGameLauncherProps> = ({
       )}
 
       {/* ========================================================================= */}
-      {/* 1. OFFICIAL REAL DEMO AGGREGATOR IFRAME PLAYER */}
+      {/* 1. LIVE CASINO DEALER STUDIO VIEW */}
+      {/* ========================================================================= */}
+      {activeGame === 'live_casino' && (
+        <LiveCasinoStudio
+          initialGame={defaultGameId.includes('dragon') ? 'dragontiger' : defaultGameId.includes('roulette') ? 'roulette' : 'baccarat'}
+        />
+      )}
+
+      {/* ========================================================================= */}
+      {/* 2. SPRIBE MINES PROVABLY FAIR 10000X VIEW */}
+      {/* ========================================================================= */}
+      {activeGame === 'mines' && <SpribeMinesGame />}
+
+      {/* ========================================================================= */}
+      {/* 3. OFFICIAL REAL DEMO AGGREGATOR IFRAME PLAYER */}
       {/* ========================================================================= */}
       {activeGame === 'real_demo' && (
         <DemoIframe
@@ -521,7 +562,7 @@ export const MiniGameLauncher: React.FC<MiniGameLauncherProps> = ({
       )}
 
       {/* ========================================================================= */}
-      {/* 2. AVIATOR PRO CRASH GAME VIEW */}
+      {/* 4. AVIATOR PRO CRASH GAME VIEW */}
       {/* ========================================================================= */}
       {activeGame === 'aviator' && (
         <AviatorProGame
@@ -531,12 +572,12 @@ export const MiniGameLauncher: React.FC<MiniGameLauncherProps> = ({
       )}
 
       {/* ========================================================================= */}
-      {/* 3. PG SOFT MAHJONG WAYS 2 SIMULATOR */}
+      {/* 5. PG SOFT MAHJONG WAYS 2 SIMULATOR */}
       {/* ========================================================================= */}
       {activeGame === 'pgsoft' && <PgSoftMahjongWays onOpenCashier={onOpenCashier} />}
 
       {/* ========================================================================= */}
-      {/* 4. JILI SUPER ACE CARD SIMULATOR */}
+      {/* 6. JILI SUPER ACE CARD SIMULATOR */}
       {/* ========================================================================= */}
       {activeGame === 'jili' && <JiliSuperAce onOpenCashier={onOpenCashier} />}
 

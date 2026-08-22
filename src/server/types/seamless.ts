@@ -121,6 +121,10 @@ export interface UserEntity {
   currency: string;
   status: UserStatus;
   country_code?: string;
+  role?: 'ADMIN' | 'PLAYER' | 'VIP' | 'OPERATOR';
+  isAdmin?: boolean;
+  vipTier?: string;
+  vipPoints?: number;
   created_at: string;
   updated_at: string;
 }

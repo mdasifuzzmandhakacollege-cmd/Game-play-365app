@@ -69,6 +69,8 @@ import {
 } from '../server/types/seamless';
 import { ExplainPlanModal } from './ExplainPlanModal';
 import { SqlQueryHistorySidebar } from './SqlQueryHistorySidebar';
+import { PostgresAcidLockVisualizer } from './PostgresAcidLockVisualizer';
+import { acidLockTrackerService } from '../services/acidLockTrackerService';
 import {
   sqlExecutionService,
   SqlQueryResult,
@@ -80,7 +82,7 @@ interface LedgerExplorerProps {
   onRefresh: () => void;
 }
 
-type TableTab = 'transactions' | 'wallets' | 'game_rounds' | 'idempotency' | 'users' | 'sql_logs';
+type TableTab = 'transactions' | 'wallets' | 'game_rounds' | 'idempotency' | 'users' | 'sql_logs' | 'acid_locks';
 type ChartStyle = 'composed' | 'area' | 'bar' | 'velocity';
 type TimeWindow = '15m' | '30m' | '60m' | 'all';
 
@@ -173,6 +175,15 @@ export const LedgerExplorer: React.FC<LedgerExplorerProps> = ({ onRefresh }) => 
   const [includeAuditHeaders, setIncludeAuditHeaders] = useState<boolean>(true);
   const [includeAuditHashes, setIncludeAuditHashes] = useState<boolean>(true);
   const [sqlQueryLogs, setSqlQueryLogs] = useState<SqlQueryLog[]>(() => seamlessEngine.getSqlQueryLogs());
+  const [activeLocksCount, setActiveLocksCount] = useState<number>(() => acidLockTrackerService.getSnapshot().locks.length);
+
+  // Subscribe to real-time ACID lock updates for tab count
+  useEffect(() => {
+    const unsub = acidLockTrackerService.subscribe((s) => {
+      setActiveLocksCount(s.locks.length);
+    });
+    return () => unsub();
+  }, []);
 
   // Live Export Mode: Automatically streams and downloads newly committed transaction audit logs as CSV files
   const [liveExportMode, setLiveExportMode] = useState<boolean>(() => {
@@ -1087,13 +1098,28 @@ export const LedgerExplorer: React.FC<LedgerExplorerProps> = ({ onRefresh }) => 
           <div className="text-[10px] text-slate-500 font-mono">Win/Bet Ratio</div>
         </div>
 
-        <div className="bg-slate-900 border border-slate-800 rounded-xl p-3 shadow-md flex flex-col justify-between">
-          <div className="text-[10px] uppercase font-bold text-slate-400">Audit Status</div>
+        <div
+          onClick={() => {
+            setActiveTable('acid_locks');
+            soundEngine.playClick(600);
+          }}
+          className={`bg-slate-900 border rounded-xl p-3 shadow-md flex flex-col justify-between cursor-pointer transition-all hover:border-amber-500/50 group ${
+            activeTable === 'acid_locks' ? 'border-amber-500/60 bg-amber-500/5 ring-1 ring-amber-500/30' : 'border-slate-800'
+          }`}
+          title="Click to open PostgreSQL ACID & Row-Level Lock Visualizer"
+        >
+          <div className="text-[10px] uppercase font-bold text-slate-400 flex items-center justify-between">
+            <span>Audit Status</span>
+            <span className="text-[9px] text-amber-400 group-hover:underline">View ACID ↗</span>
+          </div>
           <div className="flex items-center gap-1.5 text-xs font-bold text-emerald-400 font-mono mt-1">
             <ShieldCheck className="w-4 h-4 text-emerald-400" />
             <span>ACID 100% OK</span>
           </div>
-          <div className="text-[10px] text-slate-500 font-mono">Row Lock Enforced</div>
+          <div className="text-[10px] text-slate-500 font-mono flex items-center justify-between">
+            <span>Row Lock Enforced</span>
+            <span className="text-amber-400 font-bold">{activeLocksCount} locks</span>
+          </div>
         </div>
       </div>
 
@@ -1376,24 +1402,35 @@ export const LedgerExplorer: React.FC<LedgerExplorerProps> = ({ onRefresh }) => 
             { id: 'game_rounds', label: 'game_rounds', count: gameRounds.length },
             { id: 'idempotency', label: 'idempotency_keys', count: idempotencyRecords.length },
             { id: 'users', label: 'users', count: users.length },
-            { id: 'sql_logs', label: 'SQL Query Logs', count: sqlQueryLogs.length, isSql: true }
+            { id: 'sql_logs', label: 'SQL Query Logs', count: sqlQueryLogs.length, isSql: true },
+            { id: 'acid_locks', label: 'ACID & Row Locks', count: activeLocksCount, isAcid: true }
           ].map((t) => (
             <button
               key={t.id}
               onClick={() => setActiveTable(t.id as TableTab)}
               className={`px-3 py-1.5 rounded-lg text-xs font-mono font-semibold transition-all flex items-center gap-1.5 whitespace-nowrap cursor-pointer ${
                 activeTable === t.id
-                  ? t.isSql
+                  ? t.isAcid
+                    ? 'bg-amber-500/20 text-amber-300 border border-amber-500/50 shadow-sm ring-1 ring-amber-500/30'
+                    : t.isSql
                     ? 'bg-amber-500/20 text-amber-300 border border-amber-500/40 shadow-sm'
                     : 'bg-blue-500/20 text-blue-300 border border-blue-500/40 shadow-sm'
                   : 'text-slate-400 hover:text-white hover:bg-slate-800 border border-transparent'
               }`}
             >
-              {t.isSql && <Terminal className="w-3.5 h-3.5 text-amber-400" />}
+              {t.isAcid ? (
+                <Lock className="w-3.5 h-3.5 text-amber-400 animate-pulse" />
+              ) : t.isSql ? (
+                <Terminal className="w-3.5 h-3.5 text-amber-400" />
+              ) : null}
               <span>{t.label}</span>
               <span
                 className={`px-1.5 py-0.2 rounded text-[10px] ${
-                  t.isSql ? 'bg-amber-950 text-amber-300 border border-amber-500/30' : 'bg-slate-950 text-slate-400'
+                  t.isAcid
+                    ? 'bg-amber-950 text-amber-300 border border-amber-500/40 font-bold'
+                    : t.isSql
+                    ? 'bg-amber-950 text-amber-300 border border-amber-500/30'
+                    : 'bg-slate-950 text-slate-400'
                 }`}
               >
                 {t.count}
@@ -2479,6 +2516,13 @@ export const LedgerExplorer: React.FC<LedgerExplorerProps> = ({ onRefresh }) => 
                 </div>
               </div>
             )}
+          </div>
+        )}
+
+        {/* POSTGRESQL ACID & ROW-LEVEL LOCK VISUALIZER */}
+        {activeTable === 'acid_locks' && (
+          <div className="p-4 sm:p-5 bg-slate-950/60">
+            <PostgresAcidLockVisualizer onRefreshParent={onRefresh} />
           </div>
         )}
       </div>

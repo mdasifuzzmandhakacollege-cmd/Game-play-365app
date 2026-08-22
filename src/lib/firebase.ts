@@ -12,27 +12,13 @@ import {
   browserLocalPersistence,
   User
 } from 'firebase/auth';
-import { initializeFirestore, memoryLocalCache } from 'firebase/firestore';
+import { getFirestore } from 'firebase/firestore';
 import baseAppletConfig from '../../firebase-applet-config.json';
 
-// Custom configuration provided by user
-export const customFirebaseConfig = {
-  apiKey: "AIzaSyCrQWrE-ZK4rFeU71Dpi59iXz4SSMLDuuk",
-  authDomain: "my-app-3d013.firebaseapp.com",
-  databaseURL: "https://my-app-3d013-default-rtdb.asia-southeast1.firebasedatabase.app",
-  projectId: "my-app-3d013",
-  storageBucket: "my-app-3d013.firebasestorage.app",
-  messagingSenderId: "476127189079",
-  appId: "1:476127189079:web:7aabee5c1b7d1d851d6b12",
-  measurementId: "G-0DDR8VF34M",
-  firestoreDatabaseId: "ai-studio-remixigamingseam-f254c3d9-f0b0-442c-9107-66d13db9b3fe"
-};
-
-// Use custom project credentials merged with base applet config
+// Use base applet configuration
 export const firebaseConfig = {
   ...baseAppletConfig,
-  ...customFirebaseConfig,
-  firestoreDatabaseId: "ai-studio-remixigamingseam-f254c3d9-f0b0-442c-9107-66d13db9b3fe"
+  firestoreDatabaseId: baseAppletConfig.firestoreDatabaseId || "ai-studio-remixigamingseam-f254c3d9-f0b0-442c-9107-66d13db9b3fe"
 };
 
 export const SCOPES = [
@@ -52,12 +38,9 @@ try {
   console.warn('Firebase persistence initialization error:', e);
 }
 
-export const FIRESTORE_DATABASE_ID = "ai-studio-remixigamingseam-f254c3d9-f0b0-442c-9107-66d13db9b3fe";
+export const FIRESTORE_DATABASE_ID = firebaseConfig.firestoreDatabaseId;
 
-export const db = initializeFirestore(app, {
-  localCache: memoryLocalCache(),
-  experimentalAutoDetectLongPolling: true,
-}, FIRESTORE_DATABASE_ID);
+export const db = getFirestore(app, firebaseConfig.firestoreDatabaseId);
 
 export const googleAuthProvider = new GoogleAuthProvider();
 SCOPES.forEach((scope) => {
@@ -126,13 +109,17 @@ export const registerWithEmail = async (
     isSigningIn = true;
     const cred = await createUserWithEmailAndPassword(auth, email, pass);
     if (displayName) {
-      await updateProfile(cred.user, { displayName });
+      try {
+        await updateProfile(cred.user, { displayName });
+      } catch (profileErr) {
+        console.warn('Firebase profile displayName update notice:', profileErr);
+      }
     }
     const token = await cred.user.getIdToken();
     cachedAccessToken = token;
     return { user: cred.user, accessToken: token };
   } catch (error: any) {
-    console.error('Firebase Email Register error:', error);
+    console.warn('Firebase Email Register notice:', error?.message || error);
     throw error;
   } finally {
     isSigningIn = false;
@@ -151,7 +138,7 @@ export const loginWithEmail = async (
     cachedAccessToken = token;
     return { user: cred.user, accessToken: token };
   } catch (error: any) {
-    console.error('Firebase Email Login error:', error);
+    console.warn('Firebase Email Login notice:', error?.message || error);
     throw error;
   } finally {
     isSigningIn = false;

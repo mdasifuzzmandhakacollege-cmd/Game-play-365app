@@ -12,12 +12,26 @@
         "currency": { "type": "string", "enum": ["BDT", "USD"] },
         "vipTier": { "type": "string", "maxLength": 50 },
         "vipPoints": { "type": "number" },
+        "role": { "type": "string", "enum": ["ADMIN", "PLAYER", "VIP", "OPERATOR"] },
+        "isAdmin": { "type": "boolean" },
         "affiliateCode": { "type": "string", "maxLength": 50 },
         "photoURL": { "type": "string", "maxLength": 512 },
         "createdAt": { "type": "string", "format": "date-time" },
         "updatedAt": { "type": "string", "format": "date-time" }
       },
       "required": ["id", "username", "currency", "vipTier"]
+    },
+    "Admin": {
+      "title": "Admin",
+      "description": "System operators and administrative accounts with elevated role-based permissions",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string", "maxLength": 128 },
+        "email": { "type": "string", "maxLength": 255 },
+        "role": { "type": "string", "enum": ["SUPER_ADMIN", "OPERATOR", "COMPLIANCE"] },
+        "assignedAt": { "type": "string", "format": "date-time" }
+      },
+      "required": ["id", "role", "assignedAt"]
     },
     "Wallet": {
       "title": "Wallet",
@@ -164,6 +178,10 @@
     }
   },
   "firestore": {
+    "/admins/{adminId}": {
+      "schema": { "$ref": "#/entities/Admin" },
+      "description": "Elevated administrator and operator role mapping"
+    },
     "/users/{userId}": {
       "schema": { "$ref": "#/entities/User" },
       "description": "Player profile records"

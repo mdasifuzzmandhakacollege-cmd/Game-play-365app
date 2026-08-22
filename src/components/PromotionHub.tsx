@@ -71,6 +71,50 @@ interface PromoOffer {
 
 const PROMOTIONAL_OFFERS: PromoOffer[] = [
   {
+    id: 'f111-daily-vip-999',
+    category: 'VIP',
+    title: 'দৈনিক লগইন ভিআইপি বোনাস ৳৯৯৯',
+    subtitle: 'প্রতিদিন লগইন করে ইনস্ট্যান্ট ভিআইপি ক্যাশ রিওয়ার্ড লুফে নিন',
+    bonusAmount: '৳ ৯৯৯ পর্যন্ত ফ্রি',
+    badge: 'DAILY VIP ৳999',
+    badgeColor: 'bg-[#54D62C] text-slate-950 font-black',
+    accentGradient: 'from-emerald-500/25 via-[#54D62C]/15 to-transparent border-[#54D62C]/50',
+    turnover: '১x রোলওভার',
+    minDeposit: '০ টাকা (ফ্রি লগইন)',
+    maxBonus: '৳ ৯৯৯ সরাসরি ক্যাশ',
+    validity: 'প্রতিদিন একবার',
+    eligibleGames: 'সকল স্লটস (PG Soft, JILI), ক্র্যাশ (Aviator), লাইভ ক্যাসিনো',
+    description: 'প্রতিদিন GamePlay365-এ লগইন করলেই পাচ্ছেন নিশ্চিত ফ্রি ক্যাশ বোনাস। নিয়মিত চেক-ইন বজায় রেখে সর্বোচ্চ ৳৯৯৯ ভিআইপি ক্যাশ ড্রপ উপভোগ করুন।',
+    terms: [
+      'প্রতিদিন ২৪ ঘণ্টার মধ্যে একবার লগইন করে ক্লেম করা যাবে।',
+      'বোনাস সরাসরি আপনার মেইন ওয়ালেটে ক্রেডিট হবে।',
+      'মাত্র ১x রোলওভার সম্পূর্ণ করলেই যেকোনো সময় বিকাশ বা নগদে উইথড্র করা যাবে।'
+    ],
+    claimCode: 'DAILYVIP999'
+  },
+  {
+    id: 'f111-share-friend-999',
+    category: 'WELCOME',
+    title: 'বন্ধুদের সাথে শেয়ার করুন বোনাস ৳৯৯৯',
+    subtitle: 'রেফারেল লিংক অথবা টেলিগ্রামে শেয়ার করে ইনস্ট্যান্ট ক্যাশ ইনকাম',
+    bonusAmount: '৳ ৯৯৯ + আজীবন কমিশন',
+    badge: 'SHARE & EARN ৳999',
+    badgeColor: 'bg-gradient-to-r from-amber-400 to-yellow-300 text-slate-950 font-black',
+    accentGradient: 'from-amber-500/25 via-yellow-500/15 to-transparent border-amber-400/50',
+    turnover: '০x নো-ওয়েজার',
+    minDeposit: 'বন্ধুর প্রথম ডিপোজিট ৳৫০০',
+    maxBonus: 'আনলিমিটেড',
+    validity: 'আজীবন মেয়াদ',
+    eligibleGames: 'সকল গেমসে বৈধ',
+    description: 'আপনার ব্যক্তিগত ইনভাইট লিংক বন্ধুদের সাথে ফেসবুক, হোয়াটসঅ্যাপ বা টেলিগ্রামে শেয়ার করুন। বন্ধু যুক্ত হলেই পাবেন ৳৯৯৯ ইনস্ট্যান্ট বোনাস ও লাইফটাইম কমিশন।',
+    terms: [
+      'রেফার করা বন্ধু রেজিস্ট্রেশন করে প্রথম ডিপোজিট সম্পন্ন করলে বোনাস অ্যাক্টিভ হবে।',
+      'টাকা সরাসরি রিয়াল ক্যাশ ব্যালেন্সে জমা হবে।',
+      'দৈনিক যেকোনো সময় সরাসরি ক্যাশ-আউটযোগ্য।'
+    ],
+    claimCode: 'SHARE999'
+  },
+  {
     id: 'welcome-300',
     category: 'WELCOME',
     title: '৩০০% মেগা ফার্স্ট ডিপোজিট বোনাস',

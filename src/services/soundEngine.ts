@@ -587,6 +587,27 @@ class CasinoSoundEngine {
     osc.start(now);
     osc.stop(now + 0.25);
   }
+
+  /**
+   * Card Dealing / Table Felt Sound
+   */
+  public playDealCard() {
+    this.playCardFlip();
+  }
+
+  /**
+   * Spribe Crash / Explosion Sound
+   */
+  public playCrash() {
+    this.playPlaneCrash();
+  }
+
+  /**
+   * Gem / Diamond Reveal Sound
+   */
+  public playGem() {
+    this.playGoldTransform();
+  }
 }
 
 export const soundEngine = new CasinoSoundEngine();

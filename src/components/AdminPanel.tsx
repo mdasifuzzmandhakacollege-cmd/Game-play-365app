@@ -6,7 +6,7 @@
  * Player Balance Adjustments, and B2B API Architecture documentation.
  */
 
-import React, { useState } from 'react';
+import React, { useState, useEffect, useCallback } from 'react';
 import {
   ShieldCheck,
   Zap,
@@ -37,8 +37,17 @@ import {
   Activity,
   Layers,
   Sparkles,
-  Receipt
+  Receipt,
+  ShieldAlert,
+  Loader2,
+  ArrowLeft,
+  AlertOctagon,
+  KeyRound
 } from 'lucide-react';
+import { doc, getDoc } from 'firebase/firestore';
+import { db } from '../lib/firebase';
+import { useAuth } from '../contexts/AuthContext';
+import { useWalletGame } from '../contexts/WalletGameContext';
 import { seamlessEngine } from '../services/simulatedWalletEngine';
 import { notificationService } from '../services/notificationService';
 import { soundEngine } from '../services/soundEngine';
@@ -62,9 +71,150 @@ import {
 interface AdminPanelProps {
   onStateMutated: () => void;
   onClose?: () => void;
+  onRedirect?: (tab: string) => void;
 }
 
-export const AdminPanel: React.FC<AdminPanelProps> = ({ onStateMutated, onClose }) => {
+export const AdminPanel: React.FC<AdminPanelProps> = ({ onStateMutated, onClose, onRedirect }) => {
+  const { user: authUser, firestoreUser } = useAuth();
+  const { currentUser, setActiveTab } = useWalletGame();
+
+  // Strict Firestore Role Verification State
+  const [roleVerifying, setRoleVerifying] = useState<boolean>(true);
+  const [isAuthorized, setIsAuthorized] = useState<boolean>(false);
+  const [verifiedRole, setVerifiedRole] = useState<string | null>(null);
+  const [authErrorReason, setAuthErrorReason] = useState<string | null>(null);
+  const [redirectCountdown, setRedirectCountdown] = useState<number>(4);
+
+  const handleRedirect = useCallback(() => {
+    soundEngine.playNavClick();
+    if (onRedirect) {
+      onRedirect('lobby');
+    } else if (onClose) {
+      onClose();
+    } else {
+      setActiveTab('lobby');
+    }
+  }, [onRedirect, onClose, setActiveTab]);
+
+  // Query Firestore database directly for current user document & role
+  useEffect(() => {
+    let isCancelled = false;
+
+    const verifyFirestoreRole = async () => {
+      setRoleVerifying(true);
+      const targetUid = authUser?.uid || currentUser?.id;
+      const targetEmail = authUser?.email || currentUser?.email || '';
+
+      // Super admin owner whitelist
+      if (targetEmail === 'md.asifuzzman.dhakacollege@gmail.com') {
+        if (!isCancelled) {
+          setIsAuthorized(true);
+          setVerifiedRole('SUPER_ADMIN');
+          setRoleVerifying(false);
+        }
+        return;
+      }
+
+      if (!targetUid) {
+        if (!isCancelled) {
+          setIsAuthorized(false);
+          setAuthErrorReason('কোনো সক্রিয় সেশন বা ইউজার আইডি পাওয়া যায়নি (No authenticated user session).');
+          setRoleVerifying(false);
+        }
+        return;
+      }
+
+      try {
+        let isDocAdmin = false;
+        let roleFound = 'PLAYER';
+
+        // 1. Direct fetch from Firestore /users/{userId} document
+        try {
+          const userDocSnap = await getDoc(doc(db, 'users', targetUid));
+          if (userDocSnap.exists()) {
+            const data = userDocSnap.data();
+            roleFound = (data.role || (data.isAdmin ? 'ADMIN' : 'PLAYER')).toUpperCase();
+            const userEmail = data.email || '';
+            if (
+              data.isAdmin === true ||
+              roleFound === 'ADMIN' ||
+              roleFound === 'OPERATOR' ||
+              roleFound === 'SUPER_ADMIN' ||
+              userEmail === 'md.asifuzzman.dhakacollege@gmail.com'
+            ) {
+              isDocAdmin = true;
+            }
+          }
+        } catch (readErr) {
+          console.warn('Direct Firestore user document read notice:', readErr);
+        }
+
+        // 2. Secondary check against /admins/{userId} document
+        if (!isDocAdmin) {
+          try {
+            const adminDocSnap = await getDoc(doc(db, 'admins', targetUid));
+            if (adminDocSnap.exists()) {
+              isDocAdmin = true;
+              roleFound = 'ADMIN';
+            }
+          } catch {
+            // Ignore sub-collection read errors
+          }
+        }
+
+        // 3. Fallback to cached authenticated Firestore profile if offline or local
+        if (!isDocAdmin && firestoreUser) {
+          const fsRole = (firestoreUser.role || '').toUpperCase();
+          if (firestoreUser.isAdmin || fsRole === 'ADMIN' || fsRole === 'OPERATOR') {
+            isDocAdmin = true;
+            roleFound = fsRole || 'ADMIN';
+          }
+        }
+
+        if (!isCancelled) {
+          if (isDocAdmin) {
+            setIsAuthorized(true);
+            setVerifiedRole(roleFound);
+            setRoleVerifying(false);
+          } else {
+            setIsAuthorized(false);
+            setVerifiedRole(roleFound);
+            setAuthErrorReason(
+              `Firestore ব্যবহারকারী নথিতে (${targetUid}) 'ADMIN' বা 'OPERATOR' রোল অনুমোদিত নয়। আপনার বর্তমান রোল: '${roleFound}'।`
+            );
+            setRoleVerifying(false);
+          }
+        }
+      } catch (err: any) {
+        console.warn('Strict Firestore admin role check error:', err);
+        if (!isCancelled) {
+          setIsAuthorized(false);
+          setAuthErrorReason(err?.message || 'Firestore role verification check failed.');
+          setRoleVerifying(false);
+        }
+      }
+    };
+
+    verifyFirestoreRole();
+
+    return () => {
+      isCancelled = true;
+    };
+  }, [authUser, currentUser, firestoreUser]);
+
+  // Automatic Redirection Mechanism for Unauthorized Users
+  useEffect(() => {
+    if (!roleVerifying && !isAuthorized) {
+      if (redirectCountdown <= 0) {
+        handleRedirect();
+        return;
+      }
+      const timer = setTimeout(() => {
+        setRedirectCountdown((prev) => prev - 1);
+      }, 1000);
+      return () => clearTimeout(timer);
+    }
+  }, [roleVerifying, isAuthorized, redirectCountdown, handleRedirect]);
   const [activeSubTab, setActiveSubTab] = useState<'automated_gateway' | 'deposits' | 'withdrawals' | 'gateways' | 'users' | 'api_guide'>('automated_gateway');
   const [statusFilter, setStatusFilter] = useState<'ALL' | 'PENDING' | 'APPROVED' | 'REJECTED'>('ALL');
   const [searchQuery, setSearchQuery] = useState('');
@@ -267,18 +417,108 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({ onStateMutated, onClose 
       );
     });
 
+  // 1. STATE: VERIFYING ROLE IN FIRESTORE
+  if (roleVerifying) {
+    return (
+      <div className="max-w-2xl mx-auto px-4 py-20 text-center space-y-6 animate-fadeIn">
+        <div className="w-20 h-20 rounded-3xl bg-amber-500/10 border border-amber-500/30 flex items-center justify-center mx-auto text-amber-400 shadow-xl shadow-amber-500/10">
+          <Loader2 className="w-10 h-10 animate-spin text-amber-400" />
+        </div>
+        <div className="space-y-2">
+          <h2 className="text-xl sm:text-2xl font-black text-white font-bengali">
+            Firestore অ্যাডমিন পারমিশন যাচাই করা হচ্ছে...
+          </h2>
+          <p className="text-xs sm:text-sm text-slate-400 font-mono">
+            Verifying authenticated operator credentials against Firestore users database...
+          </p>
+        </div>
+        <div className="inline-flex items-center gap-2 px-3.5 py-1.5 rounded-full bg-slate-900 border border-slate-800 text-xs font-mono text-slate-300">
+          <KeyRound className="w-3.5 h-3.5 text-amber-400" />
+          <span>User: {authUser?.email || currentUser?.username || 'Active Session'}</span>
+        </div>
+      </div>
+    );
+  }
+
+  // 2. STATE: UNAUTHORIZED ROLE WITH AUTOMATIC REDIRECTION MECHANISM
+  if (!isAuthorized) {
+    return (
+      <div className="max-w-xl mx-auto px-4 py-16 text-center space-y-6 animate-fadeIn">
+        <div className="w-20 h-20 rounded-3xl bg-rose-500/10 border border-rose-500/30 flex items-center justify-center mx-auto text-rose-400 shadow-2xl shadow-rose-500/20">
+          <ShieldAlert className="w-10 h-10 animate-pulse" />
+        </div>
+
+        <div className="space-y-3">
+          <div className="inline-flex items-center space-x-1.5 px-3 py-1 rounded-full bg-rose-500/20 border border-rose-500/40 text-rose-300 text-xs font-bold font-mono uppercase tracking-wider">
+            <Lock className="w-3.5 h-3.5" />
+            <span>403 Forbidden • Access Restricted</span>
+          </div>
+          <h2 className="text-2xl sm:text-3xl font-black text-white font-bengali">
+            অ্যাডমিন প্যানেল অ্যাক্সেস নিষিদ্ধ
+          </h2>
+          <p className="text-sm text-slate-300 font-bengali max-w-md mx-auto">
+            এই রুটটি শুধুমাত্র Firestore ডাটাবেজে নথিবদ্ধ অনুমোদিত <strong className="text-amber-400">ADMIN</strong> ও <strong className="text-amber-400">OPERATOR</strong> রোলধারীদের জন্য সংরক্ষিত।
+          </p>
+        </div>
+
+        {authErrorReason && (
+          <div className="bg-slate-950/80 border border-rose-900/60 rounded-2xl p-4 max-w-md mx-auto text-left text-xs font-mono text-slate-400 space-y-1.5">
+            <div className="flex items-center space-x-2 text-rose-400 font-bold">
+              <AlertOctagon className="w-4 h-4" />
+              <span>নিরাপত্তা নিরীক্ষা (Security Reason):</span>
+            </div>
+            <p className="text-slate-300 text-[11px] break-words">{authErrorReason}</p>
+          </div>
+        )}
+
+        {/* Automatic Redirection Countdown Gauge */}
+        <div className="bg-emerald-950/40 border border-amber-500/30 rounded-2xl p-4 max-w-md mx-auto flex items-center justify-between">
+          <div className="flex items-center space-x-2.5 text-xs text-amber-300 font-mono font-bold">
+            <Clock className="w-4 h-4 text-amber-400 animate-spin" />
+            <span>স্বয়ংক্রিয় রিডাইরেক্ট (Redirecting):</span>
+          </div>
+          <div className="flex items-center space-x-1.5">
+            <span className="w-7 h-7 rounded-lg bg-amber-500 text-slate-950 font-black text-xs font-mono flex items-center justify-center shadow">
+              {redirectCountdown}s
+            </span>
+          </div>
+        </div>
+
+        <div className="flex flex-col sm:flex-row items-center justify-center gap-3 pt-2">
+          <button
+            onClick={handleRedirect}
+            className="w-full sm:w-auto px-6 py-3 rounded-xl bg-gradient-to-r from-amber-500 to-yellow-500 hover:from-amber-400 hover:to-yellow-400 text-slate-950 font-black text-sm flex items-center justify-center space-x-2 shadow-lg shadow-amber-500/25 active:scale-95 transition-all cursor-pointer font-bengali"
+          >
+            <ArrowLeft className="w-4 h-4" />
+            <span>এখনই লবিতে ফিরে যান (Return Now)</span>
+          </button>
+
+          {onClose && (
+            <button
+              onClick={onClose}
+              className="w-full sm:w-auto px-6 py-3 rounded-xl bg-slate-800 hover:bg-slate-700 text-slate-200 border border-slate-700 font-bold text-sm transition-all cursor-pointer font-bengali"
+            >
+              বন্ধ করুন (Close)
+            </button>
+          )}
+        </div>
+      </div>
+    );
+  }
+
+  // 3. AUTHORIZED OPERATOR CONSOLE VIEW
   return (
-    <div className="space-y-6 max-w-7xl mx-auto px-4 sm:px-6 py-6">
+    <div className="space-y-6 max-w-7xl mx-auto px-4 sm:px-6 py-6 animate-fadeIn">
       {/* 1. TOP HEADER & ROLE BADGE */}
       <div className="bg-gradient-to-r from-slate-950 via-slate-900 to-[#120e24] border border-amber-500/40 rounded-3xl p-6 shadow-2xl flex flex-col md:flex-row md:items-center md:justify-between gap-4">
         <div>
           <div className="flex items-center space-x-2.5">
             <span className="px-2.5 py-1 rounded-xl bg-amber-500 text-slate-950 font-black text-xs font-mono uppercase tracking-wider flex items-center gap-1 shadow-lg shadow-amber-500/20">
               <ShieldCheck className="w-3.5 h-3.5" />
-              <span>SUPER ADMIN ROOT</span>
+              <span>{verifiedRole || 'SUPER ADMIN ROOT'}</span>
             </span>
             <span className="px-2 py-0.5 rounded-md bg-emerald-500/20 text-emerald-300 font-mono text-[11px] border border-emerald-500/30">
-              ● REAL-TIME OPERATOR ENGINE
+              ● FIRESTORE ROLE VERIFIED
             </span>
           </div>
           <h1 className="text-xl sm:text-2xl font-black text-white mt-1.5 flex items-center space-x-2">

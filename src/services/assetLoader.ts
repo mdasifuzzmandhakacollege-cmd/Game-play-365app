@@ -1,9 +1,11 @@
 /**
  * @file assetLoader.ts
  * @description Enterprise iGaming High-Fidelity Asset Loader & Media Registry.
- * Maps game IDs, provider ecosystems, and game themes to curated artwork,
- * animated preview sprites, studio badges, and audio-visual metadata.
+ * Maps game IDs, provider ecosystems, and game themes to curated authentic artwork,
+ * studio badges, and audio-visual metadata.
  */
+
+import { CASINO_ART } from './casinoArtRegistry';
 
 export interface GameAsset {
   gameId: string;
@@ -46,37 +48,44 @@ export const PROVIDER_ASSETS: Record<string, ProviderAsset> = {
   pgsoft: {
     id: 'pgsoft',
     name: 'PG Soft',
-    logoUrl: 'https://images.unsplash.com/photo-1579546929518-9e396f3cc809?auto=format&fit=crop&w=120&q=80',
-    badgeBg: 'from-amber-600 to-yellow-500',
-    color: '#f59e0b'
+    logoUrl: CASINO_ART.pgsoft_mahjong_ways2,
+    badgeBg: 'from-emerald-600 to-teal-500',
+    color: '#10b981'
   },
   jili: {
     id: 'jili',
     name: 'JILI Games',
-    logoUrl: 'https://images.unsplash.com/photo-1550745165-9bc0b252726f?auto=format&fit=crop&w=120&q=80',
-    badgeBg: 'from-purple-600 to-pink-500',
-    color: '#a855f7'
+    logoUrl: CASINO_ART.jili_super_ace,
+    badgeBg: 'from-amber-600 to-yellow-500',
+    color: '#f59e0b'
   },
   spribe: {
     id: 'spribe',
     name: 'SPRIBE',
-    logoUrl: 'https://images.unsplash.com/photo-1518770660439-4636190af475?auto=format&fit=crop&w=120&q=80',
+    logoUrl: CASINO_ART.spribe_aviator,
     badgeBg: 'from-rose-600 to-red-500',
     color: '#f43f5e'
   },
   pragmatic: {
     id: 'pragmatic',
     name: 'Pragmatic Play',
-    logoUrl: 'https://images.unsplash.com/photo-1534447677768-be436bb09401?auto=format&fit=crop&w=120&q=80',
-    badgeBg: 'from-amber-500 to-yellow-400',
-    color: '#eab308'
+    logoUrl: CASINO_ART.gates_of_olympus,
+    badgeBg: 'from-blue-600 to-indigo-500',
+    color: '#3b82f6'
   },
   evolution: {
     id: 'evolution',
     name: 'Evolution Gaming',
-    logoUrl: 'https://images.unsplash.com/photo-1511193311914-0346f16efe90?auto=format&fit=crop&w=120&q=80',
-    badgeBg: 'from-cyan-600 to-blue-500',
-    color: '#06b6d4'
+    logoUrl: CASINO_ART.speed_baccarat_live,
+    badgeBg: 'from-rose-600 to-red-600',
+    color: '#e11d48'
+  },
+  sports: {
+    id: 'sports',
+    name: 'BetPro Sports',
+    logoUrl: CASINO_ART.sports_cricket,
+    badgeBg: 'from-emerald-700 to-green-600',
+    color: '#10b981'
   }
 };
 
@@ -88,9 +97,9 @@ export const GAME_ASSETS: Record<string, GameAsset> = {
     provider: 'SPRIBE',
     providerId: 'spribe',
     category: 'minigames',
-    thumbnailUrl: 'https://images.unsplash.com/photo-1540959733332-eab4deabeeaf?auto=format&fit=crop&w=800&q=85',
-    animatedPreviewUrl: 'https://images.unsplash.com/photo-1519074069444-1ba4ea16e6f9?auto=format&fit=crop&w=800&q=85',
-    bannerUrl: 'https://images.unsplash.com/photo-1506015391300-4802dc74de2e?auto=format&fit=crop&w=1400&q=85',
+    thumbnailUrl: CASINO_ART.spribe_aviator,
+    animatedPreviewUrl: CASINO_ART.spribe_aviator,
+    bannerUrl: CASINO_ART.spribe_aviator,
     demoUrl: 'https://demogamesfree.pragmaticplay.net/gs2c/openGame.do?lang=en&cur=BDT&gameSymbol=vs20olympgate&websiteUrl=https%3A%2F%2Fdemogamesfree.pragmaticplay.net&lobbyURL=https%3A%2F%2Fwww.pragmaticplay.com',
     icon: '✈️',
     themeColor: {
@@ -115,9 +124,9 @@ export const GAME_ASSETS: Record<string, GameAsset> = {
     provider: 'WG Games',
     providerId: 'spribe',
     category: 'minigames',
-    thumbnailUrl: 'https://images.unsplash.com/photo-1519074069444-1ba4ea16e6f9?auto=format&fit=crop&w=800&q=85',
-    animatedPreviewUrl: 'https://images.unsplash.com/photo-1540959733332-eab4deabeeaf?auto=format&fit=crop&w=800&q=85',
-    bannerUrl: 'https://images.unsplash.com/photo-1451187580459-43490279c0fa?auto=format&fit=crop&w=1400&q=85',
+    thumbnailUrl: CASINO_ART.wg_aviator,
+    animatedPreviewUrl: CASINO_ART.wg_aviator,
+    bannerUrl: CASINO_ART.wg_aviator,
     demoUrl: 'https://demogamesfree.pragmaticplay.net/gs2c/openGame.do?lang=en&cur=BDT&gameSymbol=vs20olympgate&websiteUrl=https%3A%2F%2Fdemogamesfree.pragmaticplay.net&lobbyURL=https%3A%2F%2Fwww.pragmaticplay.com',
     icon: '🚀',
     themeColor: {
@@ -142,9 +151,9 @@ export const GAME_ASSETS: Record<string, GameAsset> = {
     provider: 'Buck Stakes',
     providerId: 'spribe',
     category: 'minigames',
-    thumbnailUrl: 'https://images.unsplash.com/photo-1506015391300-4802dc74de2e?auto=format&fit=crop&w=800&q=85',
-    animatedPreviewUrl: 'https://images.unsplash.com/photo-1451187580459-43490279c0fa?auto=format&fit=crop&w=800&q=85',
-    bannerUrl: 'https://images.unsplash.com/photo-1506015391300-4802dc74de2e?auto=format&fit=crop&w=1400&q=85',
+    thumbnailUrl: CASINO_ART.flyx_crash,
+    animatedPreviewUrl: CASINO_ART.flyx_crash,
+    bannerUrl: CASINO_ART.flyx_crash,
     demoUrl: 'https://demogamesfree.pragmaticplay.net/gs2c/openGame.do?lang=en&cur=BDT&gameSymbol=vs20sweetbonanza&websiteUrl=https%3A%2F%2Fdemogamesfree.pragmaticplay.net&lobbyURL=https%3A%2F%2Fwww.pragmaticplay.com',
     icon: '⚡',
     themeColor: {
@@ -169,9 +178,9 @@ export const GAME_ASSETS: Record<string, GameAsset> = {
     provider: 'JILI',
     providerId: 'jili',
     category: 'slots',
-    thumbnailUrl: 'https://images.unsplash.com/photo-1511193311914-0346f16efe90?auto=format&fit=crop&w=800&q=85',
-    animatedPreviewUrl: 'https://images.unsplash.com/photo-1541278107931-e006523892df?auto=format&fit=crop&w=800&q=85',
-    bannerUrl: 'https://images.unsplash.com/photo-1518609878373-06d740f60d8b?auto=format&fit=crop&w=1400&q=85',
+    thumbnailUrl: CASINO_ART.jili_super_ace,
+    animatedPreviewUrl: CASINO_ART.jili_super_ace,
+    bannerUrl: CASINO_ART.jili_super_ace,
     demoUrl: 'https://demogamesfree.pragmaticplay.net/gs2c/openGame.do?lang=en&cur=BDT&gameSymbol=vs20sweetbonanza&websiteUrl=https%3A%2F%2Fdemogamesfree.pragmaticplay.net&lobbyURL=https%3A%2F%2Fwww.pragmaticplay.com',
     icon: '🃏',
     themeColor: {
@@ -196,9 +205,9 @@ export const GAME_ASSETS: Record<string, GameAsset> = {
     provider: 'JILI',
     providerId: 'jili',
     category: 'slots',
-    thumbnailUrl: 'https://images.unsplash.com/photo-1541278107931-e006523892df?auto=format&fit=crop&w=800&q=85',
-    animatedPreviewUrl: 'https://images.unsplash.com/photo-1511193311914-0346f16efe90?auto=format&fit=crop&w=800&q=85',
-    bannerUrl: 'https://images.unsplash.com/photo-1518609878373-06d740f60d8b?auto=format&fit=crop&w=1400&q=85',
+    thumbnailUrl: CASINO_ART.jili_super_ace_deluxe,
+    animatedPreviewUrl: CASINO_ART.jili_super_ace_deluxe,
+    bannerUrl: CASINO_ART.jili_super_ace_deluxe,
     demoUrl: 'https://demogamesfree.pragmaticplay.net/gs2c/openGame.do?lang=en&cur=BDT&gameSymbol=vs20olympgate&websiteUrl=https%3A%2F%2Fdemogamesfree.pragmaticplay.net&lobbyURL=https%3A%2F%2Fwww.pragmaticplay.com',
     icon: '👑',
     themeColor: {
@@ -223,9 +232,9 @@ export const GAME_ASSETS: Record<string, GameAsset> = {
     provider: 'PG Soft',
     providerId: 'pgsoft',
     category: 'slots',
-    thumbnailUrl: 'https://images.unsplash.com/photo-1563089145-599997674d42?auto=format&fit=crop&w=800&q=85',
-    animatedPreviewUrl: 'https://images.unsplash.com/photo-1579546929518-9e396f3cc809?auto=format&fit=crop&w=800&q=85',
-    bannerUrl: 'https://images.unsplash.com/photo-1518609878373-06d740f60d8b?auto=format&fit=crop&w=1400&q=85',
+    thumbnailUrl: CASINO_ART.pgsoft_mahjong_ways2,
+    animatedPreviewUrl: CASINO_ART.pgsoft_mahjong_ways2,
+    bannerUrl: CASINO_ART.pgsoft_mahjong_ways2,
     demoUrl: 'https://demogamesfree.pragmaticplay.net/gs2c/openGame.do?lang=en&cur=BDT&gameSymbol=vs20sweetbonanza&websiteUrl=https%3A%2F%2Fdemogamesfree.pragmaticplay.net&lobbyURL=https%3A%2F%2Fwww.pragmaticplay.com',
     icon: '🀄',
     themeColor: {
@@ -250,9 +259,9 @@ export const GAME_ASSETS: Record<string, GameAsset> = {
     provider: 'PG Soft',
     providerId: 'pgsoft',
     category: 'slots',
-    thumbnailUrl: 'https://images.unsplash.com/photo-1561731216-c3a4d99437d5?auto=format&fit=crop&w=800&q=85',
-    animatedPreviewUrl: 'https://images.unsplash.com/photo-1563089145-599997674d42?auto=format&fit=crop&w=800&q=85',
-    bannerUrl: 'https://images.unsplash.com/photo-1561731216-c3a4d99437d5?auto=format&fit=crop&w=1400&q=85',
+    thumbnailUrl: CASINO_ART.fortune_tiger,
+    animatedPreviewUrl: CASINO_ART.fortune_tiger,
+    bannerUrl: CASINO_ART.fortune_tiger,
     demoUrl: 'https://demogamesfree.pragmaticplay.net/gs2c/openGame.do?lang=en&cur=BDT&gameSymbol=vs20olympgate&websiteUrl=https%3A%2F%2Fdemogamesfree.pragmaticplay.net&lobbyURL=https%3A%2F%2Fwww.pragmaticplay.com',
     icon: '🐯',
     themeColor: {
@@ -277,9 +286,9 @@ export const GAME_ASSETS: Record<string, GameAsset> = {
     provider: 'Pragmatic Play',
     providerId: 'pragmatic',
     category: 'slots',
-    thumbnailUrl: 'https://images.unsplash.com/photo-1534447677768-be436bb09401?auto=format&fit=crop&w=800&q=85',
-    animatedPreviewUrl: 'https://images.unsplash.com/photo-1518770660439-4636190af475?auto=format&fit=crop&w=800&q=85',
-    bannerUrl: 'https://images.unsplash.com/photo-1534447677768-be436bb09401?auto=format&fit=crop&w=1400&q=85',
+    thumbnailUrl: CASINO_ART.gates_of_olympus,
+    animatedPreviewUrl: CASINO_ART.gates_of_olympus,
+    bannerUrl: CASINO_ART.gates_of_olympus,
     demoUrl: 'https://demogamesfree.pragmaticplay.net/gs2c/openGame.do?lang=en&cur=BDT&gameSymbol=vs20olympgate&websiteUrl=https%3A%2F%2Fdemogamesfree.pragmaticplay.net&lobbyURL=https%3A%2F%2Fwww.pragmaticplay.com',
     icon: '⚡',
     themeColor: {
@@ -304,9 +313,9 @@ export const GAME_ASSETS: Record<string, GameAsset> = {
     provider: 'Pragmatic Play',
     providerId: 'pragmatic',
     category: 'slots',
-    thumbnailUrl: 'https://images.unsplash.com/photo-1582058091505-f87a2e55a40f?auto=format&fit=crop&w=800&q=85',
-    animatedPreviewUrl: 'https://images.unsplash.com/photo-1582058091505-f87a2e55a40f?auto=format&fit=crop&w=800&q=85',
-    bannerUrl: 'https://images.unsplash.com/photo-1579546929518-9e396f3cc809?auto=format&fit=crop&w=1400&q=85',
+    thumbnailUrl: CASINO_ART.sweet_bonanza,
+    animatedPreviewUrl: CASINO_ART.sweet_bonanza,
+    bannerUrl: CASINO_ART.sweet_bonanza,
     demoUrl: 'https://demogamesfree.pragmaticplay.net/gs2c/openGame.do?lang=en&cur=BDT&gameSymbol=vs20sweetbonanza&websiteUrl=https%3A%2F%2Fdemogamesfree.pragmaticplay.net&lobbyURL=https%3A%2F%2Fwww.pragmaticplay.com',
     icon: '🍬',
     themeColor: {
@@ -331,9 +340,9 @@ export const GAME_ASSETS: Record<string, GameAsset> = {
     provider: 'Pragmatic Play',
     providerId: 'pragmatic',
     category: 'slots',
-    thumbnailUrl: 'https://images.unsplash.com/photo-1579546929518-9e396f3cc809?auto=format&fit=crop&w=800&q=85',
-    animatedPreviewUrl: 'https://images.unsplash.com/photo-1582058091505-f87a2e55a40f?auto=format&fit=crop&w=800&q=85',
-    bannerUrl: 'https://images.unsplash.com/photo-1579546929518-9e396f3cc809?auto=format&fit=crop&w=1400&q=85',
+    thumbnailUrl: CASINO_ART.sugar_rush,
+    animatedPreviewUrl: CASINO_ART.sugar_rush,
+    bannerUrl: CASINO_ART.sugar_rush,
     demoUrl: 'https://demogamesfree.pragmaticplay.net/gs2c/openGame.do?lang=en&cur=BDT&gameSymbol=vs20sugarush&websiteUrl=https%3A%2F%2Fdemogamesfree.pragmaticplay.net&lobbyURL=https%3A%2F%2Fwww.pragmaticplay.com',
     icon: '🍭',
     themeColor: {
@@ -358,9 +367,9 @@ export const GAME_ASSETS: Record<string, GameAsset> = {
     provider: 'Pragmatic Play',
     providerId: 'pragmatic',
     category: 'slots',
-    thumbnailUrl: 'https://images.unsplash.com/photo-1534447677768-be436bb09401?auto=format&fit=crop&w=800&q=85',
-    animatedPreviewUrl: 'https://images.unsplash.com/photo-1518770660439-4636190af475?auto=format&fit=crop&w=800&q=85',
-    bannerUrl: 'https://images.unsplash.com/photo-1534447677768-be436bb09401?auto=format&fit=crop&w=1400&q=85',
+    thumbnailUrl: CASINO_ART.starlight_princess,
+    animatedPreviewUrl: CASINO_ART.starlight_princess,
+    bannerUrl: CASINO_ART.starlight_princess,
     demoUrl: 'https://demogamesfree.pragmaticplay.net/gs2c/openGame.do?lang=en&cur=BDT&gameSymbol=vs20starlight&websiteUrl=https%3A%2F%2Fdemogamesfree.pragmaticplay.net&lobbyURL=https%3A%2F%2Fwww.pragmaticplay.com',
     icon: '✨',
     themeColor: {
@@ -385,9 +394,9 @@ export const GAME_ASSETS: Record<string, GameAsset> = {
     provider: 'Pragmatic Play',
     providerId: 'pragmatic',
     category: 'slots',
-    thumbnailUrl: 'https://images.unsplash.com/photo-1543466835-00a7907e9de1?auto=format&fit=crop&w=800&q=85',
-    animatedPreviewUrl: 'https://images.unsplash.com/photo-1543466835-00a7907e9de1?auto=format&fit=crop&w=800&q=85',
-    bannerUrl: 'https://images.unsplash.com/photo-1543466835-00a7907e9de1?auto=format&fit=crop&w=1400&q=85',
+    thumbnailUrl: CASINO_ART.dog_house,
+    animatedPreviewUrl: CASINO_ART.dog_house,
+    bannerUrl: CASINO_ART.dog_house,
     demoUrl: 'https://demogamesfree.pragmaticplay.net/gs2c/openGame.do?lang=en&cur=BDT&gameSymbol=vswaysdoghouse&websiteUrl=https%3A%2F%2Fdemogamesfree.pragmaticplay.net&lobbyURL=https%3A%2F%2Fwww.pragmaticplay.com',
     icon: '🐶',
     themeColor: {
@@ -412,9 +421,9 @@ export const GAME_ASSETS: Record<string, GameAsset> = {
     provider: 'Pragmatic Play',
     providerId: 'pragmatic',
     category: 'fishing',
-    thumbnailUrl: 'https://images.unsplash.com/photo-1544551763-46a013bb70d5?auto=format&fit=crop&w=800&q=85',
-    animatedPreviewUrl: 'https://images.unsplash.com/photo-1544551763-46a013bb70d5?auto=format&fit=crop&w=800&q=85',
-    bannerUrl: 'https://images.unsplash.com/photo-1544551763-46a013bb70d5?auto=format&fit=crop&w=1400&q=85',
+    thumbnailUrl: CASINO_ART.jackpot_fishing,
+    animatedPreviewUrl: CASINO_ART.jackpot_fishing,
+    bannerUrl: CASINO_ART.jackpot_fishing,
     demoUrl: 'https://demogamesfree.pragmaticplay.net/gs2c/openGame.do?lang=en&cur=BDT&gameSymbol=vs10bbbonanza&websiteUrl=https%3A%2F%2Fdemogamesfree.pragmaticplay.net&lobbyURL=https%3A%2F%2Fwww.pragmaticplay.com',
     icon: '🎣',
     themeColor: {
@@ -439,9 +448,9 @@ export const GAME_ASSETS: Record<string, GameAsset> = {
     provider: 'Pragmatic Play',
     providerId: 'pragmatic',
     category: 'slots',
-    thumbnailUrl: 'https://images.unsplash.com/photo-1564349683136-77e08dba1ef6?auto=format&fit=crop&w=800&q=85',
-    animatedPreviewUrl: 'https://images.unsplash.com/photo-1564349683136-77e08dba1ef6?auto=format&fit=crop&w=800&q=85',
-    bannerUrl: 'https://images.unsplash.com/photo-1564349683136-77e08dba1ef6?auto=format&fit=crop&w=1400&q=85',
+    thumbnailUrl: CASINO_ART.gates_of_olympus,
+    animatedPreviewUrl: CASINO_ART.gates_of_olympus,
+    bannerUrl: CASINO_ART.gates_of_olympus,
     demoUrl: 'https://demogamesfree.pragmaticplay.net/gs2c/openGame.do?lang=en&cur=BDT&gameSymbol=vs25wolfgold&websiteUrl=https%3A%2F%2Fdemogamesfree.pragmaticplay.net&lobbyURL=https%3A%2F%2Fwww.pragmaticplay.com',
     icon: '🐺',
     themeColor: {
@@ -466,9 +475,9 @@ export const GAME_ASSETS: Record<string, GameAsset> = {
     provider: 'Evolution',
     providerId: 'evolution',
     category: 'casino',
-    thumbnailUrl: 'https://images.unsplash.com/photo-1511193311914-0346f16efe90?auto=format&fit=crop&w=800&q=85',
-    animatedPreviewUrl: 'https://images.unsplash.com/photo-1518609878373-06d740f60d8b?auto=format&fit=crop&w=800&q=85',
-    bannerUrl: 'https://images.unsplash.com/photo-1511193311914-0346f16efe90?auto=format&fit=crop&w=1400&q=85',
+    thumbnailUrl: CASINO_ART.dragon_tiger_live,
+    animatedPreviewUrl: CASINO_ART.dragon_tiger_live,
+    bannerUrl: CASINO_ART.dragon_tiger_live,
     demoUrl: 'https://demogamesfree.pragmaticplay.net/gs2c/openGame.do?lang=en&cur=BDT&gameSymbol=vs20olympgate&websiteUrl=https%3A%2F%2Fdemogamesfree.pragmaticplay.net&lobbyURL=https%3A%2F%2Fwww.pragmaticplay.com',
     icon: '⚡',
     themeColor: {
@@ -493,9 +502,9 @@ export const GAME_ASSETS: Record<string, GameAsset> = {
     provider: 'Evolution',
     providerId: 'evolution',
     category: 'casino',
-    thumbnailUrl: 'https://images.unsplash.com/photo-1518609878373-06d740f60d8b?auto=format&fit=crop&w=800&q=85',
-    animatedPreviewUrl: 'https://images.unsplash.com/photo-1579546929518-9e396f3cc809?auto=format&fit=crop&w=800&q=85',
-    bannerUrl: 'https://images.unsplash.com/photo-1518609878373-06d740f60d8b?auto=format&fit=crop&w=1400&q=85',
+    thumbnailUrl: CASINO_ART.speed_baccarat_live,
+    animatedPreviewUrl: CASINO_ART.speed_baccarat_live,
+    bannerUrl: CASINO_ART.speed_baccarat_live,
     demoUrl: 'https://demogamesfree.pragmaticplay.net/gs2c/openGame.do?lang=en&cur=BDT&gameSymbol=vs20sweetbonanza&websiteUrl=https%3A%2F%2Fdemogamesfree.pragmaticplay.net&lobbyURL=https%3A%2F%2Fwww.pragmaticplay.com',
     icon: '🎡',
     themeColor: {
@@ -520,9 +529,9 @@ export const GAME_ASSETS: Record<string, GameAsset> = {
     provider: 'JILI',
     providerId: 'jili',
     category: 'fishing',
-    thumbnailUrl: 'https://images.unsplash.com/photo-1544551763-46a013bb70d5?auto=format&fit=crop&w=800&q=85',
-    animatedPreviewUrl: 'https://images.unsplash.com/photo-1544551763-46a013bb70d5?auto=format&fit=crop&w=800&q=85',
-    bannerUrl: 'https://images.unsplash.com/photo-1544551763-46a013bb70d5?auto=format&fit=crop&w=1400&q=85',
+    thumbnailUrl: CASINO_ART.jackpot_fishing,
+    animatedPreviewUrl: CASINO_ART.jackpot_fishing,
+    bannerUrl: CASINO_ART.jackpot_fishing,
     demoUrl: 'https://demogamesfree.pragmaticplay.net/gs2c/openGame.do?lang=en&cur=BDT&gameSymbol=vs10bbbonanza&websiteUrl=https%3A%2F%2Fdemogamesfree.pragmaticplay.net&lobbyURL=https%3A%2F%2Fwww.pragmaticplay.com',
     icon: '🐟',
     themeColor: {
@@ -539,6 +548,266 @@ export const GAME_ASSETS: Record<string, GameAsset> = {
     badge: 'FISHING',
     features: ['Torpedo Cannons', 'Mega Boss Awakening', 'Free Electric Net'],
     description: 'Ocean arcade shooting game where laser cannons and torpedoes capture giant sea bosses for massive coins.'
+  },
+  evolution_baccarat_live: {
+    gameId: 'evolution_baccarat_live',
+    name: 'Speed Baccarat Live',
+    nameBn: 'স্পিড ব্যাকারাত লাইভ',
+    provider: 'Evolution',
+    providerId: 'evolution',
+    category: 'casino',
+    thumbnailUrl: CASINO_ART.speed_baccarat_live,
+    animatedPreviewUrl: CASINO_ART.speed_baccarat_live,
+    bannerUrl: CASINO_ART.speed_baccarat_live,
+    icon: '🎴',
+    themeColor: {
+      primary: '#e11d48',
+      glow: 'rgba(225, 29, 72, 0.4)',
+      border: 'border-rose-500/50',
+      gradient: 'from-rose-600 via-red-600 to-amber-500'
+    },
+    rtp: '98.94%',
+    volatility: 'Low',
+    maxMultiplier: '11x',
+    minBet: 50.0,
+    maxBet: 200000.0,
+    badge: 'LIVE DEALER 🔴',
+    features: ['Real-time Asian Roadmaps', 'Live HD Dealer Video', 'Player & Banker Pairs (11:1)', 'Instant Squeeze Option'],
+    description: 'Authentic high-roller live baccarat with real-time video stream, Bead Plate & Big Road trend tracking.'
+  },
+  evolution_dragontiger_live: {
+    gameId: 'evolution_dragontiger_live',
+    name: 'Dragon Tiger Live',
+    nameBn: 'ড্রাগন টাইগার লাইভ',
+    provider: 'Evolution',
+    providerId: 'evolution',
+    category: 'casino',
+    thumbnailUrl: CASINO_ART.dragon_tiger_live,
+    animatedPreviewUrl: CASINO_ART.dragon_tiger_live,
+    bannerUrl: CASINO_ART.dragon_tiger_live,
+    icon: '🐉',
+    themeColor: {
+      primary: '#f97316',
+      glow: 'rgba(249, 115, 22, 0.4)',
+      border: 'border-orange-500/50',
+      gradient: 'from-orange-600 via-amber-500 to-red-600'
+    },
+    rtp: '96.27%',
+    volatility: 'Low',
+    maxMultiplier: '50x',
+    minBet: 25.0,
+    maxBet: 100000.0,
+    badge: 'LIVE 25S 🔴',
+    features: ['Fast 25-Second Rounds', 'Dragon vs Tiger Single Card', 'Suited Tie 50:1'],
+    description: 'Fast two-card baccarat popular in Asia. Bet on Dragon or Tiger with lightning payout resolutions.'
+  },
+  evolution_teen_patti: {
+    gameId: 'evolution_teen_patti',
+    name: 'Teen Patti 20-20 Live',
+    nameBn: 'তিন পাত্তি লাইভ',
+    provider: 'Evolution',
+    providerId: 'evolution',
+    category: 'casino',
+    thumbnailUrl: CASINO_ART.teen_patti_live,
+    animatedPreviewUrl: CASINO_ART.teen_patti_live,
+    bannerUrl: CASINO_ART.teen_patti_live,
+    icon: '🃏',
+    themeColor: {
+      primary: '#10b981',
+      glow: 'rgba(16, 185, 129, 0.4)',
+      border: 'border-emerald-500/50',
+      gradient: 'from-emerald-600 via-teal-500 to-amber-500'
+    },
+    rtp: '97.50%',
+    volatility: 'Medium',
+    maxMultiplier: '100x',
+    minBet: 20.0,
+    maxBet: 50000.0,
+    badge: 'DESI LIVE 🔴',
+    features: ['3 Card Indian Poker', 'Pair Plus Side Bet', '6 Card Bonus'],
+    description: 'Classic Desi 3-card table game live streamed with authentic dealers and side bet bonuses.'
+  },
+  spribe_mines: {
+    gameId: 'spribe_mines',
+    name: 'Mines',
+    nameBn: 'মাইনস্ (SPRIBE 💎)',
+    provider: 'SPRIBE',
+    providerId: 'spribe',
+    category: 'minigames',
+    thumbnailUrl: CASINO_ART.spribe_mines,
+    animatedPreviewUrl: CASINO_ART.spribe_mines,
+    bannerUrl: CASINO_ART.spribe_mines,
+    icon: '💣',
+    themeColor: {
+      primary: '#06b6d4',
+      glow: 'rgba(6, 182, 212, 0.4)',
+      border: 'border-cyan-500/50',
+      gradient: 'from-cyan-500 via-blue-500 to-indigo-600'
+    },
+    rtp: '97.00%',
+    volatility: 'Medium',
+    maxMultiplier: '10,000x',
+    minBet: 10.0,
+    maxBet: 50000.0,
+    badge: 'HOT 🔥',
+    features: ['5x5 Dynamic Grid', '1 to 24 Mines Customizer', 'Instant Cashout Anytime', 'Provably Fair Seed'],
+    description: 'The world-renowned minesweeper casino game. Uncover diamonds and cashout before clicking a bomb.'
+  },
+  spribe_plinko: {
+    gameId: 'spribe_plinko',
+    name: 'Plinko',
+    nameBn: 'প্লিঙ্কো (SPRIBE 🔴)',
+    provider: 'SPRIBE',
+    providerId: 'spribe',
+    category: 'minigames',
+    thumbnailUrl: CASINO_ART.spribe_mines,
+    animatedPreviewUrl: CASINO_ART.spribe_mines,
+    bannerUrl: CASINO_ART.spribe_mines,
+    icon: '🔴',
+    themeColor: {
+      primary: '#ec4899',
+      glow: 'rgba(236, 72, 153, 0.4)',
+      border: 'border-pink-500/50',
+      gradient: 'from-pink-500 via-rose-500 to-yellow-400'
+    },
+    rtp: '97.00%',
+    volatility: 'High',
+    maxMultiplier: '1,000x',
+    minBet: 10.0,
+    maxBet: 50000.0,
+    badge: '1000X PIN',
+    features: ['12 to 16 Rows Pin Pyramid', 'Green/Yellow/Red Risk Modes', 'Rapid Fire Multiball'],
+    description: 'Drop glowing balls through a pyramid of pins into high-multiplier buckets up to 1000x.'
+  },
+  jili_fortune_gems: {
+    gameId: 'jili_fortune_gems',
+    name: 'Fortune Gems 2',
+    nameBn: 'ফরচুন জেমস ২',
+    provider: 'JILI',
+    providerId: 'jili',
+    category: 'slots',
+    thumbnailUrl: CASINO_ART.fortune_gems,
+    animatedPreviewUrl: CASINO_ART.fortune_gems,
+    bannerUrl: CASINO_ART.fortune_gems,
+    icon: '💎',
+    themeColor: {
+      primary: '#eab308',
+      glow: 'rgba(234, 179, 8, 0.4)',
+      border: 'border-yellow-500/50',
+      gradient: 'from-yellow-500 via-amber-500 to-orange-600'
+    },
+    rtp: '97.00%',
+    volatility: 'Medium',
+    maxMultiplier: '10,000x',
+    minBet: 10.0,
+    maxBet: 30000.0,
+    badge: 'HOT 🔥',
+    features: ['4th Multiplier Wheel Reel', 'Lucky Wheel Bonus', 'Instant Golden Garuda'],
+    description: 'Ancient Mayan gemstone slot with a dedicated 4th multiplier wheel boosting payouts up to 15x on every spin.'
+  },
+  jili_boxing_king: {
+    gameId: 'jili_boxing_king',
+    name: 'Boxing King',
+    nameBn: 'বক্সিং কিং (JILI)',
+    provider: 'JILI',
+    providerId: 'jili',
+    category: 'slots',
+    thumbnailUrl: CASINO_ART.boxing_king,
+    animatedPreviewUrl: CASINO_ART.boxing_king,
+    bannerUrl: CASINO_ART.boxing_king,
+    icon: '🥊',
+    themeColor: {
+      primary: '#ef4444',
+      glow: 'rgba(239, 68, 68, 0.4)',
+      border: 'border-red-500/50',
+      gradient: 'from-red-600 via-rose-600 to-amber-500'
+    },
+    rtp: '97.00%',
+    volatility: 'High',
+    maxMultiplier: '2,000x',
+    minBet: 10.0,
+    maxBet: 25000.0,
+    badge: 'KNOCKOUT',
+    features: ['Free Spins Combo Ring', 'Wild Boxing Gloves', 'Cascading Knockout Multipliers'],
+    description: 'Heavyweight arcade boxing slot with continuous combo cascades and golden knockout championship belts.'
+  },
+  sports_cricket_live: {
+    gameId: 'sports_cricket_live',
+    name: 'Live Cricket BPL / IPL',
+    nameBn: 'লাইভ ক্রিকেট এক্সচেঞ্জ (BPL/IPL)',
+    provider: 'BetPro Sports',
+    providerId: 'sports',
+    category: 'sports',
+    thumbnailUrl: CASINO_ART.sports_cricket,
+    animatedPreviewUrl: CASINO_ART.sports_cricket,
+    bannerUrl: CASINO_ART.sports_cricket,
+    icon: '🏏',
+    themeColor: {
+      primary: '#10b981',
+      glow: 'rgba(16, 185, 129, 0.4)',
+      border: 'border-emerald-500/50',
+      gradient: 'from-emerald-600 via-green-600 to-yellow-400'
+    },
+    rtp: '97.50%',
+    volatility: 'Low',
+    maxMultiplier: '500x',
+    minBet: 50.0,
+    maxBet: 500000.0,
+    badge: 'LIVE ODDS ⚡',
+    features: ['Ball-by-Ball Live Radar', 'Over/Under Runs Markets', 'Instant Cashout Feature', 'Match Winner Exchange'],
+    description: 'Comprehensive Asian cricket live match odds exchange covering BPL, IPL, ICC World Cup & T20 leagues.'
+  },
+  sports_football_live: {
+    gameId: 'sports_football_live',
+    name: 'Live Football / Soccer',
+    nameBn: 'লাইভ ফুটবল প্রিমিয়ার লিগ',
+    provider: 'BetPro Sports',
+    providerId: 'sports',
+    category: 'sports',
+    thumbnailUrl: CASINO_ART.sports_football,
+    animatedPreviewUrl: CASINO_ART.sports_football,
+    bannerUrl: CASINO_ART.sports_football,
+    icon: '⚽',
+    themeColor: {
+      primary: '#3b82f6',
+      glow: 'rgba(59, 130, 246, 0.4)',
+      border: 'border-blue-500/50',
+      gradient: 'from-blue-600 via-indigo-600 to-teal-400'
+    },
+    rtp: '97.80%',
+    volatility: 'Low',
+    maxMultiplier: '1,000x',
+    minBet: 50.0,
+    maxBet: 500000.0,
+    badge: 'IN-PLAY ⚽',
+    features: ['UEFA / Premier League In-play', 'Asian Handicap', 'Next Goal Live Bet', 'Real-time Pitch Tracker'],
+    description: 'World-class in-play football betting with real-time match events, corners, goals, and fast cashout.'
+  },
+  jili_jackpot_fishing: {
+    gameId: 'jili_jackpot_fishing',
+    name: 'Jackpot Fishing',
+    nameBn: 'জ্যাকপট ফিশিং (JILI)',
+    provider: 'JILI',
+    providerId: 'jili',
+    category: 'fishing',
+    thumbnailUrl: CASINO_ART.jackpot_fishing,
+    animatedPreviewUrl: CASINO_ART.jackpot_fishing,
+    bannerUrl: CASINO_ART.jackpot_fishing,
+    icon: '🔱',
+    themeColor: {
+      primary: '#06b6d4',
+      glow: 'rgba(6, 182, 212, 0.4)',
+      border: 'border-cyan-500/50',
+      gradient: 'from-cyan-600 via-teal-500 to-amber-400'
+    },
+    rtp: '97.00%',
+    volatility: 'High',
+    maxMultiplier: '1,200x',
+    minBet: 10.0,
+    maxBet: 30000.0,
+    badge: 'MEGA JACKPOT',
+    features: ['Grand Jackpot Wheel', 'Poseidon Thunder Spear', 'Frozen Ocean Free Lock'],
+    description: 'Hunt mythical sea creatures and trigger the Grand Jackpot Wheel with explosive laser torpedoes.'
   }
 };
 
@@ -554,11 +823,32 @@ class AssetLoaderService {
       return GAME_ASSETS[gameId];
     }
 
-    // Smart heuristic fallback if gameId is dynamic or aggregator provided
+    // Heuristic mapping
     const lower = gameId.toLowerCase();
     if (lower.includes('aviator') || lower.includes('spribe') || lower.includes('crash')) {
       return {
         ...GAME_ASSETS['spribe_aviator'],
+        gameId,
+        name: gameId.replace(/_/g, ' ').toUpperCase()
+      };
+    }
+    if (lower.includes('baccarat') || lower.includes('dealer')) {
+      return {
+        ...GAME_ASSETS['evolution_baccarat_live'],
+        gameId,
+        name: gameId.replace(/_/g, ' ').toUpperCase()
+      };
+    }
+    if (lower.includes('dragon') || lower.includes('tiger')) {
+      return {
+        ...GAME_ASSETS['evolution_dragontiger_live'],
+        gameId,
+        name: gameId.replace(/_/g, ' ').toUpperCase()
+      };
+    }
+    if (lower.includes('mines')) {
+      return {
+        ...GAME_ASSETS['spribe_mines'],
         gameId,
         name: gameId.replace(/_/g, ' ').toUpperCase()
       };
@@ -584,15 +874,8 @@ class AssetLoaderService {
         name: gameId.replace(/_/g, ' ').toUpperCase()
       };
     }
-    if (lower.includes('roulette') || lower.includes('evolution')) {
-      return {
-        ...GAME_ASSETS['evolution_lightning_roulette'],
-        gameId,
-        name: gameId.replace(/_/g, ' ').toUpperCase()
-      };
-    }
 
-    // Default fallback
+    // Default
     return {
       gameId,
       name: gameId.replace(/_/g, ' ').toUpperCase(),
@@ -600,9 +883,9 @@ class AssetLoaderService {
       provider: 'Playall 365 Aggregator',
       providerId: 'generic',
       category: 'slots',
-      thumbnailUrl: 'https://images.unsplash.com/photo-1518609878373-06d740f60d8b?auto=format&fit=crop&w=800&q=85',
-      animatedPreviewUrl: 'https://images.unsplash.com/photo-1579546929518-9e396f3cc809?auto=format&fit=crop&w=800&q=85',
-      bannerUrl: 'https://images.unsplash.com/photo-1518609878373-06d740f60d8b?auto=format&fit=crop&w=1400&q=85',
+      thumbnailUrl: CASINO_ART.jili_super_ace,
+      animatedPreviewUrl: CASINO_ART.jili_super_ace,
+      bannerUrl: CASINO_ART.jili_super_ace,
       icon: '🎰',
       themeColor: {
         primary: '#f59e0b',
@@ -628,7 +911,7 @@ class AssetLoaderService {
       PROVIDER_ASSETS[providerId.toLowerCase()] || {
         id: providerId,
         name: providerId.toUpperCase(),
-        logoUrl: 'https://images.unsplash.com/photo-1579546929518-9e396f3cc809?auto=format&fit=crop&w=120&q=80',
+        logoUrl: CASINO_ART.jili_super_ace,
         badgeBg: 'from-slate-700 to-slate-900',
         color: '#94a3b8'
       }
@@ -636,7 +919,7 @@ class AssetLoaderService {
   }
 
   /**
-   * Preloads game assets in background for zero-latency UI rendering.
+   * Preloads game assets in background.
    */
   public preloadAssets(gameIds?: string[]) {
     if (typeof window === 'undefined') return;

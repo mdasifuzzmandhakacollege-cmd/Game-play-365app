@@ -111,14 +111,14 @@ export const InstallPwaButton: React.FC<InstallPwaButtonProps> = ({ isFloating =
                   <div className="min-w-0">
                     <div className="flex items-center space-x-1.5">
                       <span className="text-xs font-black text-white font-sans truncate">
-                        Playall 365 অ্যাপ
+                        GamePlay365 শর্টকাট
                       </span>
-                      <span className="px-1.5 py-0.2 rounded bg-amber-400 text-slate-950 font-black text-[9px] font-mono">
-                        PWA
+                      <span className="px-1.5 py-0.2 rounded bg-[#54D62C] text-slate-950 font-black text-[9px] font-mono">
+                        APP
                       </span>
                     </div>
-                    <p className="text-[10px] text-slate-400 font-sans truncate">
-                      ১-ক্লিকে সুপার ফাস্ট গেমিং অ্যাপ
+                    <p className="text-[10px] text-slate-300 font-sans truncate">
+                      হোম স্ক্রিনে সেভ করুন • ফাস্ট লোডিং
                     </p>
                   </div>
                 </div>
@@ -127,10 +127,10 @@ export const InstallPwaButton: React.FC<InstallPwaButtonProps> = ({ isFloating =
                 <div className="flex items-center space-x-1.5 shrink-0">
                   <button
                     onClick={handleInstallClick}
-                    className="px-3 py-1.5 rounded-xl bg-gradient-to-r from-amber-400 via-yellow-400 to-amber-500 text-slate-950 font-black text-[11px] font-mono shadow-md active:scale-95 transition-all flex items-center space-x-1 cursor-pointer"
+                    className="px-3 py-1.5 rounded-xl bg-[#54D62C] hover:bg-[#47be23] text-slate-950 font-black text-[11px] font-mono shadow-md active:scale-95 transition-all flex items-center space-x-1 cursor-pointer"
                   >
                     <Download className="w-3.5 h-3.5 stroke-[2.5]" />
-                    <span>ইনস্টল</span>
+                    <span>সেভ করুন</span>
                   </button>
 
                   {/* Close Cross Button */}
