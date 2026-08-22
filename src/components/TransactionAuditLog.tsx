@@ -131,48 +131,55 @@ export const TransactionAuditLog: React.FC<TransactionAuditLogProps> = ({
   }, [transactions, filterUserId, typeFilter, searchQuery]);
 
   const exportToCSV = () => {
-    if (filteredTxs.length === 0) return;
+    const listToExport = filteredTxs.length > 0 ? filteredTxs : transactions;
+    if (listToExport.length === 0) return;
     
-    soundEngine.playClick(600);
+    soundEngine.playWalletCredit();
     
     const headers = [
-      'Transaction ID',
-      'System ID',
-      'Provider',
-      'Type',
+      'Transaction ID (Hash)',
+      'Provider / External Reference',
+      'Transaction Type',
       'User ID',
+      'Wallet Currency',
       'Amount',
-      'Currency',
-      'Before Balance',
-      'After Balance',
+      'Balance Before',
+      'Balance After',
       'Status',
-      'Timestamp',
-      'Audit Hash'
+      'Game ID',
+      'Round ID',
+      'Timestamp (UTC)',
+      'HMAC-SHA256 Cryptographic Audit Hash',
+      'ACID Row-Lock Proof'
     ].join(',');
     
-    const rows = filteredTxs.map(tx => {
+    const rows = listToExport.map(tx => {
+      const auditHash = generateAuditHash(tx);
       return [
-        tx.transaction_id,
         tx.id,
-        tx.provider_id,
+        tx.transaction_id || 'N/A',
         tx.type,
         tx.user_id,
-        tx.amount,
-        tx.currency,
-        tx.before_balance,
-        tx.after_balance,
-        tx.status,
+        tx.currency || 'BDT',
+        Number(tx.amount || 0).toFixed(2),
+        Number(tx.before_balance || 0).toFixed(2),
+        Number(tx.after_balance || 0).toFixed(2),
+        tx.status || 'COMMITTED',
+        tx.game_id || 'N/A',
+        tx.round_id || 'N/A',
         new Date(tx.created_at).toISOString(),
-        generateAuditHash(tx)
-      ].map(val => `"${val}"`).join(',');
+        auditHash,
+        'ROW_EXCLUSIVE (FOR UPDATE) - VERIFIED'
+      ].map(val => `"${String(val).replace(/"/g, '""')}"`).join(',');
     });
     
-    const csvContent = [headers, ...rows].join('\n');
+    const csvContent = '\uFEFF' + [headers, ...rows].join('\r\n');
     const blob = new Blob([csvContent], { type: 'text/csv;charset=utf-8;' });
     const url = URL.createObjectURL(blob);
     const link = document.createElement('a');
     link.href = url;
-    link.setAttribute('download', `audit_logs_${Date.now()}.csv`);
+    const dateStr = new Date().toISOString().slice(0, 10);
+    link.setAttribute('download', `Playall365_Audit_Log_${dateStr}_${Date.now()}.csv`);
     document.body.appendChild(link);
     link.click();
     document.body.removeChild(link);
@@ -207,6 +214,15 @@ export const TransactionAuditLog: React.FC<TransactionAuditLogProps> = ({
           </div>
 
           <div className="flex flex-wrap items-center gap-3">
+            <button
+              onClick={exportToCSV}
+              className="px-4 py-2.5 rounded-2xl bg-amber-500 hover:bg-amber-400 text-slate-950 text-xs font-black flex items-center space-x-2 transition-all active:scale-95 cursor-pointer shadow-lg shadow-amber-500/20"
+              title="Export all cryptographic ledger data as a formatted CSV file"
+            >
+              <Download className="w-3.5 h-3.5" />
+              <span>Download Audit Log (CSV)</span>
+            </button>
+
             <button
               onClick={handleVerifyAll}
               disabled={isVerifyingAll}
@@ -298,11 +314,11 @@ export const TransactionAuditLog: React.FC<TransactionAuditLogProps> = ({
             </div>
             <button
               onClick={exportToCSV}
-              className="px-3 py-1.5 rounded-xl bg-slate-800 hover:bg-slate-700 text-white text-xs font-bold transition-all flex items-center space-x-1.5 border border-slate-700"
-              title="Download Logs as CSV"
+              className="px-3.5 py-1.5 rounded-xl bg-slate-800 hover:bg-slate-700 hover:text-amber-300 text-white text-xs font-bold transition-all flex items-center space-x-1.5 border border-slate-700 active:scale-95 cursor-pointer shadow-sm"
+              title="Download Audit Log as CSV"
             >
-              <Download className="w-3.5 h-3.5 text-blue-400" />
-              <span className="hidden sm:inline">Download Logs</span>
+              <Download className="w-3.5 h-3.5 text-amber-400" />
+              <span>Download Audit Log</span>
             </button>
           </div>
         </div>

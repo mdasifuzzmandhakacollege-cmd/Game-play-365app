@@ -148,6 +148,12 @@ interface WalletGameContextType {
   celebrationData: CelebrationData | null;
   triggerCelebration: (data: CelebrationData) => void;
   clearCelebration: () => void;
+
+  // Global Idle Auto-Lock (5 minutes of inactivity)
+  isIdleLocked: boolean;
+  unlockIdleSession: () => void;
+  lockIdleSession: () => void;
+  recordUserActivity: () => void;
 }
 
 const WalletGameContext = createContext<WalletGameContextType | undefined>(undefined);
@@ -264,6 +270,57 @@ export const WalletGameProvider: React.FC<{ children: React.ReactNode }> = ({ ch
   // Toast & Celebration Modal State
   const [toastMessage, setToastMessage] = useState<string | null>(null);
   const [celebrationData, setCelebrationData] = useState<CelebrationData | null>(null);
+
+  // Global Idle Auto-Lock State (5 minutes = 300,000 ms)
+  const IDLE_TIMEOUT_MS = 5 * 60 * 1000;
+  const [isIdleLocked, setIsIdleLocked] = useState<boolean>(false);
+  const lastActivityTimestampRef = useRef<number>(Date.now());
+  const idleCheckIntervalRef = useRef<any>(null);
+
+  const recordUserActivity = useCallback(() => {
+    lastActivityTimestampRef.current = Date.now();
+  }, []);
+
+  const lockIdleSession = useCallback(() => {
+    setIsIdleLocked(true);
+  }, []);
+
+  const unlockIdleSession = useCallback(() => {
+    lastActivityTimestampRef.current = Date.now();
+    setIsIdleLocked(false);
+  }, []);
+
+  // Global Listeners for UI interaction & Transaction/Game activity
+  useEffect(() => {
+    if (!isAuthenticated || isIdleLocked) return;
+
+    const handleUserInteraction = () => {
+      recordUserActivity();
+    };
+
+    const interactionEvents = ['mousedown', 'mousemove', 'keydown', 'touchstart', 'scroll', 'click'];
+    interactionEvents.forEach((evt) => {
+      window.addEventListener(evt, handleUserInteraction, { passive: true });
+    });
+
+    // Background interval checking for 5 minutes of inactivity
+    idleCheckIntervalRef.current = setInterval(() => {
+      const now = Date.now();
+      const elapsed = now - lastActivityTimestampRef.current;
+      if (elapsed >= IDLE_TIMEOUT_MS) {
+        setIsIdleLocked(true);
+      }
+    }, 10000); // Check every 10s
+
+    return () => {
+      interactionEvents.forEach((evt) => {
+        window.removeEventListener(evt, handleUserInteraction);
+      });
+      if (idleCheckIntervalRef.current) {
+        clearInterval(idleCheckIntervalRef.current);
+      }
+    };
+  }, [isAuthenticated, isIdleLocked, recordUserActivity, IDLE_TIMEOUT_MS]);
 
   // Animated Balance State for smooth interpolation
   const [animatedBalance, setAnimatedBalance] = useState<number>(0);
@@ -628,6 +685,7 @@ export const WalletGameProvider: React.FC<{ children: React.ReactNode }> = ({ ch
     }
 
     try {
+      recordUserActivity();
       const result = await firebaseFirestore.commitTransaction(currentUser.id, currency, {
         transactionId: txId,
         providerId,
@@ -690,6 +748,7 @@ export const WalletGameProvider: React.FC<{ children: React.ReactNode }> = ({ ch
     const txId = params.customTxId || `TX_WIN_${Date.now()}_${Math.floor(100 + Math.random() * 900)}`;
 
     try {
+      recordUserActivity();
       const result = await firebaseFirestore.commitTransaction(currentUser.id, currency, {
         transactionId: txId,
         providerId,
