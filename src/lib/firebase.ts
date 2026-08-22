@@ -12,7 +12,7 @@ import {
   browserLocalPersistence,
   User
 } from 'firebase/auth';
-import { initializeFirestore } from 'firebase/firestore';
+import { initializeFirestore, memoryLocalCache } from 'firebase/firestore';
 import baseAppletConfig from '../../firebase-applet-config.json';
 
 // Custom configuration provided by user
@@ -55,6 +55,7 @@ try {
 export const FIRESTORE_DATABASE_ID = "ai-studio-remixigamingseam-f254c3d9-f0b0-442c-9107-66d13db9b3fe";
 
 export const db = initializeFirestore(app, {
+  localCache: memoryLocalCache(),
   experimentalAutoDetectLongPolling: true,
 }, FIRESTORE_DATABASE_ID);
 

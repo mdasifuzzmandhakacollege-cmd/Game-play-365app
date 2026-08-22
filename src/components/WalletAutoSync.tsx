@@ -1,12 +1,12 @@
 import React, { useState, useEffect } from 'react';
-import { useAuth } from '../contexts/AuthContext';
+import { useWalletGame } from '../contexts/WalletGameContext';
 import { seamlessEngine } from '../services/simulatedWalletEngine';
 import { Wallet, RefreshCw, Zap, Server, Activity, CheckCircle2, History, Smartphone, Globe } from 'lucide-react';
 import { soundEngine } from '../services/soundEngine';
 import { motion, AnimatePresence } from 'framer-motion';
 
 export const WalletAutoSync: React.FC = () => {
-  const { currentUser } = useAuth();
+  const { currentUser } = useWalletGame();
   const [balance, setBalance] = useState<number>(0);
   const [syncStatus, setSyncStatus] = useState<'idle' | 'syncing' | 'synced'>('idle');
   const [syncLogs, setSyncLogs] = useState<{ id: number, time: string, message: string, changed: boolean }[]>([]);

@@ -27,11 +27,18 @@ export type MainNavTab =
   | 'workbench'
   | 'latency'
   | 'stress'
+  | 'concurrency'
   | 'hmac'
   | 'ledger'
   | 'architecture'
   | 'code'
-  | 'deadlock';
+  | 'deadlock'
+  | 'security'
+  | 'webhooks'
+  | 'errors'
+  | 'cache'
+  | 'autosync'
+  | 'apiRate';
 
 interface BetRequestParams {
   providerId: string;

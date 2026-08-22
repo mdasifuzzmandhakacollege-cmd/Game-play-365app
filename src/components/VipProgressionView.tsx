@@ -145,7 +145,7 @@ export const VipProgressionView: React.FC<VipProgressionViewProps> = ({
         message: `৳${tier.bonus.toLocaleString()} ইনস্ট্যান্ট ভিআইপি লেভেল বোনাস ওয়ালেটে যোগ হয়েছে।`,
         type: 'VIP_UPGRADE',
         amount: tier.bonus,
-        currency: currentUser.currency,
+        currency: (currentUser.currency || 'BDT') as 'BDT' | 'USD',
         isRead: false
       });
 

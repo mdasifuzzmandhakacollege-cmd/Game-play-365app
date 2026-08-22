@@ -129,16 +129,16 @@ export const MiniGameLauncher: React.FC<MiniGameLauncherProps> = ({
     const betTxId = `TX_SB_BET_${Date.now()}`;
 
     const betRes = await placeSeamlessBet({
-      userId: currentUser.id,
+      providerId: 'pragmatic',
       gameId: 'vs20sweetbonanza',
       amount: slotBetAmount,
       roundId: roundId,
-      txId: betTxId
+      customTxId: betTxId
     });
 
     if (!betRes.success) {
       setSlotSpinning(false);
-      setMessage(betRes.errorMessage || 'Bet failed');
+      setMessage(betRes.error || 'Bet failed');
       return;
     }
 
@@ -190,11 +190,17 @@ export const MiniGameLauncher: React.FC<MiniGameLauncherProps> = ({
 
       soundEngine.playWin();
       if (multiplier >= 10) {
-        triggerCelebration(winAmount);
+        triggerCelebration({
+          title: 'সুইট বোনানজা বিগ উইন!',
+          amount: winAmount,
+          currency: currency,
+          multiplier: multiplier,
+          gameTitle: 'Sweet Bonanza'
+        });
       }
 
       await settleSeamlessWin({
-        userId: currentUser.id,
+        providerId: 'pragmatic',
         gameId: 'vs20sweetbonanza',
         amount: winAmount,
         roundId: roundId,
@@ -221,16 +227,16 @@ export const MiniGameLauncher: React.FC<MiniGameLauncherProps> = ({
     const betTxId = `TX_RL_BET_${Date.now()}`;
 
     const betRes = await placeSeamlessBet({
-      userId: currentUser.id,
+      providerId: 'evolution',
       gameId: 'evolution_lightning_roulette',
       amount: rouletteBetAmount,
       roundId: roundId,
-      txId: betTxId
+      customTxId: betTxId
     });
 
     if (!betRes.success) {
       setRouletteSpinning(false);
-      setMessage(betRes.errorMessage || 'Bet failed');
+      setMessage(betRes.error || 'Bet failed');
       return;
     }
 
@@ -267,10 +273,18 @@ export const MiniGameLauncher: React.FC<MiniGameLauncherProps> = ({
         const winAmount = Number((rouletteBetAmount * mult).toFixed(2));
         setRouletteLastWin(winAmount);
         soundEngine.playWin();
-        if (mult >= 10) triggerCelebration(winAmount);
+        if (mult >= 10) {
+          triggerCelebration({
+            title: 'লাইটনিং রুলেট বিগ উইন!',
+            amount: winAmount,
+            currency: currency,
+            multiplier: mult,
+            gameTitle: 'Lightning Roulette'
+          });
+        }
 
         await settleSeamlessWin({
-          userId: currentUser.id,
+          providerId: 'evolution',
           gameId: 'evolution_lightning_roulette',
           amount: winAmount,
           roundId: roundId,

@@ -362,7 +362,7 @@ export const TransactionAuditLog: React.FC<TransactionAuditLogProps> = ({
                               ? 'bg-emerald-500/20 text-emerald-300 border border-emerald-500/30'
                               : tx.type === 'DEPOSIT'
                               ? 'bg-cyan-500/20 text-cyan-300 border border-cyan-500/30'
-                              : tx.type === 'WITHDRAWAL'
+                              : tx.type === 'WITHDRAW'
                               ? 'bg-amber-500/20 text-amber-300 border border-amber-500/30'
                               : 'bg-purple-500/20 text-purple-300'
                           }`}
