@@ -88,6 +88,14 @@ service cloud.firestore {
       allow update: if true;
       allow delete: if true;
     }
+
+    // Webhook Interception & Audit History Logs
+    match /webhook_logs/{webhookId} {
+      allow read: if true;
+      allow create: if true;
+      allow update: if true;
+      allow delete: if true;
+    }
   }
 }
 

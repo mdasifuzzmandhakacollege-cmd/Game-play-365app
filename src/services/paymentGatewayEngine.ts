@@ -31,6 +31,7 @@ import {
 import { seamlessEngine } from './simulatedWalletEngine';
 import { notificationService } from './notificationService';
 import { soundEngine } from './soundEngine';
+import { webhookLogger } from './webhookLogger';
 
 export class PaymentGatewayEngine {
   // 1. Provider Adapter Registry
@@ -827,27 +828,63 @@ export class PaymentGatewayEngine {
   }
 
   // ==========================================================================
-  // SECTION 6: Webhook Processing Engine
   // ==========================================================================
-  public async handleWebhook(provider: PaymentProviderId, payload: Record<string, any>, signature: string): Promise<WebhookLog> {
-    const adapter = this.adapters.get(provider) || new BkashPaymentAdapter();
-    const res = await adapter.processWebhook(payload, signature);
-
-    const log: WebhookLog = {
-      id: `WH_${Date.now()}_${Math.random().toString(36).substring(2, 6).toUpperCase()}`,
+  // SECTION 6: Webhook Processing Engine & Inspector Controls (Delegated to WebhookLogger)
+  // ==========================================================================
+  public async handleWebhook(
+    provider: PaymentProviderId | string,
+    payload: Record<string, any>,
+    signature: string,
+    options?: {
+      eventType?: string;
+      headers?: Record<string, string>;
+      expectedSignature?: string;
+      simulatedLatency?: number;
+      ipAddress?: string;
+    }
+  ): Promise<WebhookLog> {
+    const log = await webhookLogger.interceptAndLog({
       provider,
-      eventId: payload.eventId || `evt_${Date.now()}`,
-      signature,
-      signatureValid: res.signatureValid,
       payload,
-      processed: res.signatureValid,
-      processResult: res.signatureValid ? 'Webhook verified & processed successfully' : 'Invalid Signature',
-      createdAt: new Date().toISOString()
-    };
+      signature,
+      options
+    });
 
-    this.webhookLogs.unshift(log);
+    this.logAudit({
+      actor: `GATEWAY_WEBHOOK:${provider}`,
+      action: log.signatureValid ? 'WEBHOOK_PROCESSED' : 'WEBHOOK_REJECTED_SIGNATURE',
+      resource: 'PROVIDER',
+      resourceId: log.id,
+      ipAddress: options?.ipAddress || '103.119.100.45',
+      metadata: { eventId: log.eventId, eventType: log.eventType, signatureValid: log.signatureValid }
+    });
+
     this.notifyChange();
     return log;
+  }
+
+  /**
+   * Re-processes an existing webhook event to simulate retry / replay
+   */
+  public async reprocessWebhook(webhookId: string): Promise<{ success: boolean; message: string; log: WebhookLog }> {
+    const result = await webhookLogger.reprocessWebhook(webhookId);
+
+    this.logAudit({
+      actor: 'DEVELOPER_WORKBENCH',
+      action: 'WEBHOOK_REPROCESSED',
+      resource: 'PROVIDER',
+      resourceId: result.log.id,
+      ipAddress: '127.0.0.1 (Workbench)',
+      metadata: { retryCount: result.log.retryCount, success: result.success, eventId: result.log.eventId }
+    });
+
+    this.notifyChange();
+    return result;
+  }
+
+  public clearWebhookLogs() {
+    webhookLogger.clearLogs();
+    this.notifyChange();
   }
 
   // ==========================================================================
@@ -886,12 +923,13 @@ export class PaymentGatewayEngine {
   }
 
   public getWebhookLogs(): WebhookLog[] {
-    return [...this.webhookLogs];
+    return webhookLogger.getLogs();
   }
 
   public getStats() {
     const deposits = Array.from(this.depositIntents.values());
     const withdrawals = Array.from(this.withdrawalRecords.values());
+    const webhookStats = webhookLogger.getStats();
 
     const totalDeposited = deposits
       .filter((d) => d.status === 'CREDITED')
@@ -912,7 +950,9 @@ export class PaymentGatewayEngine {
       pendingWithdrawals,
       totalIntents: deposits.length,
       totalWithdrawals: withdrawals.length,
-      activeGateways: this.destinationPool.filter((d) => d.isActive && !d.isMaintenance).length
+      activeGateways: this.destinationPool.filter((d) => d.isActive && !d.isMaintenance).length,
+      totalWebhooks: webhookStats.total,
+      validWebhooks: webhookStats.valid
     };
   }
 
@@ -975,6 +1015,140 @@ export class PaymentGatewayEngine {
       ]
     };
     this.withdrawalRecords.set(sampleWth.id, sampleWth);
+
+    // Pre-seed sample incoming Webhook logs
+    this.webhookLogs = [
+      {
+        id: 'WH_20260822_BK901',
+        provider: 'bkash',
+        eventType: 'payment.success',
+        eventId: 'evt_bk_891029481',
+        signature: 'e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855',
+        expectedSignature: 'e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855',
+        signatureValid: true,
+        payload: {
+          event: 'payment.success',
+          trxID: 'BL92A81K09',
+          merchantInvoiceNumber: 'DEP-20260821-9A41K',
+          amount: '5000.00',
+          currency: 'BDT',
+          senderNumber: '01712-349911',
+          destinationAccount: '01900-112233',
+          transactionStatus: 'Completed',
+          paymentExecuteTime: new Date(now - 3550000).toISOString()
+        },
+        headers: {
+          'content-type': 'application/json',
+          'x-provider-id': 'bkash',
+          'x-signature': 'e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855',
+          'x-timestamp': String(now - 3550000),
+          'x-webhook-id': 'whk_bk_901'
+        },
+        httpStatus: 200,
+        processed: true,
+        processResult: '✅ Signature verified via HMAC-SHA256. Deposit credited to user wallet.',
+        latencyMs: 42,
+        retryCount: 0,
+        createdAt: new Date(now - 3550000).toISOString()
+      },
+      {
+        id: 'WH_20260822_NG804',
+        provider: 'nagad',
+        eventType: 'payout.disbursed',
+        eventId: 'evt_ng_771920194',
+        signature: 'f4d9b1a0398f6e1029c8e9b41829e01928491823019284019283401928340192',
+        expectedSignature: 'f4d9b1a0398f6e1029c8e9b41829e01928491823019284019283401928340192',
+        signatureValid: true,
+        payload: {
+          event: 'payout.disbursed',
+          issuerTrxId: 'NG_DISB_891028',
+          orderId: 'WTH-20260821-7B22Z',
+          amount: '3000.00',
+          currency: 'BDT',
+          recipientAccount: '01844-992200',
+          status: 'SUCCESS',
+          payoutTime: new Date(now - 7180000).toISOString()
+        },
+        headers: {
+          'content-type': 'application/json',
+          'x-provider-id': 'nagad',
+          'x-signature': 'f4d9b1a0398f6e1029c8e9b41829e01928491823019284019283401928340192',
+          'x-timestamp': String(now - 7180000),
+          'x-webhook-id': 'whk_ng_804'
+        },
+        httpStatus: 200,
+        processed: true,
+        processResult: '✅ Payout confirmation verified. Reserved balance finalized.',
+        latencyMs: 38,
+        retryCount: 0,
+        createdAt: new Date(now - 7180000).toISOString()
+      },
+      {
+        id: 'WH_20260822_PG701',
+        provider: 'pgsoft',
+        eventType: 'game.round_settled',
+        eventId: 'evt_pg_551920841',
+        signature: 'a918204810294810293840192834019283401928340192834019283401928340',
+        expectedSignature: 'a918204810294810293840192834019283401928340192834019283401928340',
+        signatureValid: true,
+        payload: {
+          event: 'game.round_settled',
+          provider: 'pgsoft',
+          gameId: 'mahjong-ways-2',
+          userId: 'u_10291',
+          roundId: 'RND_99210948',
+          betAmount: 100,
+          winAmount: 450,
+          netSettlement: 350,
+          currency: 'BDT',
+          timestamp: new Date(now - 1200000).toISOString()
+        },
+        headers: {
+          'content-type': 'application/json',
+          'x-provider-id': 'pgsoft',
+          'x-signature': 'a918204810294810293840192834019283401928340192834019283401928340',
+          'x-timestamp': String(now - 1200000),
+          'x-webhook-id': 'whk_pg_701'
+        },
+        httpStatus: 200,
+        processed: true,
+        processResult: '✅ Game round outcome validated and seamlessly credited.',
+        latencyMs: 19,
+        retryCount: 0,
+        createdAt: new Date(now - 1200000).toISOString()
+      },
+      {
+        id: 'WH_20260822_TAMPER_01',
+        provider: 'rocket',
+        eventType: 'payment.tampered_attempt',
+        eventId: 'evt_rk_bad_sig_9901',
+        signature: '0000000000000000000000000000000000000000000000000000000000000000',
+        expectedSignature: 'c819283019283019283019283019283019283019283019283019283019283019',
+        signatureValid: false,
+        payload: {
+          event: 'payment.received',
+          trxID: 'RK999INVALID99',
+          amount: '50000.00',
+          currency: 'BDT',
+          senderNumber: '01700-000000',
+          destinationAccount: '01711-884422-9',
+          tamperFlag: 'MAN_IN_THE_MIDDLE_SIMULATION'
+        },
+        headers: {
+          'content-type': 'application/json',
+          'x-provider-id': 'rocket',
+          'x-signature': '0000000000000000000000000000000000000000000000000000000000000000',
+          'x-timestamp': String(now - 600000),
+          'x-webhook-id': 'whk_tamper_01'
+        },
+        httpStatus: 401,
+        processed: false,
+        processResult: '❌ 401 Unauthorized: Signature hash does not match computed HMAC-SHA256 payload digest.',
+        latencyMs: 12,
+        retryCount: 0,
+        createdAt: new Date(now - 600000).toISOString()
+      }
+    ];
   }
 }
 

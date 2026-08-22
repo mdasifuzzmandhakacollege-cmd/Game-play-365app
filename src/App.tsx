@@ -37,6 +37,7 @@ import { AdminPanel } from './components/AdminPanel';
 import { TransactionAuditLog } from './components/TransactionAuditLog';
 import { SystemErrorsMonitor } from './components/SystemErrorsMonitor';
 import { SecurityDashboard } from './components/SecurityDashboard';
+import { WebhookInspector } from './components/WebhookInspector';
 import { useErrorReporter } from './hooks/useErrorReporter';
 import { AuthProvider } from './contexts/AuthContext';
 import { ThemeProvider } from './contexts/ThemeContext';
@@ -55,7 +56,8 @@ import {
   RotateCcw,
   AlertOctagon,
   ShieldAlert,
-  Bug
+  Bug,
+  Webhook
 } from 'lucide-react';
 
 function Playall365InnerApp() {
@@ -92,7 +94,7 @@ function Playall365InnerApp() {
   } = useWalletGame();
 
   const [workbenchSubTab, setWorkbenchSubTab] = useState<
-    'simulator' | 'latency' | 'concurrency' | 'deadlock' | 'ledger' | 'code' | 'architecture' | 'hmac' | 'cache' | 'autosync' | 'apiRate' | 'errors'
+    'simulator' | 'webhooks' | 'security' | 'latency' | 'concurrency' | 'deadlock' | 'ledger' | 'code' | 'architecture' | 'hmac' | 'cache' | 'autosync' | 'apiRate' | 'errors'
   >('simulator');
 
   const [authModalOpen, setAuthModalOpen] = useState<boolean>(false);
@@ -269,6 +271,7 @@ function Playall365InnerApp() {
             <div className="flex items-center space-x-2 overflow-x-auto pb-1 font-mono text-xs scrollbar-none">
               {[
                 { id: 'simulator', label: 'HTTP / API Simulator', icon: Zap },
+                { id: 'webhooks', label: 'Webhook Inspector', icon: Webhook },
                 { id: 'security', label: 'Security & HMAC Guard', icon: ShieldCheck },
                 { id: 'errors', label: `Firestore Errors (${systemErrors.length})`, icon: ShieldAlert, badge: newErrorsCount > 0 ? newErrorsCount : undefined },
                 { id: 'latency', label: 'Latency SLA Monitor', icon: Activity },
@@ -319,6 +322,10 @@ function Playall365InnerApp() {
                   currentWallet={currentWallet}
                   onLedgerMutated={refreshState}
                 />
+              )}
+
+              {workbenchSubTab === 'webhooks' && (
+                <WebhookInspector />
               )}
 
               {workbenchSubTab === 'security' && (

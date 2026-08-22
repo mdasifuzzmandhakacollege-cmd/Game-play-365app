@@ -136,6 +136,31 @@
         "blockedUntil": { "type": "string", "format": "date-time" }
       },
       "required": ["id", "ip", "requestCount", "rps", "status"]
+    },
+    "WebhookLog": {
+      "title": "WebhookLog",
+      "description": "Incoming payment provider and game provider webhook payload logs and signature audit records",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string", "maxLength": 128 },
+        "provider": { "type": "string", "maxLength": 50 },
+        "eventType": { "type": "string", "maxLength": 100 },
+        "eventId": { "type": "string", "maxLength": 128 },
+        "signature": { "type": "string", "maxLength": 256 },
+        "expectedSignature": { "type": "string", "maxLength": 256 },
+        "signatureValid": { "type": "boolean" },
+        "payload": { "type": "object" },
+        "headers": { "type": "object" },
+        "httpStatus": { "type": "number" },
+        "processed": { "type": "boolean" },
+        "processResult": { "type": "string", "maxLength": 500 },
+        "latencyMs": { "type": "number" },
+        "retryCount": { "type": "number" },
+        "lastRetriedAt": { "type": "string", "format": "date-time" },
+        "ipAddress": { "type": "string", "maxLength": 64 },
+        "createdAt": { "type": "string", "format": "date-time" }
+      },
+      "required": ["id", "provider", "eventId", "signature", "signatureValid", "processed", "createdAt"]
     }
   },
   "firestore": {
@@ -166,6 +191,10 @@
     "/ip_rate_limits/{ipId}": {
       "schema": { "$ref": "#/entities/IpRateLimit" },
       "description": "Edge IP rate limiting and threshold telemetry"
+    },
+    "/webhook_logs/{webhookId}": {
+      "schema": { "$ref": "#/entities/WebhookLog" },
+      "description": "Incoming webhook payloads intercepted and logged for audit tracking and inspector replay"
     }
   }
 }

@@ -181,13 +181,20 @@ export interface DoubleEntryLedgerEntry {
 
 export interface WebhookLog {
   id: string;
-  provider: PaymentProviderId;
+  provider: PaymentProviderId | string;
+  eventType?: string;
   eventId: string;
   signature: string;
+  expectedSignature?: string;
   signatureValid: boolean;
   payload: Record<string, any>;
+  headers?: Record<string, string>;
+  httpStatus?: number;
   processed: boolean;
   processResult?: string;
+  latencyMs?: number;
+  retryCount?: number;
+  lastRetriedAt?: string;
   createdAt: string;
 }
 
