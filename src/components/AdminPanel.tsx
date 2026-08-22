@@ -36,7 +36,8 @@ import {
   Terminal,
   Activity,
   Layers,
-  Sparkles
+  Sparkles,
+  Receipt
 } from 'lucide-react';
 import { seamlessEngine } from '../services/simulatedWalletEngine';
 import { notificationService } from '../services/notificationService';
@@ -48,6 +49,15 @@ import {
   UserEntity,
   WalletEntity
 } from '../server/types/seamless';
+import { paymentGatewayEngine } from '../services/paymentGatewayEngine';
+import {
+  DepositIntent,
+  WithdrawalRecord,
+  PaymentDestinationAccount,
+  DoubleEntryLedgerEntry,
+  WebhookLog,
+  AuditLogEntry
+} from '../server/types/paymentGateway';
 
 interface AdminPanelProps {
   onStateMutated: () => void;
@@ -55,13 +65,39 @@ interface AdminPanelProps {
 }
 
 export const AdminPanel: React.FC<AdminPanelProps> = ({ onStateMutated, onClose }) => {
-  const [activeSubTab, setActiveSubTab] = useState<'deposits' | 'withdrawals' | 'gateways' | 'users' | 'api_guide'>('deposits');
+  const [activeSubTab, setActiveSubTab] = useState<'automated_gateway' | 'deposits' | 'withdrawals' | 'gateways' | 'users' | 'api_guide'>('automated_gateway');
   const [statusFilter, setStatusFilter] = useState<'ALL' | 'PENDING' | 'APPROVED' | 'REJECTED'>('ALL');
   const [searchQuery, setSearchQuery] = useState('');
   const [copiedId, setCopiedId] = useState<string | null>(null);
   const [actionLoading, setActionLoading] = useState<string | null>(null);
   const [rejectReasonModal, setRejectReasonModal] = useState<{ id: string; type: 'DEPOSIT' | 'WITHDRAWAL' } | null>(null);
   const [rejectReasonText, setRejectReasonText] = useState('ভুল TrxID বা অ্যাকাউন্টে কোনো টাকা জমা হয়নি (Invalid TrxID or funds not received)');
+
+  // Automated Payment Gateway Data
+  const [liveIntents, setLiveIntents] = useState<DepositIntent[]>(paymentGatewayEngine.getDepositIntents());
+  const [liveWithdrawals, setLiveWithdrawals] = useState<WithdrawalRecord[]>(paymentGatewayEngine.getWithdrawalRecords());
+  const [destinationPool, setDestinationPool] = useState<PaymentDestinationAccount[]>(paymentGatewayEngine.getDestinationPool());
+  const [doubleEntryLedger, setDoubleEntryLedger] = useState<DoubleEntryLedgerEntry[]>(paymentGatewayEngine.getDoubleEntryLedger());
+  const [auditLogs, setAuditLogs] = useState<AuditLogEntry[]>(paymentGatewayEngine.getAuditLogs());
+  const [webhookLogs, setWebhookLogs] = useState<WebhookLog[]>(paymentGatewayEngine.getWebhookLogs());
+  const [gatewayStats, setGatewayStats] = useState(paymentGatewayEngine.getStats());
+
+  const refreshGatewayData = () => {
+    setLiveIntents(paymentGatewayEngine.getDepositIntents());
+    setLiveWithdrawals(paymentGatewayEngine.getWithdrawalRecords());
+    setDestinationPool(paymentGatewayEngine.getDestinationPool());
+    setDoubleEntryLedger(paymentGatewayEngine.getDoubleEntryLedger());
+    setAuditLogs(paymentGatewayEngine.getAuditLogs());
+    setWebhookLogs(paymentGatewayEngine.getWebhookLogs());
+    setGatewayStats(paymentGatewayEngine.getStats());
+  };
+
+  React.useEffect(() => {
+    const unsub = paymentGatewayEngine.subscribe(() => {
+      refreshGatewayData();
+    });
+    return () => unsub();
+  }, []);
 
   // Gateway Configurations State (Semi-Automated)
   const [gateways, setGateways] = useState({
@@ -335,6 +371,21 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({ onStateMutated, onClose 
         <button
           onClick={() => {
             soundEngine.playClick();
+            setActiveSubTab('automated_gateway');
+          }}
+          className={`px-4 py-2.5 rounded-xl font-bold transition-all flex items-center space-x-2 cursor-pointer ${
+            activeSubTab === 'automated_gateway'
+              ? 'bg-gradient-to-r from-emerald-400 to-teal-400 text-slate-950 font-black shadow-lg shadow-emerald-500/25'
+              : 'text-slate-400 hover:text-white'
+          }`}
+        >
+          <Zap className="w-4 h-4" />
+          <span>অটো গেটওয়ে ও পুল হাব (Automated v2)</span>
+        </button>
+
+        <button
+          onClick={() => {
+            soundEngine.playClick();
             setActiveSubTab('deposits');
           }}
           className={`px-4 py-2.5 rounded-xl font-bold transition-all flex items-center space-x-2 cursor-pointer ${
@@ -344,7 +395,7 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({ onStateMutated, onClose 
           }`}
         >
           <ArrowUpRight className="w-4 h-4" />
-          <span>ডিপোজিট অনুমোদন ({pendingDepositsCount})</span>
+          <span>ডিপোজিট কিউ ({pendingDepositsCount})</span>
         </button>
 
         <button
@@ -407,6 +458,310 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({ onStateMutated, onClose 
           <span>রিয়েল এপিআই ডকুমেন্টেশন (API Arch)</span>
         </button>
       </div>
+
+      {/* 4. SUBTAB 0: FULLY AUTOMATED PAYMENT GATEWAY & POOL HUB */}
+      {activeSubTab === 'automated_gateway' && (
+        <div className="space-y-6">
+          {/* Top Quick Stats Grid */}
+          <div className="grid grid-cols-2 sm:grid-cols-4 gap-3 font-mono">
+            <div className="bg-slate-900/90 border border-emerald-500/30 p-4 rounded-2xl">
+              <span className="text-[10px] text-emerald-400 font-bold uppercase block">স্বয়ংক্রিয় ডিপোজিট ইনলেট</span>
+              <div className="text-xl font-black text-emerald-300 mt-1">৳{gatewayStats.totalDeposited.toLocaleString()}</div>
+              <span className="text-[10px] text-slate-400 mt-0.5 block">{gatewayStats.totalIntents} Intents Generated</span>
+            </div>
+
+            <div className="bg-slate-900/90 border border-rose-500/30 p-4 rounded-2xl">
+              <span className="text-[10px] text-rose-400 font-bold uppercase block">স্বয়ংক্রিয় পেআউট ডিসবার্স</span>
+              <div className="text-xl font-black text-rose-300 mt-1">৳{gatewayStats.totalWithdrawn.toLocaleString()}</div>
+              <span className="text-[10px] text-slate-400 mt-0.5 block">{gatewayStats.totalWithdrawals} Payouts Executed</span>
+            </div>
+
+            <div className="bg-slate-900/90 border border-amber-500/30 p-4 rounded-2xl">
+              <span className="text-[10px] text-amber-400 font-bold uppercase block">অ্যাক্টিভ গেটওয়ে পুল অ্যাকাউন্ট</span>
+              <div className="text-xl font-black text-amber-300 mt-1">{gatewayStats.activeGateways} Active Accounts</div>
+              <span className="text-[10px] text-slate-400 mt-0.5 block">Dynamic Rotation Ready</span>
+            </div>
+
+            <div className="bg-slate-900/90 border border-purple-500/30 p-4 rounded-2xl">
+              <span className="text-[10px] text-purple-400 font-bold uppercase block">নেট ক্যাশ-ফ্লো রিজার্ভ</span>
+              <div className="text-xl font-black text-purple-300 mt-1">৳{gatewayStats.netCashFlow.toLocaleString()}</div>
+              <span className="text-[10px] text-slate-400 mt-0.5 block">Double-Entry Balanced</span>
+            </div>
+          </div>
+
+          {/* SECTION A: PAYMENT DESTINATION ACCOUNT ROTATION POOL */}
+          <div className="bg-slate-900/90 border border-slate-800 rounded-3xl p-5 sm:p-6 shadow-2xl space-y-4">
+            <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2 border-b border-slate-800 pb-3">
+              <div>
+                <h3 className="text-base font-bold text-white flex items-center gap-2">
+                  <RefreshCw className="w-4 h-4 text-emerald-400" />
+                  <span>পেমেন্ট ডেস্টিনেশন একাউন্ট পুল ও ডাইনামিক রোটেশন ইঞ্জিন</span>
+                </h3>
+                <p className="text-xs text-slate-400 font-mono">
+                  ডিপোজিট রিকোয়েস্টের ক্যাপাসিটি, দৈনিক সীমা এবং স্বাস্থ্য অনুসারে স্বয়ংক্রিয়ভাবে অ্যাকাউন্ট বরাদ্দ
+                </p>
+              </div>
+              <span className="px-3 py-1 rounded-xl bg-emerald-500/20 border border-emerald-400/30 text-emerald-300 text-xs font-mono font-bold">
+                ● LOAD BALANCED POOL
+              </span>
+            </div>
+
+            <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
+              {destinationPool.map((dest) => {
+                const usedPercent = Math.min(100, Math.round((dest.currentDayVolume / dest.dailyLimit) * 100));
+                return (
+                  <div
+                    key={dest.id}
+                    className="bg-slate-950/80 border border-slate-800 p-4 rounded-2xl space-y-3 font-mono"
+                  >
+                    <div className="flex items-center justify-between">
+                      <span className="px-2 py-0.5 rounded text-[10px] font-bold bg-amber-500/20 text-amber-400 border border-amber-500/40">
+                        {dest.provider.toUpperCase()} ({dest.accountType})
+                      </span>
+                      <div className="flex items-center space-x-1.5">
+                        <button
+                          onClick={() => {
+                            paymentGatewayEngine.updateDestinationStatus(dest.id, { isActive: !dest.isActive });
+                            refreshGatewayData();
+                          }}
+                          className={`px-2 py-0.5 rounded text-[10px] font-bold transition-all cursor-pointer ${
+                            dest.isActive ? 'bg-emerald-500/20 text-emerald-300 border border-emerald-500/40' : 'bg-red-500/20 text-red-400 border border-red-500/40'
+                          }`}
+                        >
+                          {dest.isActive ? 'ACTIVE' : 'INACTIVE'}
+                        </button>
+                      </div>
+                    </div>
+
+                    <div>
+                      <div className="text-xs text-slate-400">{dest.accountName}</div>
+                      <div className="text-base font-bold text-white mt-0.5">{dest.accountNumber}</div>
+                    </div>
+
+                    {/* Capacity Progress Bar */}
+                    <div className="space-y-1 text-xs">
+                      <div className="flex justify-between text-[11px] text-slate-400">
+                        <span>আজকের ভলিউম: ৳{dest.currentDayVolume.toLocaleString()}</span>
+                        <span className="text-amber-400 font-bold">{usedPercent}%</span>
+                      </div>
+                      <div className="w-full h-2 rounded-full bg-slate-900 overflow-hidden border border-slate-800">
+                        <div
+                          className={`h-full transition-all rounded-full ${
+                            usedPercent > 85 ? 'bg-rose-500' : usedPercent > 50 ? 'bg-amber-400' : 'bg-emerald-400'
+                          }`}
+                          style={{ width: `${usedPercent}%` }}
+                        />
+                      </div>
+                      <div className="text-[10px] text-slate-500 text-right">
+                        দৈনিক সীমা: ৳{dest.dailyLimit.toLocaleString()}
+                      </div>
+                    </div>
+                  </div>
+                );
+              })}
+            </div>
+          </div>
+
+          {/* SECTION B: LIVE DEPOSIT INTENTS & VERIFICATION LOGS */}
+          <div className="bg-slate-900/90 border border-slate-800 rounded-3xl p-5 sm:p-6 shadow-2xl space-y-4">
+            <div className="flex items-center justify-between border-b border-slate-800 pb-3">
+              <div>
+                <h3 className="text-base font-bold text-white flex items-center gap-2">
+                  <ShieldCheck className="w-4 h-4 text-amber-400" />
+                  <span>লাইভ অটো-ডিপোজিট ইনটেন্টস ও ৮-পয়েন্ট ভেরিফিকেশন লগ</span>
+                </h3>
+                <p className="text-xs text-slate-400 font-mono">
+                  ইউনিক ডিপোজিট আইডি, TrxID স্টেটাস ও অটোমেটেড ডাবল-এন্ট্রি লেজার সিঙ্ক
+                </p>
+              </div>
+              <button
+                onClick={refreshGatewayData}
+                className="p-2 rounded-xl bg-slate-950 border border-slate-800 text-slate-300 hover:text-white"
+              >
+                <RefreshCw className="w-4 h-4" />
+              </button>
+            </div>
+
+            <div className="overflow-x-auto">
+              <table className="w-full text-left font-mono text-xs">
+                <thead className="bg-slate-950 text-slate-400 uppercase text-[10px]">
+                  <tr>
+                    <th className="p-3">ডিপোজিট আইডি</th>
+                    <th className="p-3">প্লেয়ার</th>
+                    <th className="p-3">মেথড &amp; নম্বর</th>
+                    <th className="p-3">পরিমাণ</th>
+                    <th className="p-3">TrxID</th>
+                    <th className="p-3">রিস্ক স্কোর</th>
+                    <th className="p-3">স্ট্যাটাস</th>
+                    <th className="p-3">সময়</th>
+                  </tr>
+                </thead>
+                <tbody className="divide-y divide-slate-800">
+                  {liveIntents.length === 0 ? (
+                    <tr>
+                      <td colSpan={8} className="p-6 text-center text-slate-500 font-sans">
+                        কোনো ডিপোজিট ইনটেন্ট সক্রিয় নেই
+                      </td>
+                    </tr>
+                  ) : (
+                    liveIntents.map((intent) => (
+                      <tr key={intent.id} className="hover:bg-slate-800/40 transition-colors">
+                        <td className="p-3 font-bold text-white">{intent.id}</td>
+                        <td className="p-3 text-slate-300">{intent.username}</td>
+                        <td className="p-3 text-slate-300">
+                          <span className="font-bold text-amber-300">{intent.provider.toUpperCase()}</span>
+                          <span className="text-[10px] text-slate-500 block">{intent.destinationAccount.accountNumber}</span>
+                        </td>
+                        <td className="p-3 font-bold text-emerald-400">৳{intent.amount.toLocaleString()}</td>
+                        <td className="p-3 text-white font-bold">{intent.providerTransactionId || 'অপেক্ষমাণ'}</td>
+                        <td className="p-3">
+                          <span className={`px-2 py-0.5 rounded text-[10px] font-bold ${
+                            intent.riskScore > 60 ? 'bg-red-500/20 text-red-400' : intent.riskScore > 30 ? 'bg-yellow-500/20 text-yellow-300' : 'bg-emerald-500/20 text-emerald-300'
+                          }`}>
+                            {intent.riskScore}/100
+                          </span>
+                        </td>
+                        <td className="p-3">
+                          <span className={`px-2 py-0.5 rounded text-[10px] font-bold ${
+                            intent.status === 'CREDITED'
+                              ? 'bg-emerald-500/20 text-emerald-400 border border-emerald-500/40'
+                              : intent.status === 'AWAITING_PAYMENT'
+                              ? 'bg-yellow-500/20 text-yellow-300 border border-yellow-500/40'
+                              : 'bg-red-500/20 text-red-400 border border-red-500/40'
+                          }`}>
+                            {intent.status}
+                          </span>
+                        </td>
+                        <td className="p-3 text-slate-400 text-[11px]">{new Date(intent.createdAt).toLocaleTimeString()}</td>
+                      </tr>
+                    ))
+                  )}
+                </tbody>
+              </table>
+            </div>
+          </div>
+
+          {/* SECTION C: CONTROLLED WITHDRAWAL RESERVATIONS & DISPATCH */}
+          <div className="bg-slate-900/90 border border-slate-800 rounded-3xl p-5 sm:p-6 shadow-2xl space-y-4">
+            <div className="flex items-center justify-between border-b border-slate-800 pb-3">
+              <div>
+                <h3 className="text-base font-bold text-white flex items-center gap-2">
+                  <Lock className="w-4 h-4 text-purple-400" />
+                  <span>ব্যালেন্স রিজার্ভেশন ও পেআউট ডিসবার্সমেন্ট পাইপলাইন</span>
+                </h3>
+                <p className="text-xs text-slate-400 font-mono">
+                  WITHDRAWAL_RESERVED থেকে প্রোভাইডার ডিসবার্স কনফার্মেশন ও স্বয়ংক্রিয় ডেবিট নিষ্পত্তি
+                </p>
+              </div>
+            </div>
+
+            <div className="overflow-x-auto">
+              <table className="w-full text-left font-mono text-xs">
+                <thead className="bg-slate-950 text-slate-400 uppercase text-[10px]">
+                  <tr>
+                    <th className="p-3">উইথড্র আইডি</th>
+                    <th className="p-3">প্লেয়ার</th>
+                    <th className="p-3">প্রাপক একাউন্ট</th>
+                    <th className="p-3">পরিমাণ</th>
+                    <th className="p-3">রিজার্ভেশন স্টেট</th>
+                    <th className="p-3">প্রোভাইডার রেফারেন্স</th>
+                    <th className="p-3">স্ট্যাটাস</th>
+                    <th className="p-3">সময়</th>
+                  </tr>
+                </thead>
+                <tbody className="divide-y divide-slate-800">
+                  {liveWithdrawals.length === 0 ? (
+                    <tr>
+                      <td colSpan={8} className="p-6 text-center text-slate-500 font-sans">
+                        কোনো উইথড্রয়াল রেকর্ড নেই
+                      </td>
+                    </tr>
+                  ) : (
+                    liveWithdrawals.map((wth) => (
+                      <tr key={wth.id} className="hover:bg-slate-800/40 transition-colors">
+                        <td className="p-3 font-bold text-white">{wth.id}</td>
+                        <td className="p-3 text-slate-300">{wth.username}</td>
+                        <td className="p-3 text-white font-bold">{wth.recipientAccount} ({wth.provider.toUpperCase()})</td>
+                        <td className="p-3 font-bold text-rose-400">৳{wth.amount.toLocaleString()}</td>
+                        <td className="p-3">
+                          <span className="px-2 py-0.5 rounded text-[10px] font-bold bg-purple-500/20 text-purple-300 border border-purple-500/40">
+                            RESERVED: ৳{wth.amount.toLocaleString()}
+                          </span>
+                        </td>
+                        <td className="p-3 text-slate-300">{wth.providerReference || 'Pending Gateway Disb'}</td>
+                        <td className="p-3">
+                          <span className={`px-2 py-0.5 rounded text-[10px] font-bold ${
+                            wth.status === 'WITHDRAWAL_COMPLETED'
+                              ? 'bg-emerald-500/20 text-emerald-400 border border-emerald-500/40'
+                              : wth.status === 'WITHDRAWAL_RESERVED' || wth.status === 'PAYOUT_PROCESSING'
+                              ? 'bg-amber-500/20 text-amber-300 border border-amber-500/40'
+                              : 'bg-rose-500/20 text-rose-400 border border-rose-500/40'
+                          }`}>
+                            {wth.status}
+                          </span>
+                        </td>
+                        <td className="p-3 text-slate-400 text-[11px]">{new Date(wth.createdAt).toLocaleTimeString()}</td>
+                      </tr>
+                    ))
+                  )}
+                </tbody>
+              </table>
+            </div>
+          </div>
+
+          {/* SECTION D: DOUBLE-ENTRY LEDGER & IMMUTABLE AUDIT LOGS */}
+          <div className="bg-slate-900/90 border border-slate-800 rounded-3xl p-5 sm:p-6 shadow-2xl space-y-4">
+            <div className="border-b border-slate-800 pb-3">
+              <h3 className="text-base font-bold text-white flex items-center gap-2">
+                <Receipt className="w-4 h-4 text-cyan-400" />
+                <span>ডাবল-এন্ট্রি একাউন্টিং লেজার ও অপরিবর্তনযোগ্য সিস্টেম অডিট</span>
+              </h3>
+              <p className="text-xs text-slate-400 font-mono">
+                System Liability Accounts &lt;-&gt; User Wallet Balances পূর্ণ গাণিতিক সামঞ্জস্য
+              </p>
+            </div>
+
+            <div className="overflow-x-auto max-h-72">
+              <table className="w-full text-left font-mono text-[11px]">
+                <thead className="bg-slate-950 text-slate-400 uppercase text-[10px] sticky top-0">
+                  <tr>
+                    <th className="p-2.5">লেজার আইডি</th>
+                    <th className="p-2.5">অ্যাকশন</th>
+                    <th className="p-2.5">ডেবিট একাউন্ট</th>
+                    <th className="p-2.5">ক্রেডিট একাউন্ট</th>
+                    <th className="p-2.5">পরিমাণ</th>
+                    <th className="p-2.5">ব্যালেন্স আফটার</th>
+                    <th className="p-2.5">রেফারেন্স</th>
+                    <th className="p-2.5">টাইমস্ট্যাম্প</th>
+                  </tr>
+                </thead>
+                <tbody className="divide-y divide-slate-800">
+                  {doubleEntryLedger.length === 0 ? (
+                    <tr>
+                      <td colSpan={8} className="p-4 text-center text-slate-500 font-sans">
+                        কোনো লেজার এন্ট্রি তৈরি হয়নি
+                      </td>
+                    </tr>
+                  ) : (
+                    doubleEntryLedger.map((ledger) => (
+                      <tr key={ledger.id} className="hover:bg-slate-800/40">
+                        <td className="p-2.5 text-slate-400">{ledger.id}</td>
+                        <td className="p-2.5 font-bold text-amber-300">{ledger.entryType}</td>
+                        <td className="p-2.5 text-rose-300">{ledger.debitAccount}</td>
+                        <td className="p-2.5 text-emerald-300">{ledger.creditAccount}</td>
+                        <td className="p-2.5 font-bold text-white">৳{ledger.amount.toLocaleString()}</td>
+                        <td className="p-2.5 text-slate-300">৳{ledger.balanceAfter.toLocaleString()}</td>
+                        <td className="p-2.5 text-slate-400">{ledger.reference}</td>
+                        <td className="p-2.5 text-slate-500">{new Date(ledger.createdAt).toLocaleTimeString()}</td>
+                      </tr>
+                    ))
+                  )}
+                </tbody>
+              </table>
+            </div>
+          </div>
+        </div>
+      )}
 
       {/* 4. SUBTAB 1: DEPOSITS APPROVAL QUEUE */}
       {activeSubTab === 'deposits' && (

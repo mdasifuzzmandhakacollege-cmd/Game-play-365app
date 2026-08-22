@@ -12,6 +12,7 @@ import { validateHmacSignature, AuthenticatedRequest } from './middleware/hmac';
 import { SeamlessWalletService, IDbPool } from './services/walletService';
 import { SeamlessWalletController } from './controllers/seamlessWalletController';
 import { paymentController } from './controllers/paymentController';
+import { paymentGatewayController } from './controllers/paymentGatewayController';
 import { getAffiliateSummaryHandler, claimCommissionHandler } from './controllers/affiliateController';
 import { getVipDetailsHandler, claimVipBonusHandler } from './controllers/vipController';
 import { getPromotionDetailsHandler, claimCheckInHandler, spinWheelHandler } from './controllers/promotionController';
@@ -69,7 +70,7 @@ seamlessRouter.post('/refund', walletController.processRefund);
 app.use('/api/seamless', seamlessRouter);
 
 // ----------------------------------------------------------------------------
-// 5. Local Cashier Payment Routes (bKash, Nagad, Rocket, Upay)
+// 5. Automated Payment Gateway & Cashier Routes (bKash, Nagad, Rocket, Bank, USDT)
 // ----------------------------------------------------------------------------
 const cashierRouter = express.Router();
 cashierRouter.post('/deposit', (req, res) => paymentController.submitDeposit(req, res));
@@ -77,6 +78,17 @@ cashierRouter.post('/withdraw', (req, res) => paymentController.submitWithdrawal
 cashierRouter.get('/requests', (req, res) => paymentController.getRequests(req, res));
 
 app.use('/api/cashier', cashierRouter);
+
+// Automated Payment Orchestrator API v2
+const paymentV2Router = express.Router();
+paymentV2Router.post('/deposit/intent', (req, res) => paymentGatewayController.createDepositIntent(req, res));
+paymentV2Router.post('/deposit/verify-trx', (req, res) => paymentGatewayController.verifyTrxId(req, res));
+paymentV2Router.post('/withdraw/request', (req, res) => paymentGatewayController.requestWithdrawal(req, res));
+paymentV2Router.post('/webhook/:provider', (req, res) => paymentGatewayController.handleWebhook(req, res));
+paymentV2Router.get('/destination-pool', (req, res) => paymentGatewayController.getDestinationPool(req, res));
+paymentV2Router.get('/stats', (req, res) => paymentGatewayController.getStats(req, res));
+
+app.use('/api/v2/payment', paymentV2Router);
 
 // ----------------------------------------------------------------------------
 // 6. Multi-Tier Affiliate, VIP & Promotion Routes
