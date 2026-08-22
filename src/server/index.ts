@@ -110,7 +110,19 @@ promoRouter.post('/spin', spinWheelHandler);
 app.use('/api/promo', promoRouter);
 
 // ----------------------------------------------------------------------------
-// 7. Serve Static Frontend Bundle (dist directory) in Production
+// 7. Health Check Endpoint (For Cloud Run / Firebase App Hosting Probes)
+// ----------------------------------------------------------------------------
+app.get(['/health', '/api/health', '/_health'], (_req: Request, res: Response) => {
+  res.status(200).json({
+    status: 'HEALTHY',
+    uptime: process.uptime(),
+    timestamp: Date.now(),
+    port: PORT
+  });
+});
+
+// ----------------------------------------------------------------------------
+// 8. Serve Static Frontend Bundle (dist directory) in Production
 // ----------------------------------------------------------------------------
 const distPath = path.resolve(process.cwd(), 'dist');
 if (fs.existsSync(distPath)) {
@@ -123,11 +135,6 @@ if (fs.existsSync(distPath)) {
   });
 }
 
-// Health check endpoint (for load balancers & Kubernetes / Cloud Run probes)
-app.get('/health', (_req: Request, res: Response) => {
-  res.status(200).json({ status: 'HEALTHY', uptime: process.uptime(), timestamp: Date.now() });
-});
-
 // Global Error Handler
 app.use((err: any, _req: Request, res: Response, _next: NextFunction) => {
   console.error('[Fatal Server Error]:', err);
@@ -139,8 +146,16 @@ app.use((err: any, _req: Request, res: Response, _next: NextFunction) => {
 });
 
 if (process.env.NODE_ENV !== 'test') {
-  app.listen(PORT, HOST, () => {
-    console.log(`[Seamless Wallet Core] Server successfully listening on http://${HOST}:${PORT}`);
+  const server = app.listen(PORT, HOST, () => {
+    console.log(`[Seamless Wallet Core] Server successfully listening on http://${HOST}:${PORT} (PORT=${PORT})`);
+  });
+
+  process.on('SIGTERM', () => {
+    console.log('[Seamless Wallet Core] SIGTERM signal received: closing HTTP server');
+    server.close(() => {
+      console.log('[Seamless Wallet Core] HTTP server closed');
+      process.exit(0);
+    });
   });
 }
 

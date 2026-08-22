@@ -263,7 +263,8 @@ export const RegistrationPage: React.FC<RegistrationPageProps> = ({
           }
         }
 
-        // 4. Firestore DB profile persistence
+        // 4. Firestore DB profile persistence & Zero-balance enforcement
+        let cleanZeroWallet = engineResult.wallet;
         try {
           await firebaseFirestore.syncUserProfile(
             {
@@ -274,15 +275,17 @@ export const RegistrationPage: React.FC<RegistrationPageProps> = ({
             },
             'BDT'
           );
-          await firebaseFirestore.ensureUserWallet(targetUserId, 'BDT', 0);
+          const zeroW = await firebaseFirestore.resetUserWalletToZero(targetUserId, 'BDT');
+          if (zeroW) cleanZeroWallet = zeroW;
         } catch (firestoreErr) {
           console.warn('Firestore sync note:', firestoreErr);
+          cleanZeroWallet = seamlessEngine.resetWalletToZero(targetUserId, 'BDT');
         }
 
         soundEngine.playWinChime();
         setSuccessAnimation(true);
         setTimeout(() => {
-          onLoginSuccess(engineResult.user, engineResult.wallet);
+          onLoginSuccess(engineResult.user, cleanZeroWallet);
         }, 350);
       } else {
         // LOGIN Flow

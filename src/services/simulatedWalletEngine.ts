@@ -2243,6 +2243,53 @@ class SimulatedSeamlessEngine {
     return { user: newUser, wallet: newWallet };
   }
 
+  /**
+   * Resets all balances for a specific user to clean zero (0.00).
+   * Ensures new registrations or zero-reset requests enforce 0.00 balance state.
+   */
+  public resetWalletToZero(userId: string, currency: 'BDT' | 'USD' = 'BDT'): WalletEntity {
+    const now = new Date().toISOString();
+    const walletKey = `${userId}:${currency}`;
+    let wallet = this.wallets.get(walletKey);
+
+    if (wallet) {
+      wallet.real_balance = 0.0;
+      wallet.bonus_balance = 0.0;
+      wallet.locked_balance = 0.0;
+      wallet.version += 1;
+      wallet.updated_at = now;
+    } else {
+      wallet = {
+        id: `w_${userId}_${currency.toLowerCase()}`,
+        user_id: userId,
+        currency,
+        real_balance: 0.0,
+        bonus_balance: 0.0,
+        locked_balance: 0.0,
+        turnover_ratio: 10,
+        version: 1,
+        status: 'ACTIVE',
+        created_at: now,
+        updated_at: now
+      };
+      this.wallets.set(walletKey, wallet);
+    }
+
+    // Also zero-out secondary currency if present
+    const altCurrency = currency === 'BDT' ? 'USD' : 'BDT';
+    const altKey = `${userId}:${altCurrency}`;
+    const altWallet = this.wallets.get(altKey);
+    if (altWallet) {
+      altWallet.real_balance = 0.0;
+      altWallet.bonus_balance = 0.0;
+      altWallet.locked_balance = 0.0;
+      altWallet.version += 1;
+      altWallet.updated_at = now;
+    }
+
+    return wallet;
+  }
+
   public getWageringRequirements(userId?: string): WageringRequirementEntity[] {
     if (userId) {
       return this.wageringRequirements.filter((w) => w.user_id === userId);

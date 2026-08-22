@@ -215,6 +215,7 @@ export const AuthModal: React.FC<AuthModalProps> = ({
             displayName: emailOrUsername,
             phoneNumber: mobileNumber
           }, currency);
+          await firebaseFirestore.resetUserWalletToZero(registeredUser.uid, currency);
 
           try {
             await referralService.processReferralRegistration({

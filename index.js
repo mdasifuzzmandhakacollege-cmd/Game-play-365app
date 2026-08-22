@@ -2013,6 +2013,714 @@ function generatePostgresTextPlan(node, planningTime, executionTime, options) {
   return lines.join("\n");
 }
 
+// src/services/acidLockTrackerService.ts
+var AcidLockTrackerService = class {
+  constructor() {
+    this.backends = /* @__PURE__ */ new Map();
+    this.activeLocks = /* @__PURE__ */ new Map();
+    // key: relation:tupleKey
+    this.history = [];
+    this.listeners = [];
+    this.nextXid = 728901;
+    this.nextPid = 4120;
+    this.deadlocksResolved = 0;
+    this.txCommittedCount = 1420;
+    this.txRolledBackCount = 3;
+    this.seedInitialSessions();
+    this.startMetricsTicker();
+  }
+  seedInitialSessions() {
+    const now = Date.now();
+    this.backends.set(4101, {
+      pid: 4101,
+      xid: 728890,
+      virtualXid: "3/102",
+      clientAddr: "127.0.0.1:5432",
+      applicationName: "autovacuum worker",
+      database: "playall_casino_db",
+      userName: "postgres",
+      state: "active",
+      isolationLevel: "READ COMMITTED",
+      query: "VACUUM (ANALYZE) wallets;",
+      heldLocks: ["wallets:table_share"],
+      waitingOnLock: null,
+      startedAt: now - 3500,
+      durationMs: 3500,
+      xmin: 728880,
+      xmax: 0,
+      cmin: 0,
+      cmax: 0
+    });
+    this.backends.set(4102, {
+      pid: 4102,
+      xid: 728898,
+      virtualXid: "4/45",
+      clientAddr: "10.0.1.18:49210",
+      applicationName: "seamless_engine_worker_pool_01",
+      database: "playall_casino_db",
+      userName: "seamless_app_role",
+      state: "idle_in_transaction",
+      isolationLevel: "REPEATABLE READ",
+      query: "SELECT id, real_balance FROM wallets WHERE user_id = $1 FOR UPDATE;",
+      heldLocks: [],
+      waitingOnLock: null,
+      startedAt: now - 120,
+      durationMs: 120,
+      xmin: 728895,
+      xmax: 0,
+      cmin: 1,
+      cmax: 1
+    });
+    this.backends.set(4103, {
+      pid: 4103,
+      xid: 728900,
+      virtualXid: "5/18",
+      clientAddr: "10.0.1.22:38902",
+      applicationName: "webhook_dispatcher_pool_02",
+      database: "playall_casino_db",
+      userName: "webhook_role",
+      state: "active",
+      isolationLevel: "READ COMMITTED",
+      query: "INSERT INTO transactions (id, type, amount, status) VALUES ($1, $2, $3, $4);",
+      heldLocks: ["transactions:tuple_insert"],
+      waitingOnLock: null,
+      startedAt: now - 45,
+      durationMs: 45,
+      xmin: 728899,
+      xmax: 0,
+      cmin: 2,
+      cmax: 2
+    });
+    this.activeLocks.set("transactions:tuple_insert", {
+      id: "lock_init_01",
+      relation: "transactions",
+      tupleKey: "tx_latest_head",
+      lockMode: "ExclusiveLock (UPDATE/INSERT)",
+      holderPid: 4103,
+      holderXid: 728900,
+      granted: true,
+      waitQueue: [],
+      acquiredAt: now - 45,
+      durationMs: 45
+    });
+    this.addHistoryEntry({
+      pid: 4103,
+      xid: 728900,
+      relation: "transactions",
+      tupleKey: "tx_latest_head",
+      lockMode: "ExclusiveLock (UPDATE/INSERT)",
+      action: "LOCK_GRANTED",
+      durationMs: 45,
+      details: "Exclusive row lock acquired for atomic ledger insert."
+    });
+  }
+  startMetricsTicker() {
+    setInterval(() => {
+      const now = Date.now();
+      this.backends.forEach((backend) => {
+        if (backend.state === "active" || backend.state === "waiting_on_lock" || backend.state === "idle_in_transaction") {
+          backend.durationMs = now - backend.startedAt;
+        }
+      });
+      this.activeLocks.forEach((lock) => {
+        if (lock.granted) {
+          lock.durationMs = now - lock.acquiredAt;
+        }
+      });
+      this.emitChange();
+    }, 1e3);
+  }
+  addHistoryEntry(entry) {
+    const now = Date.now();
+    const newEntry = {
+      ...entry,
+      id: `lhist_${now}_${Math.random().toString(36).substring(2, 6)}`,
+      timestamp: now,
+      timeLabel: new Date(now).toLocaleTimeString([], {
+        hour: "2-digit",
+        minute: "2-digit",
+        second: "2-digit",
+        fractionalSecondDigits: 3
+      })
+    };
+    this.history.unshift(newEntry);
+    if (this.history.length > 250) {
+      this.history.pop();
+    }
+  }
+  getSnapshot() {
+    const backendsList = Array.from(this.backends.values());
+    const locksList = Array.from(this.activeLocks.values());
+    const metrics = this.computeMetrics();
+    return {
+      backends: backendsList,
+      locks: locksList,
+      history: [...this.history],
+      metrics
+    };
+  }
+  subscribe(callback) {
+    this.listeners.push(callback);
+    callback(this.getSnapshot());
+    return () => {
+      this.listeners = this.listeners.filter((cb) => cb !== callback);
+    };
+  }
+  emitChange() {
+    const snapshot = this.getSnapshot();
+    this.listeners.forEach((cb) => {
+      try {
+        cb(snapshot);
+      } catch (err) {
+        console.error("Error in ACID Lock Tracker listener:", err);
+      }
+    });
+  }
+  computeMetrics() {
+    const backends = Array.from(this.backends.values());
+    const activeBackends = backends.filter((b) => b.state !== "committed" && b.state !== "aborted");
+    const locks = Array.from(this.activeLocks.values());
+    const totalHeld = locks.filter((l) => l.granted).length;
+    const totalWaiting = locks.reduce((acc, l) => acc + l.waitQueue.length, 0);
+    let totalDuration = 0;
+    locks.forEach((l) => totalDuration += l.durationMs);
+    const avgDuration = locks.length > 0 ? totalDuration / locks.length : 0.42;
+    return {
+      activeBackendsCount: activeBackends.length,
+      activeTransactionsCount: backends.filter((b) => b.state === "active" || b.state === "waiting_on_lock" || b.state === "idle_in_transaction").length,
+      totalLocksHeld: totalHeld,
+      lockWaitQueueLength: totalWaiting,
+      deadlocksResolvedCount: this.deadlocksResolved,
+      totalTransactionsCommitted: this.txCommittedCount,
+      totalTransactionsRolledBack: this.txRolledBackCount,
+      averageLockDurationMs: Number(avgDuration.toFixed(2)),
+      mvccSnapshotIsolationOk: true
+    };
+  }
+  /**
+   * Registers a real-time row lock when an actual seamless engine operation executes.
+   */
+  registerLiveRowLock(relation, tupleKey, lockMode = "RowExclusiveLock (FOR UPDATE)", query3 = "SELECT * FROM wallets WHERE id = $1 FOR UPDATE;") {
+    const pid = this.nextPid++;
+    const xid = this.nextXid++;
+    const now = Date.now();
+    const lockKey = `${relation}:${tupleKey}`;
+    const session = {
+      pid,
+      xid,
+      virtualXid: `${Math.floor(pid / 1e3)}/${pid % 1e3}`,
+      clientAddr: "10.0.1.45:51200",
+      applicationName: `seamless_api_${relation}_handler`,
+      database: "playall_casino_db",
+      userName: "seamless_app_role",
+      state: "active",
+      isolationLevel: "REPEATABLE READ",
+      query: query3,
+      currentLockTarget: lockKey,
+      heldLocks: [lockKey],
+      waitingOnLock: null,
+      startedAt: now,
+      durationMs: 0,
+      xmin: xid - 2,
+      xmax: 0,
+      cmin: 0,
+      cmax: 0
+    };
+    this.backends.set(pid, session);
+    const existingLock = this.activeLocks.get(lockKey);
+    if (!existingLock || !existingLock.granted) {
+      this.activeLocks.set(lockKey, {
+        id: `lock_${now}_${pid}`,
+        relation,
+        tupleKey,
+        lockMode,
+        holderPid: pid,
+        holderXid: xid,
+        granted: true,
+        waitQueue: [],
+        acquiredAt: now,
+        durationMs: 0
+      });
+      this.addHistoryEntry({
+        pid,
+        xid,
+        relation,
+        tupleKey,
+        lockMode,
+        action: "LOCK_GRANTED",
+        durationMs: 0,
+        details: `Granted ${lockMode} on tuple [${tupleKey}]`
+      });
+    } else {
+      existingLock.waitQueue.push({
+        pid,
+        xid,
+        appName: session.applicationName,
+        requestedMode: lockMode,
+        waitingSince: now
+      });
+      session.state = "waiting_on_lock";
+      session.waitingOnLock = lockKey;
+      session.waitingSince = now;
+      this.addHistoryEntry({
+        pid,
+        xid,
+        relation,
+        tupleKey,
+        lockMode,
+        action: "WAIT_ENQUEUED",
+        durationMs: 0,
+        details: `Lock conflict: PID ${pid} enqueued in wait queue behind holder PID ${existingLock.holderPid}`
+      });
+    }
+    this.emitChange();
+    return () => {
+      const releaseNow = Date.now();
+      const holdDuration = releaseNow - now;
+      const currentLock = this.activeLocks.get(lockKey);
+      if (currentLock && currentLock.holderPid === pid) {
+        if (currentLock.waitQueue.length > 0) {
+          const nextWaiter = currentLock.waitQueue.shift();
+          currentLock.holderPid = nextWaiter.pid;
+          currentLock.holderXid = nextWaiter.xid;
+          currentLock.acquiredAt = releaseNow;
+          currentLock.durationMs = 0;
+          const nextBackend = this.backends.get(nextWaiter.pid);
+          if (nextBackend) {
+            nextBackend.state = "active";
+            nextBackend.waitingOnLock = null;
+            nextBackend.heldLocks.push(lockKey);
+          }
+          this.addHistoryEntry({
+            pid: nextWaiter.pid,
+            xid: nextWaiter.xid,
+            relation,
+            tupleKey,
+            lockMode: nextWaiter.requestedMode,
+            action: "LOCK_GRANTED",
+            durationMs: releaseNow - nextWaiter.waitingSince,
+            details: `Lock granted to queued waiter PID ${nextWaiter.pid} after ${releaseNow - nextWaiter.waitingSince}ms wait.`
+          });
+        } else {
+          this.activeLocks.delete(lockKey);
+        }
+      }
+      const closedSession = this.backends.get(pid);
+      if (closedSession) {
+        closedSession.state = "committed";
+        closedSession.durationMs = holdDuration;
+        this.txCommittedCount++;
+      }
+      this.addHistoryEntry({
+        pid,
+        xid,
+        relation,
+        tupleKey,
+        lockMode,
+        action: "LOCK_RELEASED",
+        durationMs: holdDuration,
+        details: `Transaction committed and released row lock on [${tupleKey}] in ${holdDuration}ms.`
+      });
+      setTimeout(() => {
+        this.backends.delete(pid);
+        this.emitChange();
+      }, 4e3);
+      this.emitChange();
+    };
+  }
+  // --------------------------------------------------------------------------
+  // INTERACTIVE SIMULATION DEMOS FOR IGAMING ARCHITECTS
+  // --------------------------------------------------------------------------
+  /**
+   * Scenario 1: High Concurrency Contention on Single Wallet Row
+   * Demonstrates 5 parallel transactions serializing cleanly via Two-Phase Locking without race conditions.
+   */
+  async simulateConcurrentContention(walletKey = "wallet:player_sakib:BDT", workersCount = 5) {
+    const promises = [];
+    for (let i = 0; i < workersCount; i++) {
+      const p = new Promise((resolve) => {
+        setTimeout(() => {
+          const release = this.registerLiveRowLock(
+            "wallets",
+            walletKey,
+            "RowExclusiveLock (FOR UPDATE)",
+            `-- Worker Thread #${i + 1} (Concurrent Bet)
+SELECT id, real_balance FROM wallets WHERE id = '${walletKey}' FOR UPDATE;`
+          );
+          const holdTime = 300 + Math.random() * 400;
+          setTimeout(() => {
+            release();
+            resolve();
+          }, holdTime);
+        }, i * 80);
+      });
+      promises.push(p);
+    }
+    await Promise.all(promises);
+  }
+  /**
+   * Scenario 2: Two-Phase Commit / 2PL Distributed Transfer
+   * Transaction acquires locks on Wallet A then Wallet B in deterministic sorted order.
+   */
+  async simulateTwoPhaseTransfer(walletA = "wallet:user_alpha:USD", walletB = "wallet:user_beta:USD", amount = 100) {
+    const sortedKeys = [walletA, walletB].sort();
+    const releaseA = this.registerLiveRowLock(
+      "wallets",
+      sortedKeys[0],
+      "RowExclusiveLock (FOR UPDATE)",
+      `BEGIN; -- 2PL Distributed Transfer
+SELECT * FROM wallets WHERE id = '${sortedKeys[0]}' FOR UPDATE;`
+    );
+    await new Promise((r) => setTimeout(r, 250));
+    const releaseB = this.registerLiveRowLock(
+      "wallets",
+      sortedKeys[1],
+      "RowExclusiveLock (FOR UPDATE)",
+      `SELECT * FROM wallets WHERE id = '${sortedKeys[1]}' FOR UPDATE;
+UPDATE wallets SET real_balance = real_balance + ${amount} WHERE id = '${sortedKeys[1]}';`
+    );
+    await new Promise((r) => setTimeout(r, 450));
+    releaseA();
+    releaseB();
+  }
+  /**
+   * Scenario 3: Deadlock Cycle Simulation & Automatic 40P01 Error Resolution
+   * Tx 1 locks A -> tries to lock B
+   * Tx 2 locks B -> tries to lock A
+   * PostgreSQL Deadlock Detector fires after timeout, aborts Tx 2 with 40P01, Tx 1 succeeds!
+   */
+  async simulateDeadlockDetection(walletA = "wallet:account_01:USD", walletB = "wallet:account_02:USD") {
+    const pid1 = this.nextPid++;
+    const xid1 = this.nextXid++;
+    const pid2 = this.nextPid++;
+    const xid2 = this.nextXid++;
+    const now = Date.now();
+    const session1 = {
+      pid: pid1,
+      xid: xid1,
+      virtualXid: `7/${pid1 % 100}`,
+      clientAddr: "10.0.1.50:48201",
+      applicationName: "tx1_worker_thread",
+      database: "playall_casino_db",
+      userName: "seamless_app_role",
+      state: "active",
+      isolationLevel: "REPEATABLE READ",
+      query: `BEGIN; SELECT * FROM wallets WHERE id = '${walletA}' FOR UPDATE;`,
+      currentLockTarget: `wallets:${walletA}`,
+      heldLocks: [`wallets:${walletA}`],
+      waitingOnLock: null,
+      startedAt: now,
+      durationMs: 0,
+      xmin: xid1 - 1,
+      xmax: 0,
+      cmin: 0,
+      cmax: 0
+    };
+    const session2 = {
+      pid: pid2,
+      xid: xid2,
+      virtualXid: `8/${pid2 % 100}`,
+      clientAddr: "10.0.1.51:48202",
+      applicationName: "tx2_worker_thread",
+      database: "playall_casino_db",
+      userName: "seamless_app_role",
+      state: "active",
+      isolationLevel: "REPEATABLE READ",
+      query: `BEGIN; SELECT * FROM wallets WHERE id = '${walletB}' FOR UPDATE;`,
+      currentLockTarget: `wallets:${walletB}`,
+      heldLocks: [`wallets:${walletB}`],
+      waitingOnLock: null,
+      startedAt: now,
+      durationMs: 0,
+      xmin: xid2 - 1,
+      xmax: 0,
+      cmin: 0,
+      cmax: 0
+    };
+    this.backends.set(pid1, session1);
+    this.backends.set(pid2, session2);
+    this.activeLocks.set(`wallets:${walletA}`, {
+      id: `lock_dl_${pid1}`,
+      relation: "wallets",
+      tupleKey: walletA,
+      lockMode: "RowExclusiveLock (FOR UPDATE)",
+      holderPid: pid1,
+      holderXid: xid1,
+      granted: true,
+      waitQueue: [],
+      acquiredAt: now,
+      durationMs: 0
+    });
+    this.activeLocks.set(`wallets:${walletB}`, {
+      id: `lock_dl_${pid2}`,
+      relation: "wallets",
+      tupleKey: walletB,
+      lockMode: "RowExclusiveLock (FOR UPDATE)",
+      holderPid: pid2,
+      holderXid: xid2,
+      granted: true,
+      waitQueue: [],
+      acquiredAt: now,
+      durationMs: 0
+    });
+    this.addHistoryEntry({
+      pid: pid1,
+      xid: xid1,
+      relation: "wallets",
+      tupleKey: walletA,
+      lockMode: "RowExclusiveLock (FOR UPDATE)",
+      action: "LOCK_GRANTED",
+      durationMs: 0,
+      details: `Tx1 (PID ${pid1}) acquired exclusive row lock on [${walletA}]`
+    });
+    this.addHistoryEntry({
+      pid: pid2,
+      xid: xid2,
+      relation: "wallets",
+      tupleKey: walletB,
+      lockMode: "RowExclusiveLock (FOR UPDATE)",
+      action: "LOCK_GRANTED",
+      durationMs: 0,
+      details: `Tx2 (PID ${pid2}) acquired exclusive row lock on [${walletB}]`
+    });
+    this.emitChange();
+    await new Promise((r) => setTimeout(r, 400));
+    session1.query = `SELECT * FROM wallets WHERE id = '${walletB}' FOR UPDATE; -- BLOCKED`;
+    session1.state = "waiting_on_lock";
+    session1.waitingOnLock = `wallets:${walletB}`;
+    session1.waitingSince = Date.now();
+    const lockB = this.activeLocks.get(`wallets:${walletB}`);
+    if (lockB) {
+      lockB.waitQueue.push({
+        pid: pid1,
+        xid: xid1,
+        appName: session1.applicationName,
+        requestedMode: "RowExclusiveLock (FOR UPDATE)",
+        waitingSince: Date.now()
+      });
+    }
+    this.addHistoryEntry({
+      pid: pid1,
+      xid: xid1,
+      relation: "wallets",
+      tupleKey: walletB,
+      lockMode: "RowExclusiveLock (FOR UPDATE)",
+      action: "WAIT_ENQUEUED",
+      durationMs: 0,
+      details: `Tx1 wants lock on [${walletB}] -> enqueued in wait queue (blocked by Tx2 PID ${pid2})`
+    });
+    this.emitChange();
+    await new Promise((r) => setTimeout(r, 400));
+    session2.query = `SELECT * FROM wallets WHERE id = '${walletA}' FOR UPDATE; -- DEADLOCK CYCLE`;
+    session2.state = "waiting_on_lock";
+    session2.waitingOnLock = `wallets:${walletA}`;
+    session2.waitingSince = Date.now();
+    const lockA = this.activeLocks.get(`wallets:${walletA}`);
+    if (lockA) {
+      lockA.waitQueue.push({
+        pid: pid2,
+        xid: xid2,
+        appName: session2.applicationName,
+        requestedMode: "RowExclusiveLock (FOR UPDATE)",
+        waitingSince: Date.now()
+      });
+    }
+    this.addHistoryEntry({
+      pid: pid2,
+      xid: xid2,
+      relation: "wallets",
+      tupleKey: walletA,
+      lockMode: "RowExclusiveLock (FOR UPDATE)",
+      action: "DEADLOCK_DETECTED",
+      durationMs: 0,
+      details: `DEADLOCK CYCLE DETECTED! Cycle: Tx1 (PID ${pid1}) waits on [${walletB}] held by Tx2; Tx2 (PID ${pid2}) waits on [${walletA}] held by Tx1.`
+    });
+    this.emitChange();
+    await new Promise((r) => setTimeout(r, 800));
+    this.deadlocksResolved++;
+    this.txRolledBackCount++;
+    session2.state = "deadlock_rolled_back";
+    session2.query = `ROLLBACK; -- ERROR: deadlock detected (SQLSTATE 40P01)`;
+    session2.waitingOnLock = null;
+    session2.heldLocks = [];
+    if (lockA) {
+      lockA.waitQueue = lockA.waitQueue.filter((w) => w.pid !== pid2);
+    }
+    this.activeLocks.delete(`wallets:${walletB}`);
+    this.addHistoryEntry({
+      pid: pid2,
+      xid: xid2,
+      relation: "wallets",
+      tupleKey: walletB,
+      lockMode: "RowExclusiveLock (FOR UPDATE)",
+      action: "ROLLED_BACK",
+      durationMs: Date.now() - session2.startedAt,
+      details: `PostgreSQL Deadlock Detector aborted victim Tx2 (PID ${pid2}) with error 40P01. Released [${walletB}].`
+    });
+    session1.state = "active";
+    session1.waitingOnLock = null;
+    session1.heldLocks.push(`wallets:${walletB}`);
+    this.activeLocks.set(`wallets:${walletB}`, {
+      id: `lock_dl_${pid1}_b`,
+      relation: "wallets",
+      tupleKey: walletB,
+      lockMode: "RowExclusiveLock (FOR UPDATE)",
+      holderPid: pid1,
+      holderXid: xid1,
+      granted: true,
+      waitQueue: [],
+      acquiredAt: Date.now(),
+      durationMs: 0
+    });
+    this.emitChange();
+    await new Promise((r) => setTimeout(r, 600));
+    session1.state = "committed";
+    session1.query = `COMMIT; -- SUCCESS`;
+    this.activeLocks.delete(`wallets:${walletA}`);
+    this.activeLocks.delete(`wallets:${walletB}`);
+    this.txCommittedCount++;
+    this.addHistoryEntry({
+      pid: pid1,
+      xid: xid1,
+      relation: "wallets",
+      tupleKey: walletA,
+      lockMode: "RowExclusiveLock (FOR UPDATE)",
+      action: "COMMITTED",
+      durationMs: Date.now() - session1.startedAt,
+      details: `Tx1 (PID ${pid1}) acquired all locks and committed successfully.`
+    });
+    this.emitChange();
+    setTimeout(() => {
+      this.backends.delete(pid1);
+      this.backends.delete(pid2);
+      this.emitChange();
+    }, 4e3);
+  }
+  /**
+   * Scenario 4: MVCC Non-blocking Snapshot Read
+   * Demonstrates PostgreSQL MVCC: long-running SELECT reporting query reads consistent snapshot tuple
+   * without blocking or being blocked by concurrent UPDATE / FOR UPDATE locks!
+   */
+  async simulateMvccSnapshotRead(walletKey = "wallet:player_maria:USD") {
+    const readerPid = this.nextPid++;
+    const readerXid = this.nextXid++;
+    const writerPid = this.nextPid++;
+    const writerXid = this.nextXid++;
+    const now = Date.now();
+    const readerSession = {
+      pid: readerPid,
+      xid: readerXid,
+      virtualXid: `9/${readerPid % 100}`,
+      clientAddr: "10.0.1.60:50100",
+      applicationName: "reporting_dashboard_stream",
+      database: "playall_casino_db",
+      userName: "readonly_analytics",
+      state: "active",
+      isolationLevel: "REPEATABLE READ",
+      query: `SELECT SUM(real_balance) FROM wallets; -- MVCC Snapshot (xmin: ${readerXid})`,
+      currentLockTarget: `wallets:${walletKey}`,
+      heldLocks: [`wallets:${walletKey}:access_share`],
+      waitingOnLock: null,
+      startedAt: now,
+      durationMs: 0,
+      xmin: readerXid,
+      xmax: 0,
+      cmin: 0,
+      cmax: 0
+    };
+    this.backends.set(readerPid, readerSession);
+    this.addHistoryEntry({
+      pid: readerPid,
+      xid: readerXid,
+      relation: "wallets",
+      tupleKey: walletKey,
+      lockMode: "AccessShareLock (SELECT)",
+      action: "LOCK_GRANTED",
+      durationMs: 0,
+      details: `MVCC Snapshot Created: Reader PID ${readerPid} reading snapshot with AccessShareLock (Non-blocking).`
+    });
+    this.emitChange();
+    await new Promise((r) => setTimeout(r, 200));
+    const writerSession = {
+      pid: writerPid,
+      xid: writerXid,
+      virtualXid: `10/${writerPid % 100}`,
+      clientAddr: "10.0.1.61:50101",
+      applicationName: "seamless_bet_processor",
+      database: "playall_casino_db",
+      userName: "seamless_app_role",
+      state: "active",
+      isolationLevel: "READ COMMITTED",
+      query: `UPDATE wallets SET real_balance = real_balance - 50 WHERE id = '${walletKey}';`,
+      currentLockTarget: `wallets:${walletKey}`,
+      heldLocks: [`wallets:${walletKey}`],
+      waitingOnLock: null,
+      startedAt: Date.now(),
+      durationMs: 0,
+      xmin: writerXid,
+      xmax: 0,
+      cmin: 1,
+      cmax: 1
+    };
+    this.backends.set(writerPid, writerSession);
+    this.activeLocks.set(`wallets:${walletKey}`, {
+      id: `lock_writer_${writerPid}`,
+      relation: "wallets",
+      tupleKey: walletKey,
+      lockMode: "RowExclusiveLock (FOR UPDATE)",
+      holderPid: writerPid,
+      holderXid: writerXid,
+      granted: true,
+      waitQueue: [],
+      acquiredAt: Date.now(),
+      durationMs: 0
+    });
+    this.addHistoryEntry({
+      pid: writerPid,
+      xid: writerXid,
+      relation: "wallets",
+      tupleKey: walletKey,
+      lockMode: "RowExclusiveLock (FOR UPDATE)",
+      action: "LOCK_GRANTED",
+      durationMs: 0,
+      details: `Writer PID ${writerPid} acquired RowExclusiveLock without waiting for Reader! MVCC allows simultaneous read & write.`
+    });
+    this.emitChange();
+    await new Promise((r) => setTimeout(r, 600));
+    this.activeLocks.delete(`wallets:${walletKey}`);
+    readerSession.state = "committed";
+    writerSession.state = "committed";
+    this.txCommittedCount += 2;
+    this.addHistoryEntry({
+      pid: readerPid,
+      xid: readerXid,
+      relation: "wallets",
+      tupleKey: walletKey,
+      lockMode: "AccessShareLock (SELECT)",
+      action: "COMMITTED",
+      durationMs: Date.now() - readerSession.startedAt,
+      details: `MVCC demonstration completed. Zero lock contention between SELECT reader and UPDATE writer.`
+    });
+    this.emitChange();
+    setTimeout(() => {
+      this.backends.delete(readerPid);
+      this.backends.delete(writerPid);
+      this.emitChange();
+    }, 4e3);
+  }
+  /**
+   * Resets all simulated state to baseline.
+   */
+  resetToDefault() {
+    this.backends.clear();
+    this.activeLocks.clear();
+    this.history = [];
+    this.seedInitialSessions();
+    this.emitChange();
+  }
+};
+var acidLockTrackerService = new AcidLockTrackerService();
+
 // src/services/simulatedWalletEngine.ts
 var PROVIDER_SECRETS2 = {
   pragmatic_play: "sk_live_pragmatic_seamless_88492048102",
@@ -2704,6 +3412,12 @@ var SimulatedSeamlessEngine = class {
   }
   // --- Lock acquisition simulating PostgreSQL `SELECT ... FOR UPDATE` ---
   async acquireRowLock(walletKey) {
+    const unregisterTracker = acidLockTrackerService.registerLiveRowLock(
+      "wallets",
+      walletKey,
+      "RowExclusiveLock (FOR UPDATE)",
+      `SELECT id, user_id, currency, real_balance, bonus_balance, version FROM wallets WHERE id = '${walletKey}' FOR UPDATE;`
+    );
     while (this.walletLocks.has(walletKey)) {
       await this.walletLocks.get(walletKey);
     }
@@ -2712,6 +3426,10 @@ var SimulatedSeamlessEngine = class {
     const lockPromise = new Promise((resolve) => {
       releaseLock = () => {
         this.walletLocks.delete(walletKey);
+        try {
+          unregisterTracker();
+        } catch {
+        }
         resolve();
       };
     });
@@ -6734,6 +7452,14 @@ promoRouter.get("/details", getPromotionDetailsHandler);
 promoRouter.post("/checkin", claimCheckInHandler);
 promoRouter.post("/spin", spinWheelHandler);
 app2.use("/api/promo", promoRouter);
+app2.get(["/health", "/api/health", "/_health"], (_req, res) => {
+  res.status(200).json({
+    status: "HEALTHY",
+    uptime: process.uptime(),
+    timestamp: Date.now(),
+    port: PORT
+  });
+});
 var distPath = path.resolve(process.cwd(), "dist");
 if (fs.existsSync(distPath)) {
   app2.use(express.static(distPath));
@@ -6744,9 +7470,6 @@ if (fs.existsSync(distPath)) {
     res.sendFile(path.join(distPath, "index.html"));
   });
 }
-app2.get("/health", (_req, res) => {
-  res.status(200).json({ status: "HEALTHY", uptime: process.uptime(), timestamp: Date.now() });
-});
 app2.use((err, _req, res, _next) => {
   console.error("[Fatal Server Error]:", err);
   res.status(500).json({
@@ -6756,8 +7479,15 @@ app2.use((err, _req, res, _next) => {
   });
 });
 if (process.env.NODE_ENV !== "test") {
-  app2.listen(PORT, HOST, () => {
-    console.log(`[Seamless Wallet Core] Server successfully listening on http://${HOST}:${PORT}`);
+  const server = app2.listen(PORT, HOST, () => {
+    console.log(`[Seamless Wallet Core] Server successfully listening on http://${HOST}:${PORT} (PORT=${PORT})`);
+  });
+  process.on("SIGTERM", () => {
+    console.log("[Seamless Wallet Core] SIGTERM signal received: closing HTTP server");
+    server.close(() => {
+      console.log("[Seamless Wallet Core] HTTP server closed");
+      process.exit(0);
+    });
   });
 }
 var index_default = app2;

@@ -111,6 +111,14 @@ interface WalletGameContextType {
   logoutUser: () => void;
   refreshState: () => void;
   topUpWallet: (amount: number, targetUserId?: string, targetCurrency?: string) => void;
+  resetWalletToZero: (targetUserId?: string, targetCurrency?: 'BDT' | 'USD') => Promise<WalletEntity>;
+  registerNewUser: (params: {
+    username: string;
+    email?: string;
+    phone?: string;
+    currency?: 'BDT' | 'USD';
+    promoCode?: string;
+  }) => Promise<{ user: UserEntity; wallet: WalletEntity }>;
 
   // Real-time Animated Balance
   animatedBalance: number;
@@ -508,6 +516,98 @@ export const WalletGameProvider: React.FC<{ children: React.ReactNode }> = ({ ch
     [currentUser.id, currentUser.currency, currency, showToast]
   );
 
+  // --------------------------------------------------------------------------
+  // Reset to Zero Logic: Ensures newly registered users start with clean 0.00
+  // --------------------------------------------------------------------------
+  const resetWalletToZero = useCallback(
+    async (targetUserId?: string, targetCurrency?: 'BDT' | 'USD'): Promise<WalletEntity> => {
+      const uid = targetUserId || currentUser.id;
+      const curr = (targetCurrency || currentUser.currency || currency) as 'BDT' | 'USD';
+
+      // 1. Instantly enforce zero balance in local simulated engine
+      const localZeroWallet = seamlessEngine.resetWalletToZero(uid, curr);
+
+      // 2. Instantly update React state so UI immediately renders 0.00
+      if (uid === currentUser.id) {
+        setCurrentWallet(localZeroWallet);
+        setAnimatedBalance(0);
+      }
+
+      setWallets((prev) =>
+        prev.map((w) =>
+          w.user_id === uid
+            ? { ...w, real_balance: 0.0, bonus_balance: 0.0, locked_balance: 0.0, version: (w.version || 1) + 1 }
+            : w
+        )
+      );
+
+      // 3. Persist hard reset in Firestore DB regardless of pre-existing state
+      try {
+        const firestoreZeroWallet = await firebaseFirestore.resetUserWalletToZero(uid, curr);
+        if (firestoreZeroWallet && uid === currentUser.id) {
+          setCurrentWallet(firestoreZeroWallet);
+          setAnimatedBalance(0);
+        }
+      } catch (err) {
+        console.warn('Firestore resetToZero sync note:', err);
+      }
+
+      return localZeroWallet;
+    },
+    [currentUser.id, currentUser.currency, currency]
+  );
+
+  const registerNewUser = useCallback(
+    async (params: {
+      username: string;
+      email?: string;
+      phone?: string;
+      currency?: 'BDT' | 'USD';
+      promoCode?: string;
+    }): Promise<{ user: UserEntity; wallet: WalletEntity }> => {
+      const chosenCurrency = params.currency || currency || 'BDT';
+      const cleanUsername = params.username.trim();
+      const email = params.email || `${cleanUsername.toLowerCase()}@gameplay365.com`;
+
+      // 1. Register in simulated wallet engine
+      const engineResult = seamlessEngine.registerUser({
+        username: cleanUsername,
+        email,
+        phone: params.phone,
+        currency: chosenCurrency,
+        promoCode: params.promoCode || 'GP365_WELCOME'
+      });
+
+      const registeredUser = engineResult.user;
+      const targetUid = authUser?.uid || registeredUser.id;
+
+      // 2. Explicitly enforce 'Reset to Zero' logic: newly created accounts start with a clean zero balance
+      const zeroWallet = await resetWalletToZero(targetUid, chosenCurrency);
+
+      // 3. Update active session user & wallet state
+      loginUser(registeredUser, zeroWallet);
+
+      // 4. Ensure Firestore User Profile and zero-balance wallet are synchronized
+      try {
+        await firebaseFirestore.syncUserProfile(
+          {
+            uid: targetUid,
+            email,
+            displayName: cleanUsername,
+            phoneNumber: params.phone
+          },
+          chosenCurrency
+        );
+        await firebaseFirestore.resetUserWalletToZero(targetUid, chosenCurrency);
+      } catch (dbErr) {
+        console.warn('New user registration Firestore sync note:', dbErr);
+      }
+
+      return { user: registeredUser, wallet: zeroWallet };
+    },
+    [currency, authUser?.uid, resetWalletToZero, loginUser]
+  );
+
   const launchGame = useCallback((gameId: string) => {
     setActiveGameId(gameId);
     setActiveTabState('games');
@@ -704,6 +804,8 @@ export const WalletGameProvider: React.FC<{ children: React.ReactNode }> = ({ ch
         logoutUser,
         refreshState,
         topUpWallet,
+        resetWalletToZero,
+        registerNewUser,
         animatedBalance,
         formattedBalance,
         balanceFlash,

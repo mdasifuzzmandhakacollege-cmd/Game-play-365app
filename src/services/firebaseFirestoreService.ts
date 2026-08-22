@@ -388,6 +388,94 @@ class FirebaseFirestoreService {
   }
 
   /**
+   * Hard resets user wallet balances to clean zero (0.00) in Firestore and local state.
+   * Ensures new account registrations start strictly with 0 balance regardless of prior DB state.
+   */
+  public async resetUserWalletToZero(
+    userId: string,
+    currency: 'BDT' | 'USD' = 'BDT'
+  ): Promise<WalletEntity> {
+    const now = new Date().toISOString();
+    const zeroWalletData = {
+      id: `w_${userId}_${currency.toLowerCase()}`,
+      userId,
+      currency,
+      realBalance: 0.0,
+      bonusBalance: 0.0,
+      lockedBalance: 0.0,
+      version: 1,
+      status: 'ACTIVE',
+      createdAt: now,
+      updatedAt: now
+    };
+
+    // Update local seamless engine first
+    seamlessEngine.resetWalletToZero(userId, currency);
+
+    if (!this.isUserAuthorized(userId)) {
+      return {
+        id: `w_${userId}_${currency.toLowerCase()}`,
+        user_id: userId,
+        currency,
+        real_balance: 0.0,
+        bonus_balance: 0.0,
+        locked_balance: 0.0,
+        version: 1,
+        status: 'ACTIVE',
+        created_at: now,
+        updated_at: now
+      };
+    }
+
+    const walletDocRef = doc(db, 'users', userId, 'wallets', currency);
+    const path = `users/${userId}/wallets/${currency}`;
+
+    try {
+      await setDoc(walletDocRef, zeroWalletData, { merge: true });
+
+      // Also reset secondary currency (e.g. USD if BDT, or BDT if USD) to clean zero
+      const altCurrency: 'BDT' | 'USD' = currency === 'BDT' ? 'USD' : 'BDT';
+      try {
+        const altDocRef = doc(db, 'users', userId, 'wallets', altCurrency);
+        await setDoc(
+          altDocRef,
+          {
+            id: `w_${userId}_${altCurrency.toLowerCase()}`,
+            userId,
+            currency: altCurrency,
+            realBalance: 0.0,
+            bonusBalance: 0.0,
+            lockedBalance: 0.0,
+            version: 1,
+            status: 'ACTIVE',
+            createdAt: now,
+            updatedAt: now
+          },
+          { merge: true }
+        );
+        seamlessEngine.resetWalletToZero(userId, altCurrency);
+      } catch (altErr) {
+        console.warn('Alt currency zero-reset notice:', altErr);
+      }
+
+      return {
+        id: `w_${userId}_${currency.toLowerCase()}`,
+        user_id: userId,
+        currency,
+        real_balance: 0.0,
+        bonus_balance: 0.0,
+        locked_balance: 0.0,
+        version: 1,
+        status: 'ACTIVE',
+        created_at: now,
+        updated_at: now
+      };
+    } catch (error) {
+      handleFirestoreError(error, OperationType.WRITE, path);
+    }
+  }
+
+  /**
    * Listen to real-time wallet balance changes for a specific currency
    */
   public subscribeToWallet(
