@@ -1,0 +1,142 @@
+/**
+ * @file types.ts
+ * @description Core Data Types, Enums, and Contracts for PLAY369 Wallet Ledger Foundation.
+ * 
+ * [ARCHITECTURAL INVARIANTS]:
+ * 1. Financial Precision: Money is strictly calculated using integer minor units (e.g. cents/poisha).
+ *    No floating-point math is ever permitted in ledger state mutations.
+ * 2. Immutability: Ledger entries are append-only. Once committed, they cannot be updated or deleted.
+ * 3. Atomicity & Row-Locking: Balance updates must occur inside an ACID transaction with
+ *    SELECT ... FOR UPDATE row locks on the wallet row.
+ * 4. Idempotency: Duplicate transaction IDs under the same scope or idempotency key return the
+ *    original committed outcome without duplicate financial debit/credit.
+ */
+
+export type SupportedCurrency = 'BDT' | 'USD' | 'EUR' | 'INR';
+
+export const SUPPORTED_CURRENCIES: ReadonlySet<SupportedCurrency> = new Set(['BDT', 'USD', 'EUR', 'INR']);
+
+export type LedgerTransactionType =
+  | 'DEBIT'       // Generic debit (e.g. gameplay wager, service charge)
+  | 'CREDIT'      // Generic credit (e.g. gameplay win, prize)
+  | 'REVERSAL'    // Reversal / refund of a previous debit
+  | 'ADJUSTMENT'; // Administrative manual adjustment (with mandatory audit trail)
+
+export type LedgerTransactionStatus =
+  | 'COMMITTED'
+  | 'REJECTED'
+  | 'ROLLED_BACK';
+
+export interface WalletRecord {
+  id: string;
+  userId: string;
+  currency: SupportedCurrency;
+  balanceMinor: bigint; // Stored as integer minor units (e.g. 100.50 BDT = 10050n minor units)
+  version: bigint;      // Optimistic locking / mutation sequence counter
+  status: 'ACTIVE' | 'FROZEN' | 'CLOSED';
+  createdAt: Date;
+  updatedAt: Date;
+}
+
+export interface LedgerEntryRecord {
+  id: string;
+  walletId: string;
+  userId: string;
+  transactionId: string;
+  referenceTransactionId?: string | null;
+  type: LedgerTransactionType;
+  amountMinor: bigint;
+  currency: SupportedCurrency;
+  beforeBalanceMinor: bigint;
+  afterBalanceMinor: bigint;
+  status: LedgerTransactionStatus;
+  correlationId: string;
+  auditMetadata: Record<string, any>;
+  createdAt: Date;
+}
+
+export interface IdempotencyRecord {
+  idempotencyKey: string;
+  transactionId: string;
+  statusCode: number;
+  responsePayload: Record<string, any>;
+  createdAt: Date;
+  expiresAt: Date;
+}
+
+export interface LedgerTransactionRequest {
+  userId: string;
+  currency: string;
+  transactionId: string;
+  referenceTransactionId?: string;
+  type: LedgerTransactionType;
+  amountMinor: bigint | number | string;
+  correlationId?: string;
+  auditMetadata?: Record<string, any>;
+}
+
+export interface LedgerTransactionResult {
+  success: boolean;
+  isIdempotent: boolean;
+  ledgerEntryId: string;
+  transactionId: string;
+  referenceTransactionId?: string | null;
+  userId: string;
+  currency: SupportedCurrency;
+  type: LedgerTransactionType;
+  amountMinor: string;          // Stringified bigint for safe JSON serialization
+  amountMajor: string;          // Human-readable formatted string (e.g. "100.50")
+  beforeBalanceMinor: string;
+  afterBalanceMinor: string;
+  afterBalanceMajor: string;
+  correlationId: string;
+  timestamp: string;
+}
+
+export class LedgerValidationError extends Error {
+  public readonly code: string = 'LEDGER_VALIDATION_ERROR';
+  public readonly statusCode: number = 400;
+  public readonly details?: Record<string, any>;
+
+  constructor(message: string, details?: Record<string, any>) {
+    super(message);
+    this.name = 'LedgerValidationError';
+    this.details = details;
+  }
+}
+
+export class InsufficientFundsError extends Error {
+  public readonly code: string = 'INSUFFICIENT_FUNDS';
+  public readonly statusCode: number = 422;
+  public readonly availableMinor: string;
+  public readonly requiredMinor: string;
+  public readonly currency: string;
+
+  constructor(availableMinor: bigint, requiredMinor: bigint, currency: string) {
+    super(`Insufficient funds. Required: ${requiredMinor}, Available: ${availableMinor} ${currency}`);
+    this.name = 'InsufficientFundsError';
+    this.availableMinor = availableMinor.toString();
+    this.requiredMinor = requiredMinor.toString();
+    this.currency = currency;
+  }
+}
+
+export class WalletFrozenError extends Error {
+  public readonly code: string = 'WALLET_FROZEN';
+  public readonly statusCode: number = 403;
+
+  constructor(userId: string, status: string) {
+    super(`Wallet for user '${userId}' is not active (status: ${status})`);
+    this.name = 'WalletFrozenError';
+  }
+}
+
+export class WalletNotFoundError extends Error {
+  public readonly code: string = 'WALLET_NOT_FOUND';
+  public readonly statusCode: number = 404;
+
+  constructor(userId: string, currency: string) {
+    super(`Wallet not found for user '${userId}' with currency '${currency}'`);
+    this.name = 'WalletNotFoundError';
+  }
+}

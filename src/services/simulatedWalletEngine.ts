@@ -109,6 +109,40 @@ export interface EndpointLatencyRecord {
   timeLabel: string;
 }
 
+export interface EndpointPayloadLog {
+  id: string;
+  timestamp: number;
+  timeLabel: string;
+  isoTimestamp: string;
+  endpoint: 'balance' | 'bet' | 'win' | 'refund';
+  method: string; // e.g. 'POST /api/seamless/balance'
+  providerId: string;
+  userId?: string;
+  txId?: string;
+  roundId?: string;
+  gameId?: string;
+  amount?: number;
+  statusCode: number;
+  isSuccess: boolean;
+  statusText: string;
+  latencyMs: number;
+  isIdempotent?: boolean;
+  requestPayload: any;
+  responsePayload: any;
+  requestHeaders?: Record<string, string>;
+  responseHeaders?: Record<string, string>;
+  requestSignature?: string;
+  expectedSignature?: string;
+  signatureValid: boolean;
+  balanceBefore?: number;
+  balanceAfter?: number;
+  currency?: string;
+  errorMessage?: string;
+  errorCode?: string;
+  acidLockAcquired?: boolean;
+  rowLockDurationMs?: number;
+}
+
 export interface SqlQueryLog {
   id: string;
   timestamp: number;
@@ -143,6 +177,10 @@ class SimulatedSeamlessEngine {
   // SQL Query Audit Logs and Real-time Emitter
   private sqlQueryLogs: SqlQueryLog[] = [];
   private sqlListeners: Array<(logs: SqlQueryLog[]) => void> = [];
+
+  // Real-time Endpoint Payload Logs (/balance, /bet, /win, /refund)
+  private endpointPayloadLogs: EndpointPayloadLog[] = [];
+  private endpointPayloadListeners: Array<(logs: EndpointPayloadLog[]) => void> = [];
 
   // Real-time Transaction Commit Listeners for Live Audit Exporters
   private transactionListeners: Array<(tx: TransactionEntity, allTransactions: TransactionEntity[]) => void> = [];
@@ -540,6 +578,303 @@ class SimulatedSeamlessEngine {
         isoTimestamp: new Date(ts).toISOString()
       });
     });
+
+    // Seed realistic Endpoint Payload Logs for /balance, /bet, and /win (Success & Failure cases)
+    const nowTime = Date.now();
+    this.endpointPayloadLogs = [
+      {
+        id: `EP_LOG_${nowTime - 35000}`,
+        timestamp: nowTime - 35000,
+        timeLabel: new Date(nowTime - 35000).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', second: '2-digit', fractionalSecondDigits: 3 }),
+        isoTimestamp: new Date(nowTime - 35000).toISOString(),
+        endpoint: 'balance',
+        method: 'POST /api/seamless/balance',
+        providerId: 'pragmatic_play',
+        userId: 'a0000000-0000-0000-0000-000000000001',
+        gameId: 'vs20olympgate',
+        statusCode: 200,
+        isSuccess: true,
+        statusText: 'SUCCESS',
+        latencyMs: 14,
+        isIdempotent: false,
+        requestPayload: {
+          provider_id: 'pragmatic_play',
+          user_id: 'a0000000-0000-0000-0000-000000000001',
+          currency: 'USD',
+          game_id: 'vs20olympgate',
+          session_id: 'sess_pragmatic_991823'
+        },
+        responsePayload: {
+          code: 'SUCCESS',
+          message: 'Balance retrieved successfully',
+          balance: 2500.0,
+          bonus_balance: 150.0,
+          locked_balance: 0.0,
+          currency: 'USD',
+          timestamp: nowTime - 35000
+        },
+        requestHeaders: {
+          'content-type': 'application/json',
+          'x-signature': '8fa82b9a10ef49bc872910d9e847c210ab7819ef01a89c849102834719283471',
+          'x-timestamp': String(nowTime - 35000)
+        },
+        responseHeaders: {
+          'x-response-time-ms': '14',
+          'x-signature': '8fa82b9a10ef49bc872910d9e847c210ab7819ef01a89c849102834719283471',
+          'content-type': 'application/json'
+        },
+        signatureValid: true,
+        balanceBefore: 2500.0,
+        balanceAfter: 2500.0,
+        currency: 'USD',
+        acidLockAcquired: true,
+        rowLockDurationMs: 0.8
+      },
+      {
+        id: `EP_LOG_${nowTime - 28000}`,
+        timestamp: nowTime - 28000,
+        timeLabel: new Date(nowTime - 28000).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', second: '2-digit', fractionalSecondDigits: 3 }),
+        isoTimestamp: new Date(nowTime - 28000).toISOString(),
+        endpoint: 'bet',
+        method: 'POST /api/seamless/bet',
+        providerId: 'pragmatic_play',
+        userId: 'a0000000-0000-0000-0000-000000000001',
+        txId: 'TX_BET_991823',
+        roundId: 'RND_881923',
+        gameId: 'vs20sweetbonanza',
+        amount: 20.0,
+        statusCode: 200,
+        isSuccess: true,
+        statusText: 'SUCCESS',
+        latencyMs: 28,
+        isIdempotent: false,
+        requestPayload: {
+          provider_id: 'pragmatic_play',
+          user_id: 'a0000000-0000-0000-0000-000000000001',
+          currency: 'USD',
+          transaction_id: 'TX_BET_991823',
+          round_id: 'RND_881923',
+          game_id: 'vs20sweetbonanza',
+          amount: 20.0,
+          is_round_end: false,
+          metadata: { lines: 20, bet_level: 1 }
+        },
+        responsePayload: {
+          code: 'SUCCESS',
+          message: 'Bet accepted and ledger row locked',
+          operator_transaction_id: 'OP_TX_991823_LOCKED',
+          balance: 2480.0,
+          currency: 'USD',
+          timestamp: nowTime - 28000
+        },
+        requestHeaders: {
+          'content-type': 'application/json',
+          'x-signature': '9cb8192837482910fedcba9876543210123456789abcdef0123456789abcdef0',
+          'x-timestamp': String(nowTime - 28000)
+        },
+        responseHeaders: {
+          'x-response-time-ms': '28',
+          'x-ratelimit-remaining': '9',
+          'content-type': 'application/json'
+        },
+        signatureValid: true,
+        balanceBefore: 2500.0,
+        balanceAfter: 2480.0,
+        currency: 'USD',
+        acidLockAcquired: true,
+        rowLockDurationMs: 1.45
+      },
+      {
+        id: `EP_LOG_${nowTime - 20000}`,
+        timestamp: nowTime - 20000,
+        timeLabel: new Date(nowTime - 20000).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', second: '2-digit', fractionalSecondDigits: 3 }),
+        isoTimestamp: new Date(nowTime - 20000).toISOString(),
+        endpoint: 'win',
+        method: 'POST /api/seamless/win',
+        providerId: 'pragmatic_play',
+        userId: 'a0000000-0000-0000-0000-000000000001',
+        txId: 'TX_WIN_991824',
+        roundId: 'RND_881923',
+        gameId: 'vs20sweetbonanza',
+        amount: 65.0,
+        statusCode: 200,
+        isSuccess: true,
+        statusText: 'SUCCESS',
+        latencyMs: 22,
+        isIdempotent: false,
+        requestPayload: {
+          provider_id: 'pragmatic_play',
+          user_id: 'a0000000-0000-0000-0000-000000000001',
+          currency: 'USD',
+          transaction_id: 'TX_WIN_991824',
+          reference_transaction_id: 'TX_BET_991823',
+          round_id: 'RND_881923',
+          game_id: 'vs20sweetbonanza',
+          amount: 65.0,
+          is_round_end: true,
+          metadata: { multiplier: '3.25x' }
+        },
+        responsePayload: {
+          code: 'SUCCESS',
+          message: 'Win payout credited and round closed',
+          operator_transaction_id: 'OP_TX_991824_PAID',
+          balance: 2545.0,
+          currency: 'USD',
+          timestamp: nowTime - 20000
+        },
+        requestHeaders: {
+          'content-type': 'application/json',
+          'x-signature': '1234567890abcdef1234567890abcdef1234567890abcdef1234567890abcdef',
+          'x-timestamp': String(nowTime - 20000)
+        },
+        responseHeaders: {
+          'x-response-time-ms': '22',
+          'content-type': 'application/json'
+        },
+        signatureValid: true,
+        balanceBefore: 2480.0,
+        balanceAfter: 2545.0,
+        currency: 'USD',
+        acidLockAcquired: true,
+        rowLockDurationMs: 1.12
+      },
+      {
+        id: `EP_LOG_${nowTime - 14000}`,
+        timestamp: nowTime - 14000,
+        timeLabel: new Date(nowTime - 14000).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', second: '2-digit', fractionalSecondDigits: 3 }),
+        isoTimestamp: new Date(nowTime - 14000).toISOString(),
+        endpoint: 'bet',
+        method: 'POST /api/seamless/bet',
+        providerId: 'evolution',
+        userId: 'a0000000-0000-0000-0000-000000000003',
+        txId: 'TX_BET_FAIL_001',
+        roundId: 'RND_EVO_5510',
+        gameId: 'lightning_roulette_01',
+        amount: 5000.0,
+        statusCode: 422,
+        isSuccess: false,
+        statusText: 'INSUFFICIENT_FUNDS',
+        latencyMs: 8,
+        isIdempotent: false,
+        requestPayload: {
+          provider_id: 'evolution',
+          user_id: 'a0000000-0000-0000-0000-000000000003',
+          currency: 'USD',
+          transaction_id: 'TX_BET_FAIL_001',
+          round_id: 'RND_EVO_5510',
+          game_id: 'lightning_roulette_01',
+          amount: 5000.0,
+          is_round_end: false
+        },
+        responsePayload: {
+          code: 'INSUFFICIENT_FUNDS',
+          message: 'Insufficient balance for requested bet (Available: 0.00 USD, Required: 5000.00 USD)',
+          balance: 0.0,
+          currency: 'USD',
+          timestamp: nowTime - 14000
+        },
+        requestHeaders: {
+          'content-type': 'application/json',
+          'x-signature': 'evo_sig_valid_881923',
+          'x-timestamp': String(nowTime - 14000)
+        },
+        responseHeaders: {
+          'x-response-time-ms': '8',
+          'content-type': 'application/json'
+        },
+        signatureValid: true,
+        balanceBefore: 0.0,
+        balanceAfter: 0.0,
+        currency: 'USD',
+        errorMessage: 'Insufficient funds in player wallet',
+        errorCode: 'INSUFFICIENT_FUNDS'
+      },
+      {
+        id: `EP_LOG_${nowTime - 8000}`,
+        timestamp: nowTime - 8000,
+        timeLabel: new Date(nowTime - 8000).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', second: '2-digit', fractionalSecondDigits: 3 }),
+        isoTimestamp: new Date(nowTime - 8000).toISOString(),
+        endpoint: 'bet',
+        method: 'POST /api/seamless/bet',
+        providerId: 'pragmatic_play',
+        userId: 'a0000000-0000-0000-0000-000000000001',
+        txId: 'TX_SIG_ERR_992',
+        roundId: 'RND_TAMPER_01',
+        gameId: 'vs20olympgate',
+        amount: 50.0,
+        statusCode: 401,
+        isSuccess: false,
+        statusText: 'INVALID_SIGNATURE',
+        latencyMs: 4,
+        isIdempotent: false,
+        requestPayload: {
+          provider_id: 'pragmatic_play',
+          user_id: 'a0000000-0000-0000-0000-000000000001',
+          currency: 'USD',
+          transaction_id: 'TX_SIG_ERR_992',
+          round_id: 'RND_TAMPER_01',
+          game_id: 'vs20olympgate',
+          amount: 50.0
+        },
+        responsePayload: {
+          code: 'INVALID_SIGNATURE',
+          message: 'Cryptographic HMAC-SHA256 signature verification failed (Tampered or expired token)',
+          timestamp: nowTime - 8000
+        },
+        requestHeaders: {
+          'content-type': 'application/json',
+          'x-signature': 'tampered_signature_payload_bad_key',
+          'x-timestamp': String(nowTime - 8000)
+        },
+        responseHeaders: {
+          'x-response-time-ms': '4',
+          'content-type': 'application/json'
+        },
+        signatureValid: false,
+        errorMessage: 'HMAC signature verification failed',
+        errorCode: 'INVALID_SIGNATURE'
+      },
+      {
+        id: `EP_LOG_${nowTime - 3000}`,
+        timestamp: nowTime - 3000,
+        timeLabel: new Date(nowTime - 3000).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', second: '2-digit', fractionalSecondDigits: 3 }),
+        isoTimestamp: new Date(nowTime - 3000).toISOString(),
+        endpoint: 'bet',
+        method: 'POST /api/seamless/bet',
+        providerId: 'pragmatic_play',
+        userId: 'a0000000-0000-0000-0000-000000000001',
+        txId: 'TX_THROTTLE_993',
+        statusCode: 429,
+        isSuccess: false,
+        statusText: 'RATE_LIMIT_EXCEEDED',
+        latencyMs: 3,
+        isIdempotent: false,
+        requestPayload: {
+          provider_id: 'pragmatic_play',
+          user_id: 'a0000000-0000-0000-0000-000000000001',
+          amount: 25.0
+        },
+        responsePayload: {
+          code: 'RATE_LIMIT_EXCEEDED',
+          message: "Too Many Requests: Rate limit threshold of 10 req/s exceeded by provider 'pragmatic_play'. Load balancer throttling active.",
+          retry_after_seconds: 1,
+          limit_rps: 10,
+          timestamp: nowTime - 3000
+        },
+        requestHeaders: {
+          'content-type': 'application/json'
+        },
+        responseHeaders: {
+          'x-ratelimit-limit': '10',
+          'x-ratelimit-remaining': '0',
+          'retry-after': '1',
+          'x-response-time-ms': '3'
+        },
+        signatureValid: true,
+        errorMessage: 'Redis token bucket exhausted for this second',
+        errorCode: 'RATE_LIMIT_EXCEEDED'
+      }
+    ];
   }
 
   public getSqlQueryLogs(): SqlQueryLog[] {
@@ -587,6 +922,64 @@ class SimulatedSeamlessEngine {
   private notifySqlListeners(): void {
     const logs = this.getSqlQueryLogs();
     this.sqlListeners.forEach((cb) => cb(logs));
+  }
+
+  /**
+   * Real-time Endpoint Payload Subscriptions (/balance, /bet, /win, /refund)
+   */
+  public getEndpointPayloadLogs(): EndpointPayloadLog[] {
+    return [...this.endpointPayloadLogs];
+  }
+
+  public logEndpointPayload(
+    entry: Omit<EndpointPayloadLog, 'id' | 'timestamp' | 'timeLabel' | 'isoTimestamp'>
+  ): EndpointPayloadLog {
+    const timestamp = Date.now();
+    const timeLabel = new Date(timestamp).toLocaleTimeString([], {
+      hour: '2-digit',
+      minute: '2-digit',
+      second: '2-digit',
+      fractionalSecondDigits: 3
+    });
+    const newLog: EndpointPayloadLog = {
+      ...entry,
+      id: `EP_LOG_${timestamp}_${Math.random().toString(36).substring(2, 6)}`,
+      timestamp,
+      timeLabel,
+      isoTimestamp: new Date(timestamp).toISOString()
+    };
+
+    this.endpointPayloadLogs.unshift(newLog);
+    if (this.endpointPayloadLogs.length > 300) {
+      this.endpointPayloadLogs.pop();
+    }
+
+    this.notifyEndpointPayloadListeners();
+    return newLog;
+  }
+
+  public clearEndpointPayloadLogs(): void {
+    this.endpointPayloadLogs = [];
+    this.notifyEndpointPayloadListeners();
+  }
+
+  public onEndpointPayloadRecorded(callback: (logs: EndpointPayloadLog[]) => void): () => void {
+    this.endpointPayloadListeners.push(callback);
+    callback(this.getEndpointPayloadLogs());
+    return () => {
+      this.endpointPayloadListeners = this.endpointPayloadListeners.filter((cb) => cb !== callback);
+    };
+  }
+
+  private notifyEndpointPayloadListeners(): void {
+    const list = this.getEndpointPayloadLogs();
+    this.endpointPayloadListeners.forEach((cb) => {
+      try {
+        cb(list);
+      } catch (err) {
+        console.error('Error in endpoint payload listener:', err);
+      }
+    });
   }
 
   /**
@@ -1013,18 +1406,48 @@ class SimulatedSeamlessEngine {
         timestamp: Date.now()
       });
 
-      return {
-        status: 429,
-        data: errorData,
-        headers: {
-          'x-ratelimit-limit': String(this.rateLimitMaxRps),
-          'x-ratelimit-remaining': '0',
-          'x-ratelimit-reset': String(rateLimitCheck.resetMs),
-          'retry-after': '1',
-          'x-response-time-ms': String(latency),
+      const responseHeaders429 = {
+        'x-ratelimit-limit': String(this.rateLimitMaxRps),
+        'x-ratelimit-remaining': '0',
+        'x-ratelimit-reset': String(rateLimitCheck.resetMs),
+        'retry-after': '1',
+        'x-response-time-ms': String(latency),
+        'x-signature': requestSignature,
+        'x-timestamp': String(timestamp)
+      };
+
+      this.logEndpointPayload({
+        endpoint,
+        method: `POST /api/seamless/${endpoint}`,
+        providerId,
+        userId: payload.user_id,
+        txId: payload.transaction_id,
+        roundId: payload.round_id,
+        gameId: payload.game_id,
+        amount: payload.amount,
+        statusCode: 429,
+        isSuccess: false,
+        statusText: 'RATE_LIMIT_EXCEEDED',
+        latencyMs: latency,
+        isIdempotent: false,
+        requestPayload: payload,
+        responsePayload: errorData,
+        requestHeaders: {
           'x-signature': requestSignature,
           'x-timestamp': String(timestamp)
         },
+        responseHeaders: responseHeaders429,
+        requestSignature,
+        expectedSignature,
+        signatureValid: true,
+        errorMessage: errorData.message,
+        errorCode: errorData.code
+      });
+
+      return {
+        status: 429,
+        data: errorData,
+        headers: responseHeaders429,
         latencyMs: latency,
         requestSignature,
         expectedSignature,
@@ -1036,18 +1459,49 @@ class SimulatedSeamlessEngine {
     // Check timeout simulation
     if (options.simulateTimeout) {
       await new Promise((r) => setTimeout(r, 4100));
+      const timeoutData = {
+        code: SeamlessErrorCode.TIMEOUT_EXCEEDED,
+        message: 'Wallet transaction SLA exceeded (4000ms timeout threshold)',
+        timestamp: Date.now()
+      };
+      const timeoutHeaders = {
+        'x-signature': requestSignature,
+        'x-timestamp': String(timestamp),
+        'x-response-time-ms': '4100'
+      };
+
+      this.logEndpointPayload({
+        endpoint,
+        method: `POST /api/seamless/${endpoint}`,
+        providerId,
+        userId: payload.user_id,
+        txId: payload.transaction_id,
+        roundId: payload.round_id,
+        gameId: payload.game_id,
+        amount: payload.amount,
+        statusCode: 504,
+        isSuccess: false,
+        statusText: 'TIMEOUT_EXCEEDED',
+        latencyMs: 4100,
+        isIdempotent: false,
+        requestPayload: payload,
+        responsePayload: timeoutData,
+        requestHeaders: {
+          'x-signature': requestSignature,
+          'x-timestamp': String(timestamp)
+        },
+        responseHeaders: timeoutHeaders,
+        requestSignature,
+        expectedSignature,
+        signatureValid,
+        errorMessage: timeoutData.message,
+        errorCode: timeoutData.code
+      });
+
       return {
         status: 504,
-        data: {
-          code: SeamlessErrorCode.TIMEOUT_EXCEEDED,
-          message: 'Wallet transaction SLA exceeded (4000ms timeout threshold)',
-          timestamp: Date.now()
-        },
-        headers: {
-          'x-signature': requestSignature,
-          'x-timestamp': String(timestamp),
-          'x-response-time-ms': '4100'
-        },
+        data: timeoutData,
+        headers: timeoutHeaders,
         latencyMs: 4100,
         requestSignature,
         expectedSignature,
@@ -1061,18 +1515,49 @@ class SimulatedSeamlessEngine {
     // 1. HMAC Verification check
     if (!options.bypassHmac && !signatureValid) {
       const latency = Date.now() - start;
+      const sigErrorData = {
+        code: SeamlessErrorCode.INVALID_SIGNATURE,
+        message: 'Cryptographic HMAC-SHA256 signature verification failed',
+        timestamp: Date.now()
+      };
+      const sigHeaders = {
+        'x-signature': requestSignature,
+        'x-timestamp': String(timestamp),
+        'x-response-time-ms': String(latency)
+      };
+
+      this.logEndpointPayload({
+        endpoint,
+        method: `POST /api/seamless/${endpoint}`,
+        providerId,
+        userId: payload.user_id,
+        txId: payload.transaction_id,
+        roundId: payload.round_id,
+        gameId: payload.game_id,
+        amount: payload.amount,
+        statusCode: 401,
+        isSuccess: false,
+        statusText: 'INVALID_SIGNATURE',
+        latencyMs: latency,
+        isIdempotent: false,
+        requestPayload: payload,
+        responsePayload: sigErrorData,
+        requestHeaders: {
+          'x-signature': requestSignature,
+          'x-timestamp': String(timestamp)
+        },
+        responseHeaders: sigHeaders,
+        requestSignature,
+        expectedSignature,
+        signatureValid: false,
+        errorMessage: sigErrorData.message,
+        errorCode: sigErrorData.code
+      });
+
       return {
         status: 401,
-        data: {
-          code: SeamlessErrorCode.INVALID_SIGNATURE,
-          message: 'Cryptographic HMAC-SHA256 signature verification failed',
-          timestamp: Date.now()
-        },
-        headers: {
-          'x-signature': requestSignature,
-          'x-timestamp': String(timestamp),
-          'x-response-time-ms': String(latency)
-        },
+        data: sigErrorData,
+        headers: sigHeaders,
         latencyMs: latency,
         requestSignature,
         expectedSignature,
@@ -1113,14 +1598,47 @@ class SimulatedSeamlessEngine {
         timestamp: Date.now()
       });
 
+      const responseHeaders = {
+        'x-signature': requestSignature,
+        'x-timestamp': String(timestamp),
+        'x-response-time-ms': String(latency)
+      };
+
+      this.logEndpointPayload({
+        endpoint,
+        method: `POST /api/seamless/${endpoint}`,
+        providerId,
+        userId: payload.user_id,
+        txId: payload.transaction_id,
+        roundId: payload.round_id,
+        gameId: payload.game_id,
+        amount: payload.amount,
+        statusCode: status,
+        isSuccess: true,
+        statusText: result.code || 'SUCCESS',
+        latencyMs: latency,
+        isIdempotent: Boolean(result.is_idempotent),
+        requestPayload: payload,
+        responsePayload: result,
+        requestHeaders: {
+          'content-type': 'application/json',
+          'x-signature': requestSignature,
+          'x-timestamp': String(timestamp)
+        },
+        responseHeaders,
+        requestSignature,
+        expectedSignature,
+        signatureValid: true,
+        balanceAfter: result.balance,
+        currency: result.currency || payload.currency,
+        acidLockAcquired: true,
+        rowLockDurationMs: Number((Math.random() * 1.5 + 0.5).toFixed(2))
+      });
+
       return {
         status,
         data: result,
-        headers: {
-          'x-signature': requestSignature,
-          'x-timestamp': String(timestamp),
-          'x-response-time-ms': String(latency)
-        },
+        headers: responseHeaders,
         latencyMs: latency,
         requestSignature,
         expectedSignature,
@@ -1141,20 +1659,55 @@ class SimulatedSeamlessEngine {
         timestamp: Date.now()
       });
 
+      const errorPayload = {
+        code: err.code || SeamlessErrorCode.INTERNAL_ERROR,
+        message: err.message || 'Internal wallet transaction error',
+        balance: err.balance,
+        currency: err.currency,
+        timestamp: Date.now()
+      };
+
+      const errorHeaders = {
+        'x-signature': requestSignature,
+        'x-timestamp': String(timestamp),
+        'x-response-time-ms': String(latency)
+      };
+
+      this.logEndpointPayload({
+        endpoint,
+        method: `POST /api/seamless/${endpoint}`,
+        providerId,
+        userId: payload.user_id,
+        txId: payload.transaction_id,
+        roundId: payload.round_id,
+        gameId: payload.game_id,
+        amount: payload.amount,
+        statusCode,
+        isSuccess: false,
+        statusText: String(err.code || 'ERROR'),
+        latencyMs: latency,
+        isIdempotent: false,
+        requestPayload: payload,
+        responsePayload: errorPayload,
+        requestHeaders: {
+          'content-type': 'application/json',
+          'x-signature': requestSignature,
+          'x-timestamp': String(timestamp)
+        },
+        responseHeaders: errorHeaders,
+        requestSignature,
+        expectedSignature,
+        signatureValid: true,
+        balanceAfter: err.balance,
+        currency: err.currency,
+        errorMessage: err.message,
+        errorCode: err.code
+      });
+
       return {
         status: statusCode,
-        data: {
-          code: err.code || SeamlessErrorCode.INTERNAL_ERROR,
-          message: err.message || 'Internal wallet transaction error',
-          balance: err.balance,
-          currency: err.currency,
-          timestamp: Date.now()
-        },
-        headers: {
-          'x-signature': requestSignature,
-          'x-timestamp': String(timestamp),
-          'x-response-time-ms': String(latency)
-        },
+        data: errorPayload,
+        headers: errorHeaders,
         latencyMs: latency,
         requestSignature,
         expectedSignature,

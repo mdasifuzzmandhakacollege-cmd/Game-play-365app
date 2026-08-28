@@ -21,6 +21,7 @@ import { PromotionHub } from './components/PromotionHub';
 import { WageringRequirements } from './components/WageringRequirements';
 import { GoogleDrivePickerHub } from './components/GoogleDrivePickerHub';
 import { ProviderSimulator } from './components/ProviderSimulator';
+import { EndpointPayloadLogViewer } from './components/EndpointPayloadLogViewer';
 import { ConcurrencyStressTester } from './components/ConcurrencyStressTester';
 import { LedgerExplorer } from './components/LedgerExplorer';
 import { CodeViewer } from './components/CodeViewer';
@@ -32,6 +33,7 @@ import { TpsCapacityGauge } from './components/TpsCapacityGauge';
 import { CacheDiagnostics } from './components/CacheDiagnostics';
 import { WalletAutoSync } from './components/WalletAutoSync';
 import { ApiRateMonitor } from './components/ApiRateMonitor';
+import { IdleSessionLockModal } from './components/IdleSessionLockModal';
 import { AuthModal } from './components/AuthModal';
 import { InstallPwaButton } from './components/InstallPwaButton';
 import { AdminPanel } from './components/AdminPanel';
@@ -68,6 +70,7 @@ import {
 
 export type WorkbenchSubTabType =
   | 'simulator'
+  | 'payloadLogs'
   | 'webhooks'
   | 'security'
   | 'latency'
@@ -176,7 +179,10 @@ function Playall365InnerApp() {
     toastMessage,
     showToast,
     celebrationData,
-    clearCelebration
+    clearCelebration,
+    isIdleLocked,
+    unlockIdleSession,
+    logoutUser
   } = useWalletGame();
 
   const [workbenchSubTab, setWorkbenchSubTab] = useState<WorkbenchSubTabType>('simulator');
@@ -255,6 +261,16 @@ function Playall365InnerApp() {
             currentUser={currentUser}
             currentWallet={currentWallet}
             onLedgerMutated={refreshState}
+          />
+        );
+
+      case 'payloadLogs':
+        return (
+          <EndpointPayloadLogViewer
+            currentUser={currentUser}
+            currentWallet={currentWallet}
+            onLedgerMutated={refreshState}
+            initialEndpointFilter="all"
           />
         );
 
@@ -509,6 +525,7 @@ function Playall365InnerApp() {
           <div className="flex items-center space-x-2 overflow-x-auto pb-1 font-mono text-xs scrollbar-none">
             {[
               { id: 'simulator', label: 'HTTP / API Simulator', icon: Zap },
+              { id: 'payloadLogs', label: 'Payload Logs (/balance, /bet, /win)', icon: Terminal },
               { id: 'webhooks', label: 'Webhook Inspector', icon: Webhook },
               { id: 'security', label: 'Security & HMAC Guard', icon: ShieldCheck },
               {
@@ -581,17 +598,23 @@ function Playall365InnerApp() {
     );
   };
 
-  // 2. Once Registered / Logged In, display the full GamePlay 365 Casino App
+  // 2. Once Registered / Logged In, display the authenticated PLAY369 Application Shell
   return (
-    <div className="min-h-screen bg-[#02180e] bg-gradient-to-b from-emerald-950 via-[#02180e] to-emerald-950 text-slate-100 flex flex-col font-bengali selection:bg-amber-400 selection:text-slate-950 w-full max-w-full overflow-x-hidden">
-      {/* Asian-market Emerald & Gold Navbar */}
+    <div
+      id="play369-app-shell"
+      className="min-h-screen bg-[#02180e] bg-gradient-to-b from-[#02180e] via-[#042013] to-[#02180e] text-slate-100 flex flex-col font-sans selection:bg-amber-400 selection:text-slate-950 w-full max-w-full overflow-x-hidden"
+    >
+      {/* Responsive Top Header */}
       <Navbar
         onOpenCashier={() => setActiveTab('cashier')}
         onOpenProfile={() => setActiveTab('profile')}
       />
 
-      {/* Main Content View Switcher with Top-Level Error Boundary */}
-      <main className="flex-1 w-full pb-12">
+      {/* Main Content Container with Golden-Ratio-based spacing and Safe-Area Support */}
+      <main
+        id="play369-main-container"
+        className="flex-1 w-full pb-[calc(5.5rem+env(safe-area-inset-bottom,0px))] lg:pb-10 transition-all duration-300"
+      >
         <ErrorBoundary fallbackTitle="ভিউ রেন্ডারিং সমস্যা">
           {renderMainContent()}
         </ErrorBoundary>
@@ -623,16 +646,25 @@ function Playall365InnerApp() {
 
       {/* Toast Notification */}
       {toastMessage && (
-        <div className="fixed bottom-6 right-6 z-50 bg-emerald-950/95 backdrop-blur-md border border-amber-400/60 text-amber-300 px-4 py-3 rounded-2xl shadow-2xl flex items-center space-x-3 text-xs font-mono animate-bounce">
+        <div className="fixed bottom-20 lg:bottom-6 right-6 z-50 bg-[#02180e]/95 backdrop-blur-md border border-amber-400/60 text-amber-300 px-4 py-3 rounded-2xl shadow-2xl flex items-center space-x-3 text-xs font-mono">
           <CheckCircle2 className="w-4 h-4 text-amber-400 flex-shrink-0" />
           <span>{toastMessage}</span>
         </div>
       )}
 
+      {/* Global Idle Auto-Lock Modal (5 minutes inactivity) */}
+      <IdleSessionLockModal
+        isOpen={isIdleLocked}
+        username={currentUser?.username || 'Player'}
+        userEmail={currentUser?.email}
+        onUnlock={unlockIdleSession}
+        onLogout={logoutUser}
+      />
+
       {/* Floating PWA Install Button for Mobile */}
       <InstallPwaButton isFloating />
 
-      {/* Mobile Sticky Bottom Navigation (PWA / Mobile-First) */}
+      {/* Mobile Sticky Bottom Navigation (PWA / Mobile-First with Safe-Area support) */}
       <MobileBottomNav
         activeTab={activeTab}
         setActiveTab={setActiveTab}
@@ -640,12 +672,12 @@ function Playall365InnerApp() {
       />
 
       {/* Emerald & Gold Footer */}
-      <footer className="bg-emerald-950/90 border-t border-emerald-800/80 py-6 text-xs text-emerald-300/80 pb-20 lg:pb-6">
+      <footer className="bg-[#02180e] border-t border-emerald-800/80 py-6 text-xs text-emerald-300/80 pb-24 lg:pb-6">
         <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 flex flex-col md:flex-row items-center justify-between gap-4">
           <div className="flex items-center space-x-3">
             <div className="w-2.5 h-2.5 rounded-full bg-amber-400 animate-pulse" />
             <span className="font-bold text-white font-mono">
-              GamePlay365 Primary System • Asian iGaming Architecture
+              PLAY369 Platform • High Performance Gaming Architecture
             </span>
           </div>
 

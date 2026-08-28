@@ -2759,6 +2759,9 @@ var SimulatedSeamlessEngine = class {
     // SQL Query Audit Logs and Real-time Emitter
     this.sqlQueryLogs = [];
     this.sqlListeners = [];
+    // Real-time Endpoint Payload Logs (/balance, /bet, /win, /refund)
+    this.endpointPayloadLogs = [];
+    this.endpointPayloadListeners = [];
     // Real-time Transaction Commit Listeners for Live Audit Exporters
     this.transactionListeners = [];
     // Rate Limiting & Load Balancer Throttling (Redis Sliding Window)
@@ -3124,6 +3127,301 @@ var SimulatedSeamlessEngine = class {
         isoTimestamp: new Date(ts).toISOString()
       });
     });
+    const nowTime = Date.now();
+    this.endpointPayloadLogs = [
+      {
+        id: `EP_LOG_${nowTime - 35e3}`,
+        timestamp: nowTime - 35e3,
+        timeLabel: new Date(nowTime - 35e3).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit", second: "2-digit", fractionalSecondDigits: 3 }),
+        isoTimestamp: new Date(nowTime - 35e3).toISOString(),
+        endpoint: "balance",
+        method: "POST /api/seamless/balance",
+        providerId: "pragmatic_play",
+        userId: "a0000000-0000-0000-0000-000000000001",
+        gameId: "vs20olympgate",
+        statusCode: 200,
+        isSuccess: true,
+        statusText: "SUCCESS",
+        latencyMs: 14,
+        isIdempotent: false,
+        requestPayload: {
+          provider_id: "pragmatic_play",
+          user_id: "a0000000-0000-0000-0000-000000000001",
+          currency: "USD",
+          game_id: "vs20olympgate",
+          session_id: "sess_pragmatic_991823"
+        },
+        responsePayload: {
+          code: "SUCCESS",
+          message: "Balance retrieved successfully",
+          balance: 2500,
+          bonus_balance: 150,
+          locked_balance: 0,
+          currency: "USD",
+          timestamp: nowTime - 35e3
+        },
+        requestHeaders: {
+          "content-type": "application/json",
+          "x-signature": "8fa82b9a10ef49bc872910d9e847c210ab7819ef01a89c849102834719283471",
+          "x-timestamp": String(nowTime - 35e3)
+        },
+        responseHeaders: {
+          "x-response-time-ms": "14",
+          "x-signature": "8fa82b9a10ef49bc872910d9e847c210ab7819ef01a89c849102834719283471",
+          "content-type": "application/json"
+        },
+        signatureValid: true,
+        balanceBefore: 2500,
+        balanceAfter: 2500,
+        currency: "USD",
+        acidLockAcquired: true,
+        rowLockDurationMs: 0.8
+      },
+      {
+        id: `EP_LOG_${nowTime - 28e3}`,
+        timestamp: nowTime - 28e3,
+        timeLabel: new Date(nowTime - 28e3).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit", second: "2-digit", fractionalSecondDigits: 3 }),
+        isoTimestamp: new Date(nowTime - 28e3).toISOString(),
+        endpoint: "bet",
+        method: "POST /api/seamless/bet",
+        providerId: "pragmatic_play",
+        userId: "a0000000-0000-0000-0000-000000000001",
+        txId: "TX_BET_991823",
+        roundId: "RND_881923",
+        gameId: "vs20sweetbonanza",
+        amount: 20,
+        statusCode: 200,
+        isSuccess: true,
+        statusText: "SUCCESS",
+        latencyMs: 28,
+        isIdempotent: false,
+        requestPayload: {
+          provider_id: "pragmatic_play",
+          user_id: "a0000000-0000-0000-0000-000000000001",
+          currency: "USD",
+          transaction_id: "TX_BET_991823",
+          round_id: "RND_881923",
+          game_id: "vs20sweetbonanza",
+          amount: 20,
+          is_round_end: false,
+          metadata: { lines: 20, bet_level: 1 }
+        },
+        responsePayload: {
+          code: "SUCCESS",
+          message: "Bet accepted and ledger row locked",
+          operator_transaction_id: "OP_TX_991823_LOCKED",
+          balance: 2480,
+          currency: "USD",
+          timestamp: nowTime - 28e3
+        },
+        requestHeaders: {
+          "content-type": "application/json",
+          "x-signature": "9cb8192837482910fedcba9876543210123456789abcdef0123456789abcdef0",
+          "x-timestamp": String(nowTime - 28e3)
+        },
+        responseHeaders: {
+          "x-response-time-ms": "28",
+          "x-ratelimit-remaining": "9",
+          "content-type": "application/json"
+        },
+        signatureValid: true,
+        balanceBefore: 2500,
+        balanceAfter: 2480,
+        currency: "USD",
+        acidLockAcquired: true,
+        rowLockDurationMs: 1.45
+      },
+      {
+        id: `EP_LOG_${nowTime - 2e4}`,
+        timestamp: nowTime - 2e4,
+        timeLabel: new Date(nowTime - 2e4).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit", second: "2-digit", fractionalSecondDigits: 3 }),
+        isoTimestamp: new Date(nowTime - 2e4).toISOString(),
+        endpoint: "win",
+        method: "POST /api/seamless/win",
+        providerId: "pragmatic_play",
+        userId: "a0000000-0000-0000-0000-000000000001",
+        txId: "TX_WIN_991824",
+        roundId: "RND_881923",
+        gameId: "vs20sweetbonanza",
+        amount: 65,
+        statusCode: 200,
+        isSuccess: true,
+        statusText: "SUCCESS",
+        latencyMs: 22,
+        isIdempotent: false,
+        requestPayload: {
+          provider_id: "pragmatic_play",
+          user_id: "a0000000-0000-0000-0000-000000000001",
+          currency: "USD",
+          transaction_id: "TX_WIN_991824",
+          reference_transaction_id: "TX_BET_991823",
+          round_id: "RND_881923",
+          game_id: "vs20sweetbonanza",
+          amount: 65,
+          is_round_end: true,
+          metadata: { multiplier: "3.25x" }
+        },
+        responsePayload: {
+          code: "SUCCESS",
+          message: "Win payout credited and round closed",
+          operator_transaction_id: "OP_TX_991824_PAID",
+          balance: 2545,
+          currency: "USD",
+          timestamp: nowTime - 2e4
+        },
+        requestHeaders: {
+          "content-type": "application/json",
+          "x-signature": "1234567890abcdef1234567890abcdef1234567890abcdef1234567890abcdef",
+          "x-timestamp": String(nowTime - 2e4)
+        },
+        responseHeaders: {
+          "x-response-time-ms": "22",
+          "content-type": "application/json"
+        },
+        signatureValid: true,
+        balanceBefore: 2480,
+        balanceAfter: 2545,
+        currency: "USD",
+        acidLockAcquired: true,
+        rowLockDurationMs: 1.12
+      },
+      {
+        id: `EP_LOG_${nowTime - 14e3}`,
+        timestamp: nowTime - 14e3,
+        timeLabel: new Date(nowTime - 14e3).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit", second: "2-digit", fractionalSecondDigits: 3 }),
+        isoTimestamp: new Date(nowTime - 14e3).toISOString(),
+        endpoint: "bet",
+        method: "POST /api/seamless/bet",
+        providerId: "evolution",
+        userId: "a0000000-0000-0000-0000-000000000003",
+        txId: "TX_BET_FAIL_001",
+        roundId: "RND_EVO_5510",
+        gameId: "lightning_roulette_01",
+        amount: 5e3,
+        statusCode: 422,
+        isSuccess: false,
+        statusText: "INSUFFICIENT_FUNDS",
+        latencyMs: 8,
+        isIdempotent: false,
+        requestPayload: {
+          provider_id: "evolution",
+          user_id: "a0000000-0000-0000-0000-000000000003",
+          currency: "USD",
+          transaction_id: "TX_BET_FAIL_001",
+          round_id: "RND_EVO_5510",
+          game_id: "lightning_roulette_01",
+          amount: 5e3,
+          is_round_end: false
+        },
+        responsePayload: {
+          code: "INSUFFICIENT_FUNDS",
+          message: "Insufficient balance for requested bet (Available: 0.00 USD, Required: 5000.00 USD)",
+          balance: 0,
+          currency: "USD",
+          timestamp: nowTime - 14e3
+        },
+        requestHeaders: {
+          "content-type": "application/json",
+          "x-signature": "evo_sig_valid_881923",
+          "x-timestamp": String(nowTime - 14e3)
+        },
+        responseHeaders: {
+          "x-response-time-ms": "8",
+          "content-type": "application/json"
+        },
+        signatureValid: true,
+        balanceBefore: 0,
+        balanceAfter: 0,
+        currency: "USD",
+        errorMessage: "Insufficient funds in player wallet",
+        errorCode: "INSUFFICIENT_FUNDS"
+      },
+      {
+        id: `EP_LOG_${nowTime - 8e3}`,
+        timestamp: nowTime - 8e3,
+        timeLabel: new Date(nowTime - 8e3).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit", second: "2-digit", fractionalSecondDigits: 3 }),
+        isoTimestamp: new Date(nowTime - 8e3).toISOString(),
+        endpoint: "bet",
+        method: "POST /api/seamless/bet",
+        providerId: "pragmatic_play",
+        userId: "a0000000-0000-0000-0000-000000000001",
+        txId: "TX_SIG_ERR_992",
+        roundId: "RND_TAMPER_01",
+        gameId: "vs20olympgate",
+        amount: 50,
+        statusCode: 401,
+        isSuccess: false,
+        statusText: "INVALID_SIGNATURE",
+        latencyMs: 4,
+        isIdempotent: false,
+        requestPayload: {
+          provider_id: "pragmatic_play",
+          user_id: "a0000000-0000-0000-0000-000000000001",
+          currency: "USD",
+          transaction_id: "TX_SIG_ERR_992",
+          round_id: "RND_TAMPER_01",
+          game_id: "vs20olympgate",
+          amount: 50
+        },
+        responsePayload: {
+          code: "INVALID_SIGNATURE",
+          message: "Cryptographic HMAC-SHA256 signature verification failed (Tampered or expired token)",
+          timestamp: nowTime - 8e3
+        },
+        requestHeaders: {
+          "content-type": "application/json",
+          "x-signature": "tampered_signature_payload_bad_key",
+          "x-timestamp": String(nowTime - 8e3)
+        },
+        responseHeaders: {
+          "x-response-time-ms": "4",
+          "content-type": "application/json"
+        },
+        signatureValid: false,
+        errorMessage: "HMAC signature verification failed",
+        errorCode: "INVALID_SIGNATURE"
+      },
+      {
+        id: `EP_LOG_${nowTime - 3e3}`,
+        timestamp: nowTime - 3e3,
+        timeLabel: new Date(nowTime - 3e3).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit", second: "2-digit", fractionalSecondDigits: 3 }),
+        isoTimestamp: new Date(nowTime - 3e3).toISOString(),
+        endpoint: "bet",
+        method: "POST /api/seamless/bet",
+        providerId: "pragmatic_play",
+        userId: "a0000000-0000-0000-0000-000000000001",
+        txId: "TX_THROTTLE_993",
+        statusCode: 429,
+        isSuccess: false,
+        statusText: "RATE_LIMIT_EXCEEDED",
+        latencyMs: 3,
+        isIdempotent: false,
+        requestPayload: {
+          provider_id: "pragmatic_play",
+          user_id: "a0000000-0000-0000-0000-000000000001",
+          amount: 25
+        },
+        responsePayload: {
+          code: "RATE_LIMIT_EXCEEDED",
+          message: "Too Many Requests: Rate limit threshold of 10 req/s exceeded by provider 'pragmatic_play'. Load balancer throttling active.",
+          retry_after_seconds: 1,
+          limit_rps: 10,
+          timestamp: nowTime - 3e3
+        },
+        requestHeaders: {
+          "content-type": "application/json"
+        },
+        responseHeaders: {
+          "x-ratelimit-limit": "10",
+          "x-ratelimit-remaining": "0",
+          "retry-after": "1",
+          "x-response-time-ms": "3"
+        },
+        signatureValid: true,
+        errorMessage: "Redis token bucket exhausted for this second",
+        errorCode: "RATE_LIMIT_EXCEEDED"
+      }
+    ];
   }
   getSqlQueryLogs() {
     return [...this.sqlQueryLogs];
@@ -3164,6 +3462,55 @@ var SimulatedSeamlessEngine = class {
   notifySqlListeners() {
     const logs = this.getSqlQueryLogs();
     this.sqlListeners.forEach((cb) => cb(logs));
+  }
+  /**
+   * Real-time Endpoint Payload Subscriptions (/balance, /bet, /win, /refund)
+   */
+  getEndpointPayloadLogs() {
+    return [...this.endpointPayloadLogs];
+  }
+  logEndpointPayload(entry) {
+    const timestamp2 = Date.now();
+    const timeLabel = new Date(timestamp2).toLocaleTimeString([], {
+      hour: "2-digit",
+      minute: "2-digit",
+      second: "2-digit",
+      fractionalSecondDigits: 3
+    });
+    const newLog = {
+      ...entry,
+      id: `EP_LOG_${timestamp2}_${Math.random().toString(36).substring(2, 6)}`,
+      timestamp: timestamp2,
+      timeLabel,
+      isoTimestamp: new Date(timestamp2).toISOString()
+    };
+    this.endpointPayloadLogs.unshift(newLog);
+    if (this.endpointPayloadLogs.length > 300) {
+      this.endpointPayloadLogs.pop();
+    }
+    this.notifyEndpointPayloadListeners();
+    return newLog;
+  }
+  clearEndpointPayloadLogs() {
+    this.endpointPayloadLogs = [];
+    this.notifyEndpointPayloadListeners();
+  }
+  onEndpointPayloadRecorded(callback) {
+    this.endpointPayloadListeners.push(callback);
+    callback(this.getEndpointPayloadLogs());
+    return () => {
+      this.endpointPayloadListeners = this.endpointPayloadListeners.filter((cb) => cb !== callback);
+    };
+  }
+  notifyEndpointPayloadListeners() {
+    const list = this.getEndpointPayloadLogs();
+    this.endpointPayloadListeners.forEach((cb) => {
+      try {
+        cb(list);
+      } catch (err) {
+        console.error("Error in endpoint payload listener:", err);
+      }
+    });
   }
   /**
    * Real-time Transaction Commit Subscriptions
@@ -3491,18 +3838,46 @@ var SimulatedSeamlessEngine = class {
         isSuccess: false,
         timestamp: Date.now()
       });
-      return {
-        status: 429,
-        data: errorData,
-        headers: {
-          "x-ratelimit-limit": String(this.rateLimitMaxRps),
-          "x-ratelimit-remaining": "0",
-          "x-ratelimit-reset": String(rateLimitCheck.resetMs),
-          "retry-after": "1",
-          "x-response-time-ms": String(latency),
+      const responseHeaders429 = {
+        "x-ratelimit-limit": String(this.rateLimitMaxRps),
+        "x-ratelimit-remaining": "0",
+        "x-ratelimit-reset": String(rateLimitCheck.resetMs),
+        "retry-after": "1",
+        "x-response-time-ms": String(latency),
+        "x-signature": requestSignature,
+        "x-timestamp": String(timestamp2)
+      };
+      this.logEndpointPayload({
+        endpoint,
+        method: `POST /api/seamless/${endpoint}`,
+        providerId,
+        userId: payload.user_id,
+        txId: payload.transaction_id,
+        roundId: payload.round_id,
+        gameId: payload.game_id,
+        amount: payload.amount,
+        statusCode: 429,
+        isSuccess: false,
+        statusText: "RATE_LIMIT_EXCEEDED",
+        latencyMs: latency,
+        isIdempotent: false,
+        requestPayload: payload,
+        responsePayload: errorData,
+        requestHeaders: {
           "x-signature": requestSignature,
           "x-timestamp": String(timestamp2)
         },
+        responseHeaders: responseHeaders429,
+        requestSignature,
+        expectedSignature,
+        signatureValid: true,
+        errorMessage: errorData.message,
+        errorCode: errorData.code
+      });
+      return {
+        status: 429,
+        data: errorData,
+        headers: responseHeaders429,
         latencyMs: latency,
         requestSignature,
         expectedSignature,
@@ -3512,18 +3887,47 @@ var SimulatedSeamlessEngine = class {
     }
     if (options.simulateTimeout) {
       await new Promise((r) => setTimeout(r, 4100));
+      const timeoutData = {
+        code: "TIMEOUT_EXCEEDED" /* TIMEOUT_EXCEEDED */,
+        message: "Wallet transaction SLA exceeded (4000ms timeout threshold)",
+        timestamp: Date.now()
+      };
+      const timeoutHeaders = {
+        "x-signature": requestSignature,
+        "x-timestamp": String(timestamp2),
+        "x-response-time-ms": "4100"
+      };
+      this.logEndpointPayload({
+        endpoint,
+        method: `POST /api/seamless/${endpoint}`,
+        providerId,
+        userId: payload.user_id,
+        txId: payload.transaction_id,
+        roundId: payload.round_id,
+        gameId: payload.game_id,
+        amount: payload.amount,
+        statusCode: 504,
+        isSuccess: false,
+        statusText: "TIMEOUT_EXCEEDED",
+        latencyMs: 4100,
+        isIdempotent: false,
+        requestPayload: payload,
+        responsePayload: timeoutData,
+        requestHeaders: {
+          "x-signature": requestSignature,
+          "x-timestamp": String(timestamp2)
+        },
+        responseHeaders: timeoutHeaders,
+        requestSignature,
+        expectedSignature,
+        signatureValid,
+        errorMessage: timeoutData.message,
+        errorCode: timeoutData.code
+      });
       return {
         status: 504,
-        data: {
-          code: "TIMEOUT_EXCEEDED" /* TIMEOUT_EXCEEDED */,
-          message: "Wallet transaction SLA exceeded (4000ms timeout threshold)",
-          timestamp: Date.now()
-        },
-        headers: {
-          "x-signature": requestSignature,
-          "x-timestamp": String(timestamp2),
-          "x-response-time-ms": "4100"
-        },
+        data: timeoutData,
+        headers: timeoutHeaders,
         latencyMs: 4100,
         requestSignature,
         expectedSignature,
@@ -3534,18 +3938,47 @@ var SimulatedSeamlessEngine = class {
     await this.simulateNetworkDelay(options.latencyJitterMs);
     if (!options.bypassHmac && !signatureValid) {
       const latency = Date.now() - start;
+      const sigErrorData = {
+        code: "INVALID_SIGNATURE" /* INVALID_SIGNATURE */,
+        message: "Cryptographic HMAC-SHA256 signature verification failed",
+        timestamp: Date.now()
+      };
+      const sigHeaders = {
+        "x-signature": requestSignature,
+        "x-timestamp": String(timestamp2),
+        "x-response-time-ms": String(latency)
+      };
+      this.logEndpointPayload({
+        endpoint,
+        method: `POST /api/seamless/${endpoint}`,
+        providerId,
+        userId: payload.user_id,
+        txId: payload.transaction_id,
+        roundId: payload.round_id,
+        gameId: payload.game_id,
+        amount: payload.amount,
+        statusCode: 401,
+        isSuccess: false,
+        statusText: "INVALID_SIGNATURE",
+        latencyMs: latency,
+        isIdempotent: false,
+        requestPayload: payload,
+        responsePayload: sigErrorData,
+        requestHeaders: {
+          "x-signature": requestSignature,
+          "x-timestamp": String(timestamp2)
+        },
+        responseHeaders: sigHeaders,
+        requestSignature,
+        expectedSignature,
+        signatureValid: false,
+        errorMessage: sigErrorData.message,
+        errorCode: sigErrorData.code
+      });
       return {
         status: 401,
-        data: {
-          code: "INVALID_SIGNATURE" /* INVALID_SIGNATURE */,
-          message: "Cryptographic HMAC-SHA256 signature verification failed",
-          timestamp: Date.now()
-        },
-        headers: {
-          "x-signature": requestSignature,
-          "x-timestamp": String(timestamp2),
-          "x-response-time-ms": String(latency)
-        },
+        data: sigErrorData,
+        headers: sigHeaders,
         latencyMs: latency,
         requestSignature,
         expectedSignature,
@@ -3579,14 +4012,45 @@ var SimulatedSeamlessEngine = class {
         isSuccess: true,
         timestamp: Date.now()
       });
+      const responseHeaders = {
+        "x-signature": requestSignature,
+        "x-timestamp": String(timestamp2),
+        "x-response-time-ms": String(latency)
+      };
+      this.logEndpointPayload({
+        endpoint,
+        method: `POST /api/seamless/${endpoint}`,
+        providerId,
+        userId: payload.user_id,
+        txId: payload.transaction_id,
+        roundId: payload.round_id,
+        gameId: payload.game_id,
+        amount: payload.amount,
+        statusCode: status,
+        isSuccess: true,
+        statusText: result.code || "SUCCESS",
+        latencyMs: latency,
+        isIdempotent: Boolean(result.is_idempotent),
+        requestPayload: payload,
+        responsePayload: result,
+        requestHeaders: {
+          "content-type": "application/json",
+          "x-signature": requestSignature,
+          "x-timestamp": String(timestamp2)
+        },
+        responseHeaders,
+        requestSignature,
+        expectedSignature,
+        signatureValid: true,
+        balanceAfter: result.balance,
+        currency: result.currency || payload.currency,
+        acidLockAcquired: true,
+        rowLockDurationMs: Number((Math.random() * 1.5 + 0.5).toFixed(2))
+      });
       return {
         status,
         data: result,
-        headers: {
-          "x-signature": requestSignature,
-          "x-timestamp": String(timestamp2),
-          "x-response-time-ms": String(latency)
-        },
+        headers: responseHeaders,
         latencyMs: latency,
         requestSignature,
         expectedSignature,
@@ -3604,20 +4068,52 @@ var SimulatedSeamlessEngine = class {
         isSuccess: false,
         timestamp: Date.now()
       });
+      const errorPayload = {
+        code: err.code || "INTERNAL_ERROR" /* INTERNAL_ERROR */,
+        message: err.message || "Internal wallet transaction error",
+        balance: err.balance,
+        currency: err.currency,
+        timestamp: Date.now()
+      };
+      const errorHeaders = {
+        "x-signature": requestSignature,
+        "x-timestamp": String(timestamp2),
+        "x-response-time-ms": String(latency)
+      };
+      this.logEndpointPayload({
+        endpoint,
+        method: `POST /api/seamless/${endpoint}`,
+        providerId,
+        userId: payload.user_id,
+        txId: payload.transaction_id,
+        roundId: payload.round_id,
+        gameId: payload.game_id,
+        amount: payload.amount,
+        statusCode,
+        isSuccess: false,
+        statusText: String(err.code || "ERROR"),
+        latencyMs: latency,
+        isIdempotent: false,
+        requestPayload: payload,
+        responsePayload: errorPayload,
+        requestHeaders: {
+          "content-type": "application/json",
+          "x-signature": requestSignature,
+          "x-timestamp": String(timestamp2)
+        },
+        responseHeaders: errorHeaders,
+        requestSignature,
+        expectedSignature,
+        signatureValid: true,
+        balanceAfter: err.balance,
+        currency: err.currency,
+        errorMessage: err.message,
+        errorCode: err.code
+      });
       return {
         status: statusCode,
-        data: {
-          code: err.code || "INTERNAL_ERROR" /* INTERNAL_ERROR */,
-          message: err.message || "Internal wallet transaction error",
-          balance: err.balance,
-          currency: err.currency,
-          timestamp: Date.now()
-        },
-        headers: {
-          "x-signature": requestSignature,
-          "x-timestamp": String(timestamp2),
-          "x-response-time-ms": String(latency)
-        },
+        data: errorPayload,
+        headers: errorHeaders,
         latencyMs: latency,
         requestSignature,
         expectedSignature,
@@ -4522,6 +5018,48 @@ var SimulatedSeamlessEngine = class {
       completed_at: null
     });
     return { user: newUser, wallet: newWallet };
+  }
+  /**
+   * Resets all balances for a specific user to clean zero (0.00).
+   * Ensures new registrations or zero-reset requests enforce 0.00 balance state.
+   */
+  resetWalletToZero(userId, currency = "BDT") {
+    const now = (/* @__PURE__ */ new Date()).toISOString();
+    const walletKey = `${userId}:${currency}`;
+    let wallet = this.wallets.get(walletKey);
+    if (wallet) {
+      wallet.real_balance = 0;
+      wallet.bonus_balance = 0;
+      wallet.locked_balance = 0;
+      wallet.version += 1;
+      wallet.updated_at = now;
+    } else {
+      wallet = {
+        id: `w_${userId}_${currency.toLowerCase()}`,
+        user_id: userId,
+        currency,
+        real_balance: 0,
+        bonus_balance: 0,
+        locked_balance: 0,
+        turnover_ratio: 10,
+        version: 1,
+        status: "ACTIVE",
+        created_at: now,
+        updated_at: now
+      };
+      this.wallets.set(walletKey, wallet);
+    }
+    const altCurrency = currency === "BDT" ? "USD" : "BDT";
+    const altKey = `${userId}:${altCurrency}`;
+    const altWallet = this.wallets.get(altKey);
+    if (altWallet) {
+      altWallet.real_balance = 0;
+      altWallet.bonus_balance = 0;
+      altWallet.locked_balance = 0;
+      altWallet.version += 1;
+      altWallet.updated_at = now;
+    }
+    return wallet;
   }
   getWageringRequirements(userId) {
     if (userId) {
@@ -7395,6 +7933,2035 @@ var spinWheelHandler = async (req, res) => {
   }
 };
 
+// src/server/controllers/providerGatewayController.ts
+import { Router } from "express";
+
+// src/data/mockGamesData.ts
+var MOCK_CATEGORIES = [
+  { id: "all", label: "All Games", labelBn: "\u09B8\u09AC \u0997\u09C7\u09AE", icon: "\u{1F3B2}", count: 48 },
+  { id: "hot", label: "Hot & Popular", labelBn: "\u099C\u09A8\u09AA\u09CD\u09B0\u09BF\u09AF\u09BC", icon: "\u{1F525}", count: 16 },
+  { id: "slots", label: "Video Slots", labelBn: "\u09B8\u09CD\u09B2\u099F\u09B8", icon: "\u{1F3B0}", count: 24 },
+  { id: "crash", label: "Crash & Fast", labelBn: "\u0995\u09CD\u09B0\u09CD\u09AF\u09BE\u09B6 \u0997\u09C7\u09AE", icon: "\u{1F680}", count: 8 },
+  { id: "casino", label: "Live Casino", labelBn: "\u09B2\u09BE\u0987\u09AD \u0995\u09CD\u09AF\u09BE\u09B8\u09BF\u09A8\u09CB", icon: "\u2660\uFE0F", count: 12 },
+  { id: "table", label: "Table Games", labelBn: "\u099F\u09C7\u09AC\u09BF\u09B2 \u0997\u09C7\u09AE", icon: "\u{1F0CF}", count: 6 },
+  { id: "fishing", label: "Fish Hunter", labelBn: "\u09AB\u09BF\u09B6\u09BF\u0982 \u0997\u09C7\u09AE", icon: "\u{1F3A3}", count: 6 },
+  { id: "sports", label: "Sportsbook", labelBn: "\u09B8\u09CD\u09AA\u09CB\u09B0\u09CD\u099F\u09B8", icon: "\u26BD", count: 4 }
+];
+var MOCK_PROVIDERS = [
+  { id: "all", name: "All Providers", code: "ALL", icon: "\u{1F310}", gameCount: 48, featured: true },
+  { id: "pragmatic", name: "Pragmatic Play", code: "PRAGMATIC", icon: "\u{1F451}", gameCount: 16, featured: true },
+  { id: "pgsoft", name: "PG Soft", code: "PGSOFT", icon: "\u{1F48E}", gameCount: 12, featured: true },
+  { id: "jili", name: "JILI Games", code: "JILI", icon: "\u26A1", gameCount: 10, featured: true },
+  { id: "spribe", name: "Spribe", code: "SPRIBE", icon: "\u{1F680}", gameCount: 4, featured: true },
+  { id: "evolution", name: "Evolution Gaming", code: "EVOLUTION", icon: "\u2660\uFE0F", gameCount: 6, featured: true },
+  { id: "fachai", name: "Fa Chai", code: "FACHAI", icon: "\u{1F525}", gameCount: 5 },
+  { id: "nolimit", name: "Nolimit City", code: "NOLIMIT", icon: "\u{1F480}", gameCount: 4 },
+  { id: "hacksaw", name: "Hacksaw Gaming", code: "HACKSAW", icon: "\u{1FA93}", gameCount: 4 }
+];
+var MOCK_FEATURED_SLIDES = [
+  {
+    id: "hero-aviator",
+    tag: "GLOBAL CRASH PHENOMENON",
+    title: "Spribe Aviator \u2022 1,000x Multiplier",
+    titleBn: "\u09B8\u09CD\u09AA\u09CD\u09B0\u09BE\u0987\u09AC \u098F\u09AD\u09BF\u09AF\u09BC\u09C7\u099F\u09B0 - \u09E7\u09E6\u09E6\u09E6x \u0995\u09CD\u09AF\u09BE\u09B6 \u09AE\u09BE\u09B2\u09CD\u099F\u09BF\u09AA\u09CD\u09B2\u09BE\u09AF\u09BC\u09BE\u09B0",
+    subtitle: "Cash out before the plane flies away. Instant provably-fair multiplier curves.",
+    btnText: "Launch Aviator \u{1F680}",
+    targetGameId: "spribe_aviator",
+    targetAction: "game",
+    bgGradient: "from-rose-950/90 via-[#260a12] to-[#02180e]",
+    borderColor: "border-rose-500/60",
+    accentColor: "#f43f5e",
+    iconEmoji: "\u2708\uFE0F",
+    multiplierText: "10,000x",
+    rtpText: "97.0%"
+  },
+  {
+    id: "hero-olympus",
+    tag: "PRAGMATIC MEGA HIT",
+    title: "Gates of Olympus 1000 \u2022 Zeus Wrath",
+    titleBn: "\u0997\u09C7\u099F\u09B8 \u0985\u09AB \u0985\u09B2\u09BF\u09AE\u09CD\u09AA\u09BE\u09B8 \u09E7\u09E6\u09E6\u09E6 - \u09AE\u09C7\u0997\u09BE \u09AE\u09BE\u09B2\u09CD\u099F\u09BF\u09AA\u09CD\u09B2\u09BE\u09AF\u09BC\u09BE\u09B0",
+    subtitle: "Tumble cascades and 1000x lightning orbs in high-volatility Olympian reels.",
+    btnText: "Spin Now \u26A1",
+    targetGameId: "vs20olympgate",
+    targetAction: "game",
+    bgGradient: "from-amber-950/90 via-[#2a1d06] to-[#02180e]",
+    borderColor: "border-amber-400/60",
+    accentColor: "#f59e0b",
+    iconEmoji: "\u26A1",
+    multiplierText: "15,000x",
+    rtpText: "98.5%"
+  },
+  {
+    id: "hero-super-ace",
+    tag: "JILI ASIAN CLASSIC",
+    title: "Super Ace \u2022 Golden Card Cascades",
+    titleBn: "\u09B8\u09C1\u09AA\u09BE\u09B0 \u098F\u09B8 - \u0997\u09CB\u09B2\u09CD\u09A1\u09C7\u09A8 \u0995\u09AE\u09CD\u09AC\u09CB \u09AE\u09BE\u09B2\u09CD\u099F\u09BF\u09AA\u09CD\u09B2\u09BE\u09AF\u09BC\u09BE\u09B0",
+    subtitle: "Eliminate golden cards for wild jokers and escalating multiplier free games.",
+    btnText: "Play Super Ace \u{1F0CF}",
+    targetGameId: "jili_super_ace",
+    targetAction: "game",
+    bgGradient: "from-emerald-950/90 via-[#072417] to-[#02180e]",
+    borderColor: "border-emerald-500/60",
+    accentColor: "#10b981",
+    iconEmoji: "\u{1F451}",
+    multiplierText: "1,500x",
+    rtpText: "97.9%"
+  },
+  {
+    id: "hero-mahjong",
+    tag: "PG SOFT LEGEND",
+    title: "Mahjong Ways 2 \u2022 Dragon Fortune",
+    titleBn: "\u09AE\u09BE\u09B9\u099C\u0982 \u0993\u09AF\u09BC\u09C7\u099C \u09E8 - \u09A1\u09CD\u09B0\u09BE\u0997\u09A8 \u09AB\u09B0\u099A\u09C1\u09A8 \u09AE\u09C7\u0997\u09BE \u0993\u09AF\u09BC\u09C7\u099C",
+    subtitle: "Gold-plated symbols transform into wilds with up to 10x multiplier in free spins.",
+    btnText: "Enter Arena \u{1F004}",
+    targetGameId: "pg_mahjong_ways_2",
+    targetAction: "game",
+    bgGradient: "from-purple-950/90 via-[#1f092b] to-[#02180e]",
+    borderColor: "border-purple-500/60",
+    accentColor: "#a855f7",
+    iconEmoji: "\u{1F004}",
+    multiplierText: "100,000x",
+    rtpText: "96.9%"
+  }
+];
+var MOCK_GAMES_CATALOG = [
+  // --- CRASH & FAST ---
+  {
+    id: "spribe_aviator",
+    name: "Aviator",
+    nameBn: "\u098F\u09AD\u09BF\u09AF\u09BC\u09C7\u099F\u09B0",
+    provider: "Spribe",
+    providerId: "spribe",
+    category: "crash",
+    rtp: "97.0%",
+    volatility: "Medium",
+    maxMultiplier: "10,000x",
+    minBet: 10,
+    maxBet: 5e4,
+    imageUrl: "https://images.unsplash.com/photo-1517976487507-5b6533d8a57e?w=600&auto=format&fit=crop&q=80",
+    isFeatured: true,
+    isHot: true,
+    badge: "HOT #1",
+    activePlayersCount: 4280,
+    tags: ["Crash", "Fast", "Multiplayer", "Instant Cashout"]
+  },
+  {
+    id: "spribe_mines",
+    name: "Mines",
+    nameBn: "\u09AE\u09BE\u0987\u09A8\u09B8",
+    provider: "Spribe",
+    providerId: "spribe",
+    category: "crash",
+    rtp: "97.0%",
+    volatility: "High",
+    maxMultiplier: "10,000x",
+    minBet: 10,
+    maxBet: 25e3,
+    imageUrl: "https://images.unsplash.com/photo-1618005182384-a83a8bd57fbe?w=600&auto=format&fit=crop&q=80",
+    isHot: true,
+    badge: "HOT",
+    activePlayersCount: 1840,
+    tags: ["Grid", "Instant Win", "Custom Risk"]
+  },
+  {
+    id: "spribe_plinko",
+    name: "Plinko",
+    nameBn: "\u09AA\u09CD\u09B2\u09BF\u0999\u09CD\u0995\u09CB",
+    provider: "Spribe",
+    providerId: "spribe",
+    category: "crash",
+    rtp: "99.0%",
+    volatility: "Low",
+    maxMultiplier: "1,000x",
+    minBet: 10,
+    maxBet: 2e4,
+    imageUrl: "https://images.unsplash.com/photo-1550745165-9bc0b252726f?w=600&auto=format&fit=crop&q=80",
+    isHot: false,
+    badge: "HIGH RTP",
+    activePlayersCount: 920,
+    tags: ["Plinko", "Casual", "High RTP"]
+  },
+  // --- PRAGMATIC PLAY SLOTS ---
+  {
+    id: "vs20olympgate",
+    name: "Gates of Olympus",
+    nameBn: "\u0997\u09C7\u099F\u09B8 \u0985\u09AB \u0985\u09B2\u09BF\u09AE\u09CD\u09AA\u09BE\u09B8",
+    provider: "Pragmatic Play",
+    providerId: "pragmatic",
+    category: "slots",
+    rtp: "96.5%",
+    volatility: "Extreme",
+    maxMultiplier: "5,000x",
+    minBet: 20,
+    maxBet: 4e4,
+    imageUrl: "https://images.unsplash.com/photo-1579783900882-c0d3dad7b119?w=600&auto=format&fit=crop&q=80",
+    isFeatured: true,
+    isHot: true,
+    badge: "POPULAR",
+    activePlayersCount: 3120,
+    tags: ["Tumble", "Free Spins", "Zeus", "Multipliers"]
+  },
+  {
+    id: "vs20sweetbonz",
+    name: "Sweet Bonanza",
+    nameBn: "\u09B8\u09C1\u0987\u099F \u09AC\u09CB\u09A8\u09BE\u09A8\u099C\u09BE",
+    provider: "Pragmatic Play",
+    providerId: "pragmatic",
+    category: "slots",
+    rtp: "96.5%",
+    volatility: "High",
+    maxMultiplier: "21,100x",
+    minBet: 20,
+    maxBet: 35e3,
+    imageUrl: "https://images.unsplash.com/photo-1582058091505-f87a2e55a40f?w=600&auto=format&fit=crop&q=80",
+    isHot: true,
+    badge: "HOT",
+    activePlayersCount: 2650,
+    tags: ["Candy", "Tumble", "Bomb Multipliers"]
+  },
+  {
+    id: "vs20doghouse",
+    name: "The Dog House Megaways",
+    nameBn: "\u09A6\u09CD\u09AF \u09A1\u0997 \u09B9\u09BE\u0989\u09B8 \u09AE\u09C7\u0997\u09BE\u0993\u09AF\u09BC\u09C7\u099C",
+    provider: "Pragmatic Play",
+    providerId: "pragmatic",
+    category: "slots",
+    rtp: "96.6%",
+    volatility: "Extreme",
+    maxMultiplier: "12,305x",
+    minBet: 20,
+    maxBet: 25e3,
+    imageUrl: "https://images.unsplash.com/photo-1543466835-00a7907e9de1?w=600&auto=format&fit=crop&q=80",
+    isHot: false,
+    badge: "MEGAWAYS",
+    activePlayersCount: 1100,
+    tags: ["Megaways", "Sticky Wilds", "Multiplier"]
+  },
+  {
+    id: "vs20starlight",
+    name: "Starlight Princess",
+    nameBn: "\u09B8\u09CD\u099F\u09BE\u09B0\u09B2\u09BE\u0987\u099F \u09AA\u09CD\u09B0\u09BF\u09A8\u09CD\u09B8\u09C7\u09B8",
+    provider: "Pragmatic Play",
+    providerId: "pragmatic",
+    category: "slots",
+    rtp: "96.5%",
+    volatility: "Extreme",
+    maxMultiplier: "5,000x",
+    minBet: 20,
+    maxBet: 3e4,
+    imageUrl: "https://images.unsplash.com/photo-1534447677768-be436bb09401?w=600&auto=format&fit=crop&q=80",
+    isHot: true,
+    badge: "HOT",
+    activePlayersCount: 2190,
+    tags: ["Anime", "Tumble", "Cascades"]
+  },
+  {
+    id: "vs10bbextrm",
+    name: "Big Bass Extreme",
+    nameBn: "\u09AC\u09BF\u0997 \u09AC\u09CD\u09AF\u09BE\u09B8 \u098F\u0995\u09CD\u09B8\u099F\u09CD\u09B0\u09BF\u09AE",
+    provider: "Pragmatic Play",
+    providerId: "pragmatic",
+    category: "slots",
+    rtp: "96.1%",
+    volatility: "High",
+    maxMultiplier: "4,000x",
+    minBet: 10,
+    maxBet: 2e4,
+    imageUrl: "https://images.unsplash.com/photo-1544551763-46a013bb70d5?w=600&auto=format&fit=crop&q=80",
+    isHot: false,
+    badge: "ANGLER",
+    activePlayersCount: 880,
+    tags: ["Fishing", "Collect", "Bonus Retrigger"]
+  },
+  // --- JILI SLOTS & TABLE ---
+  {
+    id: "jili_super_ace",
+    name: "Super Ace",
+    nameBn: "\u09B8\u09C1\u09AA\u09BE\u09B0 \u098F\u09B8",
+    provider: "JILI Games",
+    providerId: "jili",
+    category: "slots",
+    rtp: "97.9%",
+    volatility: "Medium",
+    maxMultiplier: "1,500x",
+    minBet: 10,
+    maxBet: 5e4,
+    imageUrl: "https://images.unsplash.com/photo-1511193311914-0346f16efe90?w=600&auto=format&fit=crop&q=80",
+    isFeatured: true,
+    isHot: true,
+    badge: "JILI #1",
+    activePlayersCount: 3890,
+    tags: ["Golden Card", "Poker Slots", "Asian Classic"]
+  },
+  {
+    id: "jili_boxing_king",
+    name: "Boxing King",
+    nameBn: "\u09AC\u0995\u09CD\u09B8\u09BF\u0982 \u0995\u09BF\u0982",
+    provider: "JILI Games",
+    providerId: "jili",
+    category: "slots",
+    rtp: "97.0%",
+    volatility: "High",
+    maxMultiplier: "2,000x",
+    minBet: 10,
+    maxBet: 3e4,
+    imageUrl: "https://images.unsplash.com/photo-1517649763962-0c623266ddc0?w=600&auto=format&fit=crop&q=80",
+    isHot: true,
+    badge: "HOT",
+    activePlayersCount: 1750,
+    tags: ["Boxing", "Combos", "Free Games"]
+  },
+  {
+    id: "jili_golden_empire",
+    name: "Golden Empire",
+    nameBn: "\u0997\u09CB\u09B2\u09CD\u09A1\u09C7\u09A8 \u098F\u09AE\u09CD\u09AA\u09BE\u09AF\u09BC\u09BE\u09B0",
+    provider: "JILI Games",
+    providerId: "jili",
+    category: "slots",
+    rtp: "97.1%",
+    volatility: "High",
+    maxMultiplier: "2,000x",
+    minBet: 10,
+    maxBet: 4e4,
+    imageUrl: "https://images.unsplash.com/photo-1607604276583-eef5d076aa5f?w=600&auto=format&fit=crop&q=80",
+    isHot: false,
+    badge: "MEGA WAYS",
+    activePlayersCount: 1420,
+    tags: ["Inca", "Megaways", "Golden Frames"]
+  },
+  {
+    id: "jili_fortune_gems",
+    name: "Fortune Gems 2",
+    nameBn: "\u09AB\u09B0\u099A\u09C1\u09A8 \u099C\u09C7\u09AE\u09B8 \u09E8",
+    provider: "JILI Games",
+    providerId: "jili",
+    category: "slots",
+    rtp: "97.5%",
+    volatility: "Medium",
+    maxMultiplier: "10,000x",
+    minBet: 10,
+    maxBet: 5e4,
+    imageUrl: "https://images.unsplash.com/photo-1518709268805-4e9042af9f23?w=600&auto=format&fit=crop&q=80",
+    isHot: true,
+    badge: "HOT",
+    activePlayersCount: 2900,
+    tags: ["Multiplier Reel", "Classic 3x3", "Instant Bonus"]
+  },
+  {
+    id: "jili_crazy_777",
+    name: "Crazy 777",
+    nameBn: "\u0995\u09CD\u09B0\u09C7\u099C\u09BF \u09ED\u09ED\u09ED",
+    provider: "JILI Games",
+    providerId: "jili",
+    category: "slots",
+    rtp: "97.2%",
+    volatility: "Low",
+    maxMultiplier: "3,333x",
+    minBet: 5,
+    maxBet: 15e3,
+    imageUrl: "https://images.unsplash.com/photo-1518609878373-06d740f60d8b?w=600&auto=format&fit=crop&q=80",
+    isHot: false,
+    badge: "CLASSIC",
+    activePlayersCount: 650,
+    tags: ["Retro", "Single Line", "Special Reel"]
+  },
+  // --- PG SOFT SLOTS ---
+  {
+    id: "pg_mahjong_ways_2",
+    name: "Mahjong Ways 2",
+    nameBn: "\u09AE\u09BE\u09B9\u099C\u0982 \u0993\u09AF\u09BC\u09C7\u099C \u09E8",
+    provider: "PG Soft",
+    providerId: "pgsoft",
+    category: "slots",
+    rtp: "96.9%",
+    volatility: "Medium",
+    maxMultiplier: "100,000x",
+    minBet: 10,
+    maxBet: 5e4,
+    imageUrl: "https://images.unsplash.com/photo-1596838132731-3301c3fd4317?w=600&auto=format&fit=crop&q=80",
+    isFeatured: true,
+    isHot: true,
+    badge: "PG TOP #1",
+    activePlayersCount: 4670,
+    tags: ["Mahjong", "Gold Symbols", "Transforming Wilds"]
+  },
+  {
+    id: "pg_fortune_tiger",
+    name: "Fortune Tiger",
+    nameBn: "\u09AB\u09B0\u099A\u09C1\u09A8 \u099F\u09BE\u0987\u0997\u09BE\u09B0",
+    provider: "PG Soft",
+    providerId: "pgsoft",
+    category: "slots",
+    rtp: "96.8%",
+    volatility: "Medium",
+    maxMultiplier: "2,500x",
+    minBet: 10,
+    maxBet: 3e4,
+    imageUrl: "https://images.unsplash.com/photo-1561731216-c3a4d99437d5?w=600&auto=format&fit=crop&q=80",
+    isHot: true,
+    badge: "HOT",
+    activePlayersCount: 3100,
+    tags: ["Tiger Respins", "10x Multiplier Full Screen"]
+  },
+  {
+    id: "pg_fortune_rabbit",
+    name: "Fortune Rabbit",
+    nameBn: "\u09AB\u09B0\u099A\u09C1\u09A8 \u09B0\u200D\u09CD\u09AF\u09BE\u09AC\u09BF\u099F",
+    provider: "PG Soft",
+    providerId: "pgsoft",
+    category: "slots",
+    rtp: "96.7%",
+    volatility: "Medium",
+    maxMultiplier: "5,000x",
+    minBet: 10,
+    maxBet: 3e4,
+    imageUrl: "https://images.unsplash.com/photo-1585110396000-c9ffd4e4b308?w=600&auto=format&fit=crop&q=80",
+    isHot: false,
+    badge: "PRIZE FEATURE",
+    activePlayersCount: 1650,
+    tags: ["Prize Symbols", "Free Spins"]
+  },
+  {
+    id: "pg_lucky_neko",
+    name: "Lucky Neko",
+    nameBn: "\u09B2\u09BE\u0995\u09BF \u09A8\u09C7\u0995\u09CB",
+    provider: "PG Soft",
+    providerId: "pgsoft",
+    category: "slots",
+    rtp: "96.7%",
+    volatility: "Medium",
+    maxMultiplier: "20,000x",
+    minBet: 10,
+    maxBet: 4e4,
+    imageUrl: "https://images.unsplash.com/photo-1535930891776-0c2dfb7fda1a?w=600&auto=format&fit=crop&q=80",
+    isHot: true,
+    badge: "HOT",
+    activePlayersCount: 2200,
+    tags: ["Cat Multipliers", "Gigantic Wilds"]
+  },
+  {
+    id: "pg_wild_bandito",
+    name: "Wild Bandito",
+    nameBn: "\u0993\u09AF\u09BC\u09BE\u0987\u09B2\u09CD\u09A1 \u09AC\u09BE\u09A8\u09CD\u09A1\u09BF\u09A4\u09CB",
+    provider: "PG Soft",
+    providerId: "pgsoft",
+    category: "slots",
+    rtp: "96.7%",
+    volatility: "Medium",
+    maxMultiplier: "25,000x",
+    minBet: 10,
+    maxBet: 25e3,
+    imageUrl: "https://images.unsplash.com/photo-1509198397868-475647b2a1e5?w=600&auto=format&fit=crop&q=80",
+    isHot: false,
+    badge: "NEW",
+    activePlayersCount: 950,
+    tags: ["Mariachi", "Increasing Multiplier"]
+  },
+  // --- LIVE CASINO (EVOLUTION & PRAGMATIC LIVE) ---
+  {
+    id: "evo_crazy_time",
+    name: "Crazy Time",
+    nameBn: "\u0995\u09CD\u09B0\u09C7\u099C\u09BF \u099F\u09BE\u0987\u09AE",
+    provider: "Evolution Gaming",
+    providerId: "evolution",
+    category: "casino",
+    rtp: "96.1%",
+    volatility: "High",
+    maxMultiplier: "25,000x",
+    minBet: 10,
+    maxBet: 1e5,
+    imageUrl: "https://images.unsplash.com/photo-1518609878373-06d740f60d8b?w=600&auto=format&fit=crop&q=80",
+    isFeatured: true,
+    isHot: true,
+    badge: "LIVE SHOW",
+    activePlayersCount: 5400,
+    tags: ["Live Presenter", "Cash Hunt", "Pachinko", "Coin Flip"]
+  },
+  {
+    id: "evo_lightning_roulette",
+    name: "Lightning Roulette",
+    nameBn: "\u09B2\u09BE\u0987\u099F\u09A8\u09BF\u0982 \u09B0\u09C1\u09B2\u09C7\u099F",
+    provider: "Evolution Gaming",
+    providerId: "evolution",
+    category: "casino",
+    rtp: "97.3%",
+    volatility: "High",
+    maxMultiplier: "500x",
+    minBet: 20,
+    maxBet: 2e5,
+    imageUrl: "https://images.unsplash.com/photo-1596838132731-3301c3fd4317?w=600&auto=format&fit=crop&q=80",
+    isHot: true,
+    badge: "LIVE",
+    activePlayersCount: 3100,
+    tags: ["Live Dealer", "Lightning Multipliers", "European Wheel"]
+  },
+  {
+    id: "evo_speed_baccarat_a",
+    name: "Speed Baccarat A",
+    nameBn: "\u09B8\u09CD\u09AA\u09BF\u09A1 \u09AC\u09CD\u09AF\u09BE\u0995\u09BE\u09B0\u09BE\u09A4",
+    provider: "Evolution Gaming",
+    providerId: "evolution",
+    category: "casino",
+    rtp: "98.9%",
+    volatility: "Low",
+    maxMultiplier: "11x",
+    minBet: 50,
+    maxBet: 5e5,
+    imageUrl: "https://images.unsplash.com/photo-1511193311914-0346f16efe90?w=600&auto=format&fit=crop&q=80",
+    isHot: true,
+    badge: "HIGH ROLLER",
+    activePlayersCount: 2800,
+    tags: ["Asian Squeeze", "Live Roadmaps", "Dragon Bonus"]
+  },
+  {
+    id: "evo_monopoly_live",
+    name: "Monopoly Live",
+    nameBn: "\u09AE\u09A8\u09CB\u09AA\u09B2\u09BF \u09B2\u09BE\u0987\u09AD",
+    provider: "Evolution Gaming",
+    providerId: "evolution",
+    category: "casino",
+    rtp: "96.2%",
+    volatility: "High",
+    maxMultiplier: "10,000x",
+    minBet: 10,
+    maxBet: 5e4,
+    imageUrl: "https://images.unsplash.com/photo-1618005182384-a83a8bd57fbe?w=600&auto=format&fit=crop&q=80",
+    isHot: false,
+    badge: "3D BONUS",
+    activePlayersCount: 1980,
+    tags: ["Mr Monopoly", "3D Board", "Dice Rolls"]
+  },
+  // --- FISH HUNTER & ARCADE ---
+  {
+    id: "jili_mega_fishing",
+    name: "Mega Fishing",
+    nameBn: "\u09AE\u09C7\u0997\u09BE \u09AB\u09BF\u09B6\u09BF\u0982",
+    provider: "JILI Games",
+    providerId: "jili",
+    category: "fishing",
+    rtp: "97.0%",
+    volatility: "Medium",
+    maxMultiplier: "950x",
+    minBet: 1,
+    maxBet: 1e3,
+    imageUrl: "https://images.unsplash.com/photo-1544551763-46a013bb70d5?w=600&auto=format&fit=crop&q=80",
+    isHot: true,
+    badge: "FISH #1",
+    activePlayersCount: 1890,
+    tags: ["Deep Sea", "Laser Cannon", "Boss Jackpot"]
+  },
+  {
+    id: "fc_fierce_fishing",
+    name: "Fierce Fishing",
+    nameBn: "\u09AB\u09BF\u09AF\u09BC\u09BE\u09B0\u09CD\u09B8 \u09AB\u09BF\u09B6\u09BF\u0982",
+    provider: "Fa Chai",
+    providerId: "fachai",
+    category: "fishing",
+    rtp: "97.2%",
+    volatility: "Medium",
+    maxMultiplier: "1,000x",
+    minBet: 1,
+    maxBet: 1500,
+    imageUrl: "https://images.unsplash.com/photo-1524704654690-b56c05c78a00?w=600&auto=format&fit=crop&q=80",
+    isHot: false,
+    badge: "HOT",
+    activePlayersCount: 1120,
+    tags: ["Torpedo", "Golden Kraken", "Lock Target"]
+  },
+  // --- SPORTSBOOK ---
+  {
+    id: "sports_cricket_exchange",
+    name: "BPL & IPL Cricket Live",
+    nameBn: "\u0995\u09CD\u09B0\u09BF\u0995\u09C7\u099F \u09B2\u09BE\u0987\u09AD \u098F\u0995\u09CD\u09B8\u099A\u09C7\u099E\u09CD\u099C",
+    provider: "PLAY369 Sports",
+    providerId: "pragmatic",
+    category: "sports",
+    rtp: "98.0%",
+    volatility: "Medium",
+    maxMultiplier: "500x",
+    minBet: 50,
+    maxBet: 2e5,
+    imageUrl: "https://images.unsplash.com/photo-1531415074868-036b1c57e3ce?w=600&auto=format&fit=crop&q=80",
+    isHot: true,
+    badge: "LIVE MATCH",
+    activePlayersCount: 4900,
+    tags: ["Cricket", "In-Play Live", "Fast Odds"]
+  },
+  {
+    id: "sports_premier_league",
+    name: "EPL & UEFA Football",
+    nameBn: "\u09AB\u09C1\u099F\u09AC\u09B2 \u09AA\u09CD\u09B0\u09BF\u09AE\u09BF\u09AF\u09BC\u09BE\u09B0 \u09B2\u09C0\u0997",
+    provider: "PLAY369 Sports",
+    providerId: "pragmatic",
+    category: "sports",
+    rtp: "97.8%",
+    volatility: "Medium",
+    maxMultiplier: "1,000x",
+    minBet: 50,
+    maxBet: 2e5,
+    imageUrl: "https://images.unsplash.com/photo-1508098682722-e99c43a406b2?w=600&auto=format&fit=crop&q=80",
+    isHot: false,
+    badge: "FOOTBALL",
+    activePlayersCount: 2300,
+    tags: ["Live Soccer", "Corners", "Asian Handicap"]
+  }
+];
+
+// src/services/providers/errors.ts
+var ProviderError = class _ProviderError extends Error {
+  constructor(message, providerId, statusCode) {
+    super(message);
+    this.name = "ProviderError";
+    this.providerId = providerId;
+    this.statusCode = statusCode;
+    this.isOperational = true;
+    Object.setPrototypeOf(this, _ProviderError.prototype);
+  }
+};
+var ProviderTimeoutError = class _ProviderTimeoutError extends ProviderError {
+  constructor(providerId, timeoutMs) {
+    super(
+      `Provider '${providerId}' request timed out after ${timeoutMs}ms`,
+      providerId,
+      408
+    );
+    this.name = "ProviderTimeoutError";
+    Object.setPrototypeOf(this, _ProviderTimeoutError.prototype);
+  }
+};
+var GameNotFoundError = class _GameNotFoundError extends ProviderError {
+  constructor(gameId, providerId = "unknown") {
+    super(`Game with ID '${gameId}' was not found in provider '${providerId}'`, providerId, 404);
+    this.name = "GameNotFoundError";
+    Object.setPrototypeOf(this, _GameNotFoundError.prototype);
+  }
+};
+async function withTimeout2(promise, timeoutMs, providerId = "generic") {
+  let timer;
+  const timeoutPromise = new Promise((_, reject) => {
+    timer = setTimeout(() => {
+      reject(new ProviderTimeoutError(providerId, timeoutMs));
+    }, timeoutMs);
+  });
+  try {
+    return await Promise.race([promise, timeoutPromise]);
+  } finally {
+    clearTimeout(timer);
+  }
+}
+
+// src/services/providers/validation.ts
+function validateCreateGameSessionRequest(request, providerId = "validation") {
+  if (!request) {
+    throw new ProviderError("CreateGameSessionRequest payload cannot be empty", providerId, 400);
+  }
+  if (!request.userId || typeof request.userId !== "string" || request.userId.trim().length === 0) {
+    throw new ProviderError("Valid userId is required to create a game session", providerId, 400);
+  }
+  if (!request.gameId || typeof request.gameId !== "string" || request.gameId.trim().length === 0) {
+    throw new ProviderError("Valid gameId is required to create a game session", providerId, 400);
+  }
+  if (!request.currency || !["BDT", "USD"].includes(request.currency)) {
+    throw new ProviderError(`Unsupported currency '${request.currency}'. Must be BDT or USD`, providerId, 400);
+  }
+  if (request.mode && !["REAL", "DEMO"].includes(request.mode)) {
+    throw new ProviderError(`Invalid session mode '${request.mode}'. Must be REAL or DEMO`, providerId, 400);
+  }
+}
+function validateLaunchGameRequest(request, providerId = "validation") {
+  if (!request) {
+    throw new ProviderError("LaunchGameRequest payload cannot be empty", providerId, 400);
+  }
+  if (!request.userId || typeof request.userId !== "string" || request.userId.trim().length === 0) {
+    throw new ProviderError("Valid userId is required to launch a game", providerId, 400);
+  }
+  if (!request.gameId || typeof request.gameId !== "string" || request.gameId.trim().length === 0) {
+    throw new ProviderError("Valid gameId is required to launch a game", providerId, 400);
+  }
+}
+function sanitizeGameListFilter(filter) {
+  if (!filter) return {};
+  return {
+    category: filter.category ? filter.category.trim().toLowerCase() : void 0,
+    providerId: filter.providerId ? filter.providerId.trim().toLowerCase() : void 0,
+    searchQuery: filter.searchQuery ? filter.searchQuery.trim().toLowerCase() : void 0,
+    isHot: typeof filter.isHot === "boolean" ? filter.isHot : void 0,
+    isFeatured: typeof filter.isFeatured === "boolean" ? filter.isFeatured : void 0,
+    limit: typeof filter.limit === "number" && filter.limit > 0 ? Math.min(filter.limit, 100) : void 0,
+    offset: typeof filter.offset === "number" && filter.offset >= 0 ? filter.offset : 0
+  };
+}
+
+// src/services/providers/adapters/MockGameProviderAdapter.ts
+var MockGameProviderAdapter = class {
+  constructor(customCatalog) {
+    this.providerId = "mock_aggregator";
+    this.providerName = "PLAY369 Unified Mock Aggregator";
+    this.providerCode = "PLAY369_MOCK";
+    this.gamesCatalog = (customCatalog || MOCK_GAMES_CATALOG).map((item) => ({
+      id: item.id,
+      name: item.name,
+      nameBn: item.nameBn,
+      provider: item.provider,
+      providerId: item.providerId,
+      category: item.category,
+      rtp: item.rtp,
+      volatility: item.volatility,
+      maxMultiplier: item.maxMultiplier,
+      minBet: item.minBet,
+      maxBet: item.maxBet,
+      imageUrl: item.imageUrl,
+      isFeatured: item.isFeatured,
+      isHot: item.isHot,
+      isNew: item.isNew,
+      badge: item.badge,
+      activePlayersCount: item.activePlayersCount,
+      tags: item.tags,
+      demoSupported: true
+    }));
+  }
+  /**
+   * List games matching optional criteria
+   */
+  async listGames(filter) {
+    return withTimeout2(
+      (async () => {
+        const cleanFilter = sanitizeGameListFilter(filter);
+        let results = [...this.gamesCatalog];
+        if (cleanFilter.category && cleanFilter.category !== "all") {
+          if (cleanFilter.category === "hot") {
+            results = results.filter((g) => g.isHot || g.isFeatured);
+          } else {
+            results = results.filter((g) => g.category === cleanFilter.category);
+          }
+        }
+        if (cleanFilter.providerId && cleanFilter.providerId !== "all" && cleanFilter.providerId.toLowerCase() !== this.providerId.toLowerCase()) {
+          results = results.filter(
+            (g) => g.providerId.toLowerCase() === cleanFilter.providerId?.toLowerCase() || g.provider.toLowerCase() === cleanFilter.providerId?.toLowerCase()
+          );
+        }
+        if (cleanFilter.searchQuery) {
+          const q = cleanFilter.searchQuery;
+          results = results.filter(
+            (g) => g.name.toLowerCase().includes(q) || g.nameBn && g.nameBn.toLowerCase().includes(q) || g.provider.toLowerCase().includes(q) || g.tags?.some((t) => t.toLowerCase().includes(q))
+          );
+        }
+        if (cleanFilter.isHot !== void 0) {
+          results = results.filter((g) => !!g.isHot === cleanFilter.isHot);
+        }
+        if (cleanFilter.isFeatured !== void 0) {
+          results = results.filter((g) => !!g.isFeatured === cleanFilter.isFeatured);
+        }
+        if (cleanFilter.offset && cleanFilter.offset > 0) {
+          results = results.slice(cleanFilter.offset);
+        }
+        if (cleanFilter.limit && cleanFilter.limit > 0) {
+          results = results.slice(0, cleanFilter.limit);
+        }
+        return results;
+      })(),
+      3e3,
+      this.providerId
+    );
+  }
+  /**
+   * Get single game by ID
+   */
+  async getGame(gameId) {
+    return withTimeout2(
+      (async () => {
+        if (!gameId || typeof gameId !== "string") return null;
+        const normalizedId = gameId.trim().toLowerCase();
+        const found = this.gamesCatalog.find((g) => g.id.toLowerCase() === normalizedId);
+        return found || null;
+      })(),
+      3e3,
+      this.providerId
+    );
+  }
+  /**
+   * Create secure game session for an authenticated player
+   */
+  async createGameSession(request) {
+    validateCreateGameSessionRequest(request, this.providerId);
+    return withTimeout2(
+      (async () => {
+        const game = await this.getGame(request.gameId);
+        if (!game) {
+          throw new GameNotFoundError(request.gameId, this.providerId);
+        }
+        const now = /* @__PURE__ */ new Date();
+        const sessionId = `SES_${this.providerCode}_${request.userId.slice(-6)}_${Date.now()}`;
+        const token = `JWT_MOCK_${Math.random().toString(36).substring(2)}_${Date.now()}`;
+        const isInternalMiniGame = [
+          "spribe_aviator",
+          "spribe_mines",
+          "jili_super_ace",
+          "pg_mahjong_ways_2",
+          "pgsoft_mahjong_ways2",
+          "evo_crazy_time",
+          "evo_lightning_roulette",
+          "vs20olympgate"
+        ].includes(game.id);
+        const launchMode = isInternalMiniGame ? "component" : "iframe";
+        const launchUrl = `/launch?gameId=${encodeURIComponent(game.id)}&sessionId=${sessionId}&token=${token}&currency=${request.currency}`;
+        return {
+          sessionId,
+          gameId: game.id,
+          providerId: game.providerId || this.providerId,
+          token,
+          expiresInSeconds: 7200,
+          gameLaunchUrl: launchUrl,
+          launchMode,
+          createdAt: now.toISOString()
+        };
+      })(),
+      4e3,
+      this.providerId
+    );
+  }
+  /**
+   * Launch game wrapper
+   */
+  async launchGame(request) {
+    validateLaunchGameRequest(request, this.providerId);
+    try {
+      const session = await this.createGameSession({
+        userId: request.userId,
+        username: request.username || `User_${request.userId.slice(-4)}`,
+        gameId: request.gameId,
+        currency: request.currency || "BDT",
+        mode: request.mode || "REAL",
+        language: request.language || "bn",
+        clientPlatform: request.clientPlatform || "web",
+        returnUrl: request.returnUrl || "/"
+      });
+      return {
+        success: true,
+        gameId: request.gameId,
+        providerId: session.providerId,
+        launchUrl: session.gameLaunchUrl,
+        launchMode: session.launchMode,
+        session
+      };
+    } catch (err) {
+      return {
+        success: false,
+        gameId: request.gameId,
+        providerId: this.providerId,
+        launchMode: "component",
+        error: err?.message || "Failed to launch game"
+      };
+    }
+  }
+  /**
+   * Health status ping and integrity check for Mock Provider
+   * Categorizes status into HEALTHY, DEGRADED, or UNAVAILABLE
+   */
+  async healthCheck() {
+    const startTime = performance.now();
+    const checkedAt = (/* @__PURE__ */ new Date()).toISOString();
+    try {
+      return await withTimeout2(
+        (async () => {
+          const isCatalogLoaded = Array.isArray(this.gamesCatalog) && this.gamesCatalog.length > 0;
+          if (!isCatalogLoaded) {
+            const elapsed2 = Math.round(performance.now() - startTime);
+            return {
+              provider: this.providerId,
+              providerId: this.providerId,
+              providerName: this.providerName,
+              status: "UNAVAILABLE",
+              latency: elapsed2,
+              latencyMs: elapsed2,
+              checkedAt,
+              error: "Game catalog is empty or corrupted",
+              activeGamesCount: 0,
+              details: { engine: "MockGameProviderAdapter", statusReason: "CatalogEmpty" }
+            };
+          }
+          const sampleGame = this.gamesCatalog[0];
+          const hasValidSchema = sampleGame && Boolean(sampleGame.id && sampleGame.name && sampleGame.provider);
+          if (!hasValidSchema) {
+            const elapsed2 = Math.round(performance.now() - startTime);
+            return {
+              provider: this.providerId,
+              providerId: this.providerId,
+              providerName: this.providerName,
+              status: "DEGRADED",
+              latency: elapsed2,
+              latencyMs: elapsed2,
+              checkedAt,
+              error: "Catalog schema warning: sample item missing required fields",
+              activeGamesCount: this.gamesCatalog.length,
+              details: { engine: "MockGameProviderAdapter", sampleId: sampleGame?.id }
+            };
+          }
+          const elapsed = Math.max(1, Math.round(performance.now() - startTime));
+          const status = elapsed > 500 ? "DEGRADED" : "HEALTHY";
+          return {
+            provider: this.providerId,
+            providerId: this.providerId,
+            providerName: this.providerName,
+            status,
+            latency: elapsed,
+            latencyMs: elapsed,
+            checkedAt,
+            error: null,
+            activeGamesCount: this.gamesCatalog.length,
+            details: {
+              engine: "MockGameProviderAdapter",
+              version: "1.0.0",
+              providerCode: this.providerCode,
+              features: ["instant_session", "component_launcher", "offline_resilience"]
+            }
+          };
+        })(),
+        3e3,
+        this.providerId
+      );
+    } catch (err) {
+      const elapsed = Math.round(performance.now() - startTime);
+      return {
+        provider: this.providerId,
+        providerId: this.providerId,
+        providerName: this.providerName,
+        status: "UNAVAILABLE",
+        latency: elapsed,
+        latencyMs: elapsed,
+        checkedAt,
+        error: err?.message || "Provider health check failed or timed out",
+        activeGamesCount: 0,
+        details: { errorName: err?.name }
+      };
+    }
+  }
+  /**
+   * Alias for backwards compatibility
+   */
+  async getProviderHealth() {
+    return this.healthCheck();
+  }
+};
+
+// src/services/providers/providerRegistry.ts
+var GameProviderRegistry = class {
+  constructor() {
+    this.adapters = /* @__PURE__ */ new Map();
+    this.defaultProviderId = "mock_aggregator";
+    const mockAdapter = new MockGameProviderAdapter();
+    this.registerProvider(mockAdapter);
+  }
+  /**
+   * Register a new game provider adapter
+   */
+  registerProvider(adapter) {
+    if (!adapter || !adapter.providerId) {
+      throw new Error("Cannot register provider with invalid or missing providerId");
+    }
+    this.adapters.set(adapter.providerId.toLowerCase(), adapter);
+  }
+  /**
+   * Unregister an existing game provider adapter
+   */
+  unregisterProvider(providerId) {
+    return this.adapters.delete(providerId.toLowerCase());
+  }
+  /**
+   * Retrieve a registered provider adapter by ID
+   */
+  getProvider(providerId) {
+    return this.adapters.get(providerId.toLowerCase());
+  }
+  /**
+   * Get the primary or fallback default provider adapter
+   */
+  getDefaultProvider() {
+    const defaultAdapter = this.adapters.get(this.defaultProviderId);
+    if (defaultAdapter) return defaultAdapter;
+    const firstAdapter = this.adapters.values().next().value;
+    if (firstAdapter) return firstAdapter;
+    const freshMock = new MockGameProviderAdapter();
+    this.registerProvider(freshMock);
+    return freshMock;
+  }
+  /**
+   * Check if a provider ID is registered
+   */
+  hasProvider(providerId) {
+    return this.adapters.has(providerId.toLowerCase());
+  }
+  /**
+   * Retrieve all currently registered provider adapters
+   */
+  getAllProviders() {
+    return Array.from(this.adapters.values());
+  }
+  /**
+   * List all registered provider IDs
+   */
+  getRegisteredProviderIds() {
+    return Array.from(this.adapters.keys());
+  }
+  /**
+   * Set the default fallback provider ID
+   */
+  setDefaultProviderId(providerId) {
+    this.defaultProviderId = providerId.toLowerCase();
+  }
+  /**
+   * Check health status of a specific provider with timeout protection
+   */
+  async checkProviderHealth(providerId, timeoutMs = 3e3) {
+    const startTime = performance.now();
+    const checkedAt = (/* @__PURE__ */ new Date()).toISOString();
+    const adapter = this.getProvider(providerId);
+    if (!adapter) {
+      const elapsed = Math.round(performance.now() - startTime);
+      return {
+        provider: providerId,
+        providerId,
+        providerName: `Unknown (${providerId})`,
+        status: "UNAVAILABLE",
+        latency: elapsed,
+        latencyMs: elapsed,
+        checkedAt,
+        error: `Provider '${providerId}' is not registered`,
+        activeGamesCount: 0
+      };
+    }
+    try {
+      const healthPromise = adapter.healthCheck ? adapter.healthCheck() : adapter.getProviderHealth ? adapter.getProviderHealth() : Promise.resolve({
+        provider: adapter.providerId,
+        providerId: adapter.providerId,
+        providerName: adapter.providerName,
+        status: "HEALTHY",
+        latency: 1,
+        latencyMs: 1,
+        checkedAt,
+        error: null,
+        activeGamesCount: 0
+      });
+      return await withTimeout2(healthPromise, timeoutMs, adapter.providerId);
+    } catch (err) {
+      const elapsed = Math.round(performance.now() - startTime);
+      return {
+        provider: adapter.providerId,
+        providerId: adapter.providerId,
+        providerName: adapter.providerName,
+        status: "UNAVAILABLE",
+        latency: elapsed,
+        latencyMs: elapsed,
+        checkedAt,
+        error: err?.message || "Health check timed out or failed",
+        activeGamesCount: 0,
+        details: { errorName: err?.name }
+      };
+    }
+  }
+  /**
+   * Check health across all registered providers
+   */
+  async checkAllProvidersHealth(timeoutMs = 3e3) {
+    const results = {};
+    const adapters = this.getAllProviders();
+    await Promise.all(
+      adapters.map(async (adapter) => {
+        results[adapter.providerId] = await this.checkProviderHealth(adapter.providerId, timeoutMs);
+      })
+    );
+    return results;
+  }
+};
+var gameProviderRegistry = new GameProviderRegistry();
+
+// src/services/providers/healthService.ts
+var ProviderHealthService = class {
+  constructor(registry = gameProviderRegistry) {
+    this.defaultTimeoutMs = 3500;
+    this.lastHealthMap = /* @__PURE__ */ new Map();
+    this.registry = registry;
+  }
+  /**
+   * Check health of a single specific provider adapter
+   */
+  async checkProvider(providerId, timeoutMs = this.defaultTimeoutMs) {
+    const startTime = performance.now();
+    const checkedAt = (/* @__PURE__ */ new Date()).toISOString();
+    const adapter = this.registry.getProvider(providerId);
+    if (!adapter) {
+      const elapsed = Math.round(performance.now() - startTime);
+      const result = {
+        provider: providerId,
+        providerId,
+        providerName: `Unknown Provider (${providerId})`,
+        status: "UNAVAILABLE",
+        latency: elapsed,
+        latencyMs: elapsed,
+        checkedAt,
+        error: `Provider '${providerId}' is not registered in ProviderRegistry`,
+        activeGamesCount: 0,
+        details: { reason: "ProviderNotRegistered" }
+      };
+      this.lastHealthMap.set(providerId.toLowerCase(), result);
+      return result;
+    }
+    try {
+      const healthPromise = adapter.healthCheck ? adapter.healthCheck() : adapter.getProviderHealth ? adapter.getProviderHealth() : Promise.resolve({
+        provider: adapter.providerId,
+        providerId: adapter.providerId,
+        providerName: adapter.providerName,
+        status: "HEALTHY",
+        latency: 1,
+        latencyMs: 1,
+        checkedAt,
+        error: null,
+        activeGamesCount: 0
+      });
+      const result = await withTimeout2(healthPromise, timeoutMs, adapter.providerId);
+      const normalizedResult = {
+        provider: result.provider || adapter.providerId,
+        providerId: result.providerId || adapter.providerId,
+        providerName: result.providerName || adapter.providerName,
+        status: result.status,
+        latency: result.latency ?? result.latencyMs ?? 0,
+        latencyMs: result.latencyMs ?? result.latency ?? 0,
+        checkedAt: result.checkedAt || checkedAt,
+        error: result.error || null,
+        activeGamesCount: result.activeGamesCount ?? 0,
+        details: result.details
+      };
+      this.lastHealthMap.set(adapter.providerId.toLowerCase(), normalizedResult);
+      return normalizedResult;
+    } catch (err) {
+      const elapsed = Math.round(performance.now() - startTime);
+      const errorResult = {
+        provider: adapter.providerId,
+        providerId: adapter.providerId,
+        providerName: adapter.providerName,
+        status: "UNAVAILABLE",
+        latency: elapsed,
+        latencyMs: elapsed,
+        checkedAt,
+        error: err?.message || "Health check timed out or failed",
+        activeGamesCount: 0,
+        details: { errorName: err?.name || "Error" }
+      };
+      this.lastHealthMap.set(adapter.providerId.toLowerCase(), errorResult);
+      return errorResult;
+    }
+  }
+  /**
+   * Check health of all registered provider adapters in parallel
+   */
+  async checkAllProviders(timeoutMs = this.defaultTimeoutMs) {
+    const adapters = this.registry.getAllProviders();
+    if (adapters.length === 0) {
+      return [];
+    }
+    const checkPromises = adapters.map(
+      (adapter) => this.checkProvider(adapter.providerId, timeoutMs)
+    );
+    return await Promise.all(checkPromises);
+  }
+  /**
+   * Returns a map of provider ID to its latest health result
+   */
+  async getHealthMap(timeoutMs = this.defaultTimeoutMs) {
+    const results = await this.checkAllProviders(timeoutMs);
+    const map = {};
+    for (const r of results) {
+      map[r.providerId] = r;
+    }
+    return map;
+  }
+  /**
+   * Get system-wide aggregate health summary
+   */
+  async getSystemHealthOverview(timeoutMs = this.defaultTimeoutMs) {
+    const results = await this.checkAllProviders(timeoutMs);
+    let healthyCount = 0;
+    let degradedCount = 0;
+    let unavailableCount = 0;
+    for (const r of results) {
+      if (r.status === "HEALTHY") healthyCount++;
+      else if (r.status === "DEGRADED") degradedCount++;
+      else unavailableCount++;
+    }
+    let overallStatus = "HEALTHY";
+    if (unavailableCount > 0 && healthyCount === 0) {
+      overallStatus = "UNAVAILABLE";
+    } else if (unavailableCount > 0 || degradedCount > 0) {
+      overallStatus = "DEGRADED";
+    }
+    return {
+      overallStatus,
+      totalProviders: results.length,
+      healthyCount,
+      degradedCount,
+      unavailableCount,
+      timestamp: (/* @__PURE__ */ new Date()).toISOString(),
+      providers: results
+    };
+  }
+  /**
+   * Get cached health result without issuing fresh network ping
+   */
+  getCachedHealth(providerId) {
+    return this.lastHealthMap.get(providerId.toLowerCase());
+  }
+};
+var providerHealthService = new ProviderHealthService();
+
+// src/services/gameService.ts
+var GameService = class {
+  constructor(registry = gameProviderRegistry, healthService = providerHealthService) {
+    this.registry = registry;
+    this.healthService = healthService;
+    this.isBrowser = typeof window !== "undefined" && typeof window.fetch === "function";
+  }
+  /**
+   * Helper to generate client correlation ID
+   */
+  createCorrelationId() {
+    const rand = Math.random().toString(36).substring(2, 9);
+    return `client-gw-${Date.now()}-${rand}`;
+  }
+  /**
+   * Get the underlying registry instance
+   */
+  getRegistry() {
+    return this.registry;
+  }
+  /**
+   * Get the underlying health service instance
+   */
+  getHealthService() {
+    return this.healthService;
+  }
+  /**
+   * Fetch game catalog matching the requested filters.
+   * Routes via Server Provider Gateway when running in client, with fallback to adapter registry.
+   */
+  async listGames(filter) {
+    if (this.isBrowser) {
+      try {
+        const queryParams = new URLSearchParams();
+        if (filter?.category && filter.category !== "all") queryParams.set("category", filter.category);
+        if (filter?.providerId && filter.providerId !== "all") queryParams.set("providerId", filter.providerId);
+        if (filter?.search) queryParams.set("search", filter.search);
+        if (filter?.isHot) queryParams.set("isHot", "true");
+        if (filter?.limit) queryParams.set("limit", String(filter.limit));
+        if (filter?.offset) queryParams.set("offset", String(filter.offset));
+        const url = `/api/gateway/providers/games${queryParams.toString() ? `?${queryParams.toString()}` : ""}`;
+        const response = await fetch(url, {
+          method: "GET",
+          headers: {
+            "Content-Type": "application/json",
+            "x-correlation-id": this.createCorrelationId()
+          }
+        });
+        if (response.ok) {
+          const json = await response.json();
+          if (json && json.success && Array.isArray(json.data)) {
+            return json.data;
+          }
+        }
+      } catch (err) {
+        console.warn("[GameService] Gateway fetch fallback to local registry:", err);
+      }
+    }
+    try {
+      if (filter?.providerId && filter.providerId !== "all") {
+        const targetAdapter = this.registry.getProvider(filter.providerId);
+        if (targetAdapter) {
+          return await targetAdapter.listGames(filter);
+        }
+      }
+      const defaultAdapter = this.registry.getDefaultProvider();
+      return await defaultAdapter.listGames(filter);
+    } catch (err) {
+      console.error("[GameService] listGames error:", err);
+      return [];
+    }
+  }
+  /**
+   * Retrieve game details by unique game ID
+   */
+  async getGame(gameId) {
+    if (!gameId) return null;
+    if (this.isBrowser) {
+      try {
+        const url = `/api/gateway/providers/games/${encodeURIComponent(gameId)}`;
+        const response = await fetch(url, {
+          method: "GET",
+          headers: {
+            "Content-Type": "application/json",
+            "x-correlation-id": this.createCorrelationId()
+          }
+        });
+        if (response.ok) {
+          const json = await response.json();
+          if (json && json.success && json.data) {
+            return json.data;
+          }
+        }
+      } catch (err) {
+        console.warn(`[GameService] Gateway getGame fallback for ${gameId}:`, err);
+      }
+    }
+    try {
+      const allAdapters = this.registry.getAllProviders();
+      for (const adapter of allAdapters) {
+        const game = await adapter.getGame(gameId);
+        if (game) return game;
+      }
+      return await this.registry.getDefaultProvider().getGame(gameId);
+    } catch (err) {
+      console.error(`[GameService] getGame error for ${gameId}:`, err);
+      return null;
+    }
+  }
+  /**
+   * Create an authorized game session for an authenticated user
+   */
+  async createGameSession(request) {
+    if (this.isBrowser) {
+      try {
+        const response = await fetch("/api/gateway/providers/session", {
+          method: "POST",
+          headers: {
+            "Content-Type": "application/json",
+            "x-correlation-id": this.createCorrelationId()
+          },
+          body: JSON.stringify(request)
+        });
+        if (response.ok) {
+          const json = await response.json();
+          if (json && json.success && json.data) {
+            return json.data;
+          }
+        }
+      } catch (err) {
+        console.warn("[GameService] Gateway session fallback to local adapter:", err);
+      }
+    }
+    const game = await this.getGame(request.gameId);
+    const targetProviderId = game?.providerId || "mock_aggregator";
+    const adapter = this.registry.getProvider(targetProviderId) || this.registry.getDefaultProvider();
+    return await adapter.createGameSession(request);
+  }
+  /**
+   * Launch game flow for player
+   */
+  async launchGame(request) {
+    if (this.isBrowser) {
+      try {
+        const response = await fetch("/api/gateway/providers/launch", {
+          method: "POST",
+          headers: {
+            "Content-Type": "application/json",
+            "x-correlation-id": this.createCorrelationId()
+          },
+          body: JSON.stringify(request)
+        });
+        if (response.ok) {
+          const json = await response.json();
+          if (json && json.success && json.data) {
+            return json.data;
+          }
+        }
+      } catch (err) {
+        console.warn("[GameService] Gateway launch fallback to local adapter:", err);
+      }
+    }
+    try {
+      const game = await this.getGame(request.gameId);
+      const targetProviderId = game?.providerId || "mock_aggregator";
+      const adapter = this.registry.getProvider(targetProviderId) || this.registry.getDefaultProvider();
+      return await adapter.launchGame(request);
+    } catch (err) {
+      return {
+        success: false,
+        gameId: request.gameId,
+        providerId: "unknown",
+        launchMode: "component",
+        error: err?.message || "Failed to launch game"
+      };
+    }
+  }
+  /**
+   * Retrieve available game categories
+   */
+  async getCategories() {
+    return Promise.resolve(MOCK_CATEGORIES);
+  }
+  /**
+   * Retrieve available certified game providers
+   */
+  async getProviders() {
+    return Promise.resolve(MOCK_PROVIDERS);
+  }
+  /**
+   * Retrieve featured hero slides for carousel
+   */
+  async getFeaturedSlides() {
+    return Promise.resolve(MOCK_FEATURED_SLIDES);
+  }
+  /**
+   * Check health across all registered game provider adapters
+   */
+  async checkProvidersHealth(timeoutMs) {
+    return await this.healthService.getHealthMap(timeoutMs);
+  }
+  /**
+   * Check health of a single provider by ID
+   */
+  async checkProviderHealth(providerId, timeoutMs) {
+    return await this.healthService.checkProvider(providerId, timeoutMs);
+  }
+  /**
+   * Retrieve aggregate overview of provider ecosystem health
+   */
+  async getSystemHealthOverview(timeoutMs) {
+    return await this.healthService.getSystemHealthOverview(timeoutMs);
+  }
+};
+var gameService = new GameService();
+
+// src/server/gateway/types.ts
+var GatewayError = class extends Error {
+  constructor(code, message, statusCode = 500, provider, details) {
+    super(message);
+    this.name = "GatewayError";
+    this.code = code;
+    this.statusCode = statusCode;
+    this.provider = provider || null;
+    this.details = details;
+  }
+};
+
+// src/server/gateway/validation.ts
+var IDENTIFIER_REGEX = /^[a-zA-Z0-9_\-\.]{1,64}$/;
+var USER_ID_REGEX = /^[a-zA-Z0-9_\-\.@]{1,64}$/;
+function validateProviderId(providerId, paramName = "providerId") {
+  if (!providerId || typeof providerId !== "string") {
+    throw new GatewayError(
+      "VALIDATION_ERROR",
+      `Parameter '${paramName}' is required and must be a non-empty string`,
+      400,
+      typeof providerId === "string" ? providerId : null,
+      { paramName }
+    );
+  }
+  const trimmed = providerId.trim();
+  if (!IDENTIFIER_REGEX.test(trimmed)) {
+    throw new GatewayError(
+      "VALIDATION_ERROR",
+      `Parameter '${paramName}' contains invalid characters or exceeds 64 characters`,
+      400,
+      trimmed,
+      { paramName, value: trimmed }
+    );
+  }
+  return trimmed;
+}
+function validateGameId(gameId, paramName = "gameId") {
+  if (!gameId || typeof gameId !== "string") {
+    throw new GatewayError(
+      "VALIDATION_ERROR",
+      `Parameter '${paramName}' is required and must be a non-empty string`,
+      400,
+      null,
+      { paramName }
+    );
+  }
+  const trimmed = gameId.trim();
+  if (!IDENTIFIER_REGEX.test(trimmed)) {
+    throw new GatewayError(
+      "VALIDATION_ERROR",
+      `Parameter '${paramName}' contains invalid characters or exceeds 64 characters`,
+      400,
+      null,
+      { paramName, value: trimmed }
+    );
+  }
+  return trimmed;
+}
+function validateLaunchPayload(body) {
+  if (!body || typeof body !== "object") {
+    throw new GatewayError("VALIDATION_ERROR", "Request body must be a valid JSON object", 400);
+  }
+  const gameId = validateGameId(body.gameId);
+  if (!body.userId || typeof body.userId !== "string" || !USER_ID_REGEX.test(body.userId.trim())) {
+    throw new GatewayError("VALIDATION_ERROR", "Valid userId is required for game launch", 400, null, {
+      paramName: "userId"
+    });
+  }
+  if (!body.username || typeof body.username !== "string" || body.username.trim().length === 0) {
+    throw new GatewayError("VALIDATION_ERROR", "Valid username is required for game launch", 400, null, {
+      paramName: "username"
+    });
+  }
+  let currency = "BDT";
+  if (body.currency) {
+    const normCurr = String(body.currency).toUpperCase().trim();
+    if (normCurr !== "BDT" && normCurr !== "USD") {
+      throw new GatewayError("VALIDATION_ERROR", `Unsupported currency '${body.currency}'. Allowed: BDT, USD`, 400, null, {
+        paramName: "currency",
+        value: body.currency
+      });
+    }
+    currency = normCurr;
+  }
+  return {
+    gameId,
+    userId: body.userId.trim(),
+    username: body.username.trim(),
+    currency,
+    language: body.language === "bn" ? "bn" : "en",
+    ipAddress: typeof body.ipAddress === "string" ? body.ipAddress.substring(0, 45) : void 0,
+    userAgent: typeof body.userAgent === "string" ? body.userAgent.substring(0, 255) : void 0,
+    returnUrl: typeof body.returnUrl === "string" ? body.returnUrl.substring(0, 500) : void 0
+  };
+}
+function validateSessionPayload(body) {
+  if (!body || typeof body !== "object") {
+    throw new GatewayError("VALIDATION_ERROR", "Request body must be a valid JSON object", 400);
+  }
+  const gameId = validateGameId(body.gameId);
+  if (!body.userId || typeof body.userId !== "string" || !USER_ID_REGEX.test(body.userId.trim())) {
+    throw new GatewayError("VALIDATION_ERROR", "Valid userId is required for game session", 400, null, {
+      paramName: "userId"
+    });
+  }
+  if (!body.username || typeof body.username !== "string" || body.username.trim().length === 0) {
+    throw new GatewayError("VALIDATION_ERROR", "Valid username is required for game session", 400, null, {
+      paramName: "username"
+    });
+  }
+  let currency = "BDT";
+  if (body.currency) {
+    const normCurr = String(body.currency).toUpperCase().trim();
+    if (normCurr !== "BDT" && normCurr !== "USD") {
+      throw new GatewayError("VALIDATION_ERROR", `Unsupported currency '${body.currency}'. Allowed: BDT, USD`, 400, null, {
+        paramName: "currency",
+        value: body.currency
+      });
+    }
+    currency = normCurr;
+  }
+  return {
+    gameId,
+    userId: body.userId.trim(),
+    username: body.username.trim(),
+    currency,
+    ipAddress: typeof body.ipAddress === "string" ? body.ipAddress.substring(0, 45) : void 0,
+    language: body.language === "bn" ? "bn" : "en"
+  };
+}
+
+// src/server/gateway/masking.ts
+var SENSITIVE_KEY_PATTERNS = [
+  /api[-_]?key/i,
+  /secret/i,
+  /password/i,
+  /passphrase/i,
+  /token/i,
+  /session[-_]?token/i,
+  /auth(orization)?/i,
+  /bearer/i,
+  /signature/i,
+  /hmac/i,
+  /private[-_]?key/i,
+  /credit[-_]?card/i,
+  /cvv/i,
+  /pin/i
+];
+function maskSensitiveData(data, depth = 0) {
+  if (depth > 6) return "[Max Depth Reached]";
+  if (data === null || data === void 0) return data;
+  if (typeof data === "string") {
+    if (data.startsWith("Bearer ") && data.length > 15) {
+      return `Bearer ${data.substring(7, 11)}...***`;
+    }
+    return data;
+  }
+  if (Array.isArray(data)) {
+    return data.map((item) => maskSensitiveData(item, depth + 1));
+  }
+  if (typeof data === "object") {
+    const maskedObj = {};
+    for (const [key, value] of Object.entries(data)) {
+      const isSensitiveKey = SENSITIVE_KEY_PATTERNS.some((pattern) => pattern.test(key));
+      if (isSensitiveKey && value !== null && value !== void 0) {
+        if (typeof value === "string" && value.length > 8) {
+          maskedObj[key] = `${value.substring(0, 3)}***${value.substring(value.length - 3)}`;
+        } else {
+          maskedObj[key] = "***REDACTED***";
+        }
+      } else {
+        maskedObj[key] = maskSensitiveData(value, depth + 1);
+      }
+    }
+    return maskedObj;
+  }
+  return data;
+}
+function safeLog(level, correlationId, message, meta) {
+  const timestamp2 = (/* @__PURE__ */ new Date()).toISOString();
+  const sanitizedMeta = meta ? maskSensitiveData(meta) : void 0;
+  const prefix = `[ProviderGateway] [${timestamp2}] [CID:${correlationId}]`;
+  if (level === "error") {
+    console.error(`${prefix} [ERROR] ${message}`, sanitizedMeta ? sanitizedMeta : "");
+  } else if (level === "warn") {
+    console.warn(`${prefix} [WARN] ${message}`, sanitizedMeta ? sanitizedMeta : "");
+  } else {
+    console.log(`${prefix} [INFO] ${message}`, sanitizedMeta ? sanitizedMeta : "");
+  }
+}
+
+// src/server/gateway/serverProviderGateway.ts
+var ServerProviderGateway = class {
+  constructor(service = gameService) {
+    this.defaultTimeoutMs = 4e3;
+    this.gameService = service;
+  }
+  /**
+   * Generates or sanitizes a request correlation ID
+   */
+  resolveCorrelationId(headerValue) {
+    if (typeof headerValue === "string" && headerValue.trim().length > 0) {
+      return headerValue.trim().substring(0, 64);
+    }
+    const rand = Math.random().toString(36).substring(2, 10);
+    return `req-gw-${Date.now()}-${rand}`;
+  }
+  /**
+   * Wraps an asynchronous operation with an enforceable timeout and structured error mapping
+   */
+  async executeWithTimeout(operation, timeoutMs, correlationId, operationName, providerId) {
+    let timer = null;
+    const timeoutPromise = new Promise((_, reject) => {
+      timer = setTimeout(() => {
+        reject(
+          new GatewayError(
+            "PROVIDER_TIMEOUT",
+            `Operation '${operationName}' timed out after ${timeoutMs}ms`,
+            504,
+            providerId,
+            { timeoutMs, operationName }
+          )
+        );
+      }, timeoutMs);
+    });
+    try {
+      const result = await Promise.race([operation(), timeoutPromise]);
+      if (timer) clearTimeout(timer);
+      return result;
+    } catch (err) {
+      if (timer) clearTimeout(timer);
+      if (err instanceof GatewayError) {
+        throw err;
+      }
+      const errName = err?.name || "";
+      const errMsg = err?.message || "Unknown provider error";
+      if (errName === "ProviderTimeoutError") {
+        throw new GatewayError("PROVIDER_TIMEOUT", errMsg, 504, providerId, { originalError: errName });
+      }
+      if (errName === "ProviderOfflineError" || errName === "GameNotFoundError") {
+        throw new GatewayError("PROVIDER_UNAVAILABLE", errMsg, 503, providerId, { originalError: errName });
+      }
+      if (errName === "ProviderValidationError") {
+        throw new GatewayError("VALIDATION_ERROR", errMsg, 400, providerId, { originalError: errName });
+      }
+      if (errName === "ProviderError") {
+        throw new GatewayError("PROVIDER_ERROR", errMsg, 502, providerId, { originalError: errName });
+      }
+      throw new GatewayError("INTERNAL_ERROR", errMsg, 500, providerId, { originalError: errName });
+    }
+  }
+  /**
+   * Retrieve game catalog through the Gateway
+   */
+  async listGames(req, correlationId) {
+    safeLog("info", correlationId, "Listing games with filter", req);
+    if (req.providerId && req.providerId !== "all") {
+      validateProviderId(req.providerId, "providerId");
+    }
+    const games = await this.executeWithTimeout(
+      async () => {
+        return await this.gameService.listGames(req);
+      },
+      this.defaultTimeoutMs,
+      correlationId,
+      "listGames",
+      req.providerId
+    );
+    safeLog("info", correlationId, `Fetched ${games.length} games`);
+    return {
+      success: true,
+      data: games,
+      correlationId,
+      timestamp: (/* @__PURE__ */ new Date()).toISOString()
+    };
+  }
+  /**
+   * Retrieve single game details through Gateway
+   */
+  async getGame(gameId, correlationId) {
+    const validGameId = validateGameId(gameId);
+    safeLog("info", correlationId, `Fetching game ${validGameId}`);
+    const game = await this.executeWithTimeout(
+      async () => {
+        return await this.gameService.getGame(validGameId);
+      },
+      this.defaultTimeoutMs,
+      correlationId,
+      "getGame"
+    );
+    if (!game) {
+      throw new GatewayError("PROVIDER_UNAVAILABLE", `Game '${validGameId}' not found or unavailable`, 503, null, {
+        gameId: validGameId
+      });
+    }
+    return {
+      success: true,
+      data: game,
+      correlationId,
+      timestamp: (/* @__PURE__ */ new Date()).toISOString()
+    };
+  }
+  /**
+   * Create an authorized game session through the Gateway
+   */
+  async createSession(payload, correlationId) {
+    const validated = validateSessionPayload(payload);
+    safeLog("info", correlationId, "Creating game session", {
+      gameId: validated.gameId,
+      userId: validated.userId,
+      currency: validated.currency
+    });
+    const session = await this.executeWithTimeout(
+      async () => {
+        return await this.gameService.createGameSession(validated);
+      },
+      this.defaultTimeoutMs,
+      correlationId,
+      "createSession"
+    );
+    safeLog("info", correlationId, "Game session generated successfully", {
+      sessionId: session.sessionId,
+      gameId: session.gameId
+    });
+    return {
+      success: true,
+      data: session,
+      correlationId,
+      timestamp: (/* @__PURE__ */ new Date()).toISOString()
+    };
+  }
+  /**
+   * Launch game through the Gateway
+   */
+  async launchGame(payload, correlationId) {
+    const validated = validateLaunchPayload(payload);
+    safeLog("info", correlationId, "Launching game", {
+      gameId: validated.gameId,
+      userId: validated.userId,
+      currency: validated.currency
+    });
+    const result = await this.executeWithTimeout(
+      async () => {
+        return await this.gameService.launchGame(validated);
+      },
+      this.defaultTimeoutMs,
+      correlationId,
+      "launchGame"
+    );
+    if (!result.success) {
+      throw new GatewayError("PROVIDER_ERROR", result.error || "Provider rejected game launch", 502, result.providerId, {
+        gameId: validated.gameId
+      });
+    }
+    safeLog("info", correlationId, "Game launched successfully", {
+      gameId: result.gameId,
+      launchMode: result.launchMode
+    });
+    return {
+      success: true,
+      data: result,
+      correlationId,
+      timestamp: (/* @__PURE__ */ new Date()).toISOString()
+    };
+  }
+  /**
+   * Check health of a specific provider through Gateway
+   */
+  async checkProviderHealth(providerId, correlationId, timeoutMs = 3e3) {
+    const validProviderId = validateProviderId(providerId);
+    safeLog("info", correlationId, `Checking health for provider '${validProviderId}'`);
+    const health = await this.executeWithTimeout(
+      async () => {
+        return await this.gameService.checkProviderHealth(validProviderId, timeoutMs);
+      },
+      timeoutMs + 500,
+      correlationId,
+      "checkProviderHealth",
+      validProviderId
+    );
+    if (health.status === "UNAVAILABLE") {
+      throw new GatewayError(
+        "PROVIDER_UNAVAILABLE",
+        health.error || `Provider '${validProviderId}' is UNAVAILABLE`,
+        503,
+        validProviderId,
+        { health }
+      );
+    }
+    return {
+      success: true,
+      data: health,
+      correlationId,
+      timestamp: (/* @__PURE__ */ new Date()).toISOString()
+    };
+  }
+  /**
+   * Check health of all providers through Gateway
+   */
+  async checkAllProvidersHealth(correlationId, timeoutMs = 3e3) {
+    safeLog("info", correlationId, "Checking health across all providers");
+    const healthMap = await this.executeWithTimeout(
+      async () => {
+        return await this.gameService.checkProvidersHealth(timeoutMs);
+      },
+      timeoutMs + 1e3,
+      correlationId,
+      "checkAllProvidersHealth"
+    );
+    return {
+      success: true,
+      data: healthMap,
+      correlationId,
+      timestamp: (/* @__PURE__ */ new Date()).toISOString()
+    };
+  }
+  /**
+   * Retrieve system-wide provider health overview
+   */
+  async getSystemHealthOverview(correlationId, timeoutMs = 3e3) {
+    safeLog("info", correlationId, "Fetching system health overview");
+    const overview = await this.executeWithTimeout(
+      async () => {
+        return await this.gameService.getSystemHealthOverview(timeoutMs);
+      },
+      timeoutMs + 1e3,
+      correlationId,
+      "getSystemHealthOverview"
+    );
+    return {
+      success: true,
+      data: overview,
+      correlationId,
+      timestamp: (/* @__PURE__ */ new Date()).toISOString()
+    };
+  }
+  /**
+   * Formats error objects into uniform GatewayError responses
+   */
+  formatErrorResponse(err, correlationId) {
+    const timestamp2 = (/* @__PURE__ */ new Date()).toISOString();
+    if (err instanceof GatewayError) {
+      safeLog("warn", correlationId, `GatewayError [${err.code}]: ${err.message}`, {
+        statusCode: err.statusCode,
+        provider: err.provider,
+        details: err.details
+      });
+      return {
+        statusCode: err.statusCode,
+        payload: {
+          success: false,
+          error: {
+            code: err.code,
+            message: err.message,
+            provider: err.provider,
+            details: err.details
+          },
+          correlationId,
+          timestamp: timestamp2
+        }
+      };
+    }
+    safeLog("error", correlationId, `Unhandled error in Provider Gateway: ${err?.message || err}`, err);
+    return {
+      statusCode: 500,
+      payload: {
+        success: false,
+        error: {
+          code: "INTERNAL_ERROR",
+          message: err?.message || "An unexpected internal gateway error occurred"
+        },
+        correlationId,
+        timestamp: timestamp2
+      }
+    };
+  }
+};
+var serverProviderGateway = new ServerProviderGateway();
+
+// src/server/controllers/providerGatewayController.ts
+var ProviderGatewayController = class {
+  constructor(gateway = serverProviderGateway) {
+    /**
+     * GET /api/gateway/providers/games
+     * Lists games from registered providers matching query parameters
+     */
+    this.listGames = async (req, res) => {
+      const correlationId = this.getCorrelationId(req);
+      try {
+        const { category, providerId, search, isHot, limit: limit2, offset } = req.query;
+        const result = await this.gateway.listGames(
+          {
+            category: typeof category === "string" ? category : void 0,
+            providerId: typeof providerId === "string" ? providerId : void 0,
+            search: typeof search === "string" ? search : void 0,
+            isHot: isHot === "true",
+            limit: limit2 ? Number(limit2) : void 0,
+            offset: offset ? Number(offset) : void 0
+          },
+          correlationId
+        );
+        res.setHeader("x-correlation-id", correlationId);
+        res.status(200).json(result);
+      } catch (err) {
+        const { statusCode, payload } = this.gateway.formatErrorResponse(err, correlationId);
+        res.setHeader("x-correlation-id", correlationId);
+        res.status(statusCode).json(payload);
+      }
+    };
+    /**
+     * GET /api/gateway/providers/games/:gameId
+     * Retrieves single game metadata
+     */
+    this.getGame = async (req, res) => {
+      const correlationId = this.getCorrelationId(req);
+      try {
+        const { gameId } = req.params;
+        const result = await this.gateway.getGame(gameId, correlationId);
+        res.setHeader("x-correlation-id", correlationId);
+        res.status(200).json(result);
+      } catch (err) {
+        const { statusCode, payload } = this.gateway.formatErrorResponse(err, correlationId);
+        res.setHeader("x-correlation-id", correlationId);
+        res.status(statusCode).json(payload);
+      }
+    };
+    /**
+     * POST /api/gateway/providers/session
+     * Generates an authorized player session
+     */
+    this.createSession = async (req, res) => {
+      const correlationId = this.getCorrelationId(req);
+      try {
+        const result = await this.gateway.createSession(req.body, correlationId);
+        res.setHeader("x-correlation-id", correlationId);
+        res.status(200).json(result);
+      } catch (err) {
+        const { statusCode, payload } = this.gateway.formatErrorResponse(err, correlationId);
+        res.setHeader("x-correlation-id", correlationId);
+        res.status(statusCode).json(payload);
+      }
+    };
+    /**
+     * POST /api/gateway/providers/launch
+     * Launches a game session (returns launch mode, component or iframe URL)
+     */
+    this.launchGame = async (req, res) => {
+      const correlationId = this.getCorrelationId(req);
+      try {
+        const result = await this.gateway.launchGame(req.body, correlationId);
+        res.setHeader("x-correlation-id", correlationId);
+        res.status(200).json(result);
+      } catch (err) {
+        const { statusCode, payload } = this.gateway.formatErrorResponse(err, correlationId);
+        res.setHeader("x-correlation-id", correlationId);
+        res.status(statusCode).json(payload);
+      }
+    };
+    /**
+     * GET /api/gateway/providers/health
+     * Retrieves health status across all registered providers
+     */
+    this.getHealth = async (req, res) => {
+      const correlationId = this.getCorrelationId(req);
+      try {
+        const timeoutMs = req.query.timeout ? Number(req.query.timeout) : 3e3;
+        const result = await this.gateway.checkAllProvidersHealth(correlationId, timeoutMs);
+        res.setHeader("x-correlation-id", correlationId);
+        res.status(200).json(result);
+      } catch (err) {
+        const { statusCode, payload } = this.gateway.formatErrorResponse(err, correlationId);
+        res.setHeader("x-correlation-id", correlationId);
+        res.status(statusCode).json(payload);
+      }
+    };
+    /**
+     * GET /api/gateway/providers/health/:providerId
+     * Retrieves health status for a specific provider
+     */
+    this.getProviderHealth = async (req, res) => {
+      const correlationId = this.getCorrelationId(req);
+      try {
+        const { providerId } = req.params;
+        const timeoutMs = req.query.timeout ? Number(req.query.timeout) : 3e3;
+        const result = await this.gateway.checkProviderHealth(providerId, correlationId, timeoutMs);
+        res.setHeader("x-correlation-id", correlationId);
+        res.status(200).json(result);
+      } catch (err) {
+        const { statusCode, payload } = this.gateway.formatErrorResponse(err, correlationId);
+        res.setHeader("x-correlation-id", correlationId);
+        res.status(statusCode).json(payload);
+      }
+    };
+    /**
+     * GET /api/gateway/providers/overview
+     * Retrieves aggregate system health summary
+     */
+    this.getOverview = async (req, res) => {
+      const correlationId = this.getCorrelationId(req);
+      try {
+        const timeoutMs = req.query.timeout ? Number(req.query.timeout) : 3e3;
+        const result = await this.gateway.getSystemHealthOverview(correlationId, timeoutMs);
+        res.setHeader("x-correlation-id", correlationId);
+        res.status(200).json(result);
+      } catch (err) {
+        const { statusCode, payload } = this.gateway.formatErrorResponse(err, correlationId);
+        res.setHeader("x-correlation-id", correlationId);
+        res.status(statusCode).json(payload);
+      }
+    };
+    this.gateway = gateway;
+  }
+  /**
+   * Helper to extract correlation ID from request headers
+   */
+  getCorrelationId(req) {
+    return this.gateway.resolveCorrelationId(req.headers["x-correlation-id"]);
+  }
+};
+var providerGatewayController = new ProviderGatewayController();
+function createProviderGatewayRouter() {
+  const router = Router();
+  router.get("/games", providerGatewayController.listGames);
+  router.get("/games/:gameId", providerGatewayController.getGame);
+  router.post("/session", providerGatewayController.createSession);
+  router.post("/launch", providerGatewayController.launchGame);
+  router.get("/health", providerGatewayController.getHealth);
+  router.get("/health/:providerId", providerGatewayController.getProviderHealth);
+  router.get("/overview", providerGatewayController.getOverview);
+  return router;
+}
+
 // src/server/index.ts
 dotenv.config();
 var __filename = fileURLToPath(import.meta.url);
@@ -7452,6 +10019,7 @@ promoRouter.get("/details", getPromotionDetailsHandler);
 promoRouter.post("/checkin", claimCheckInHandler);
 promoRouter.post("/spin", spinWheelHandler);
 app2.use("/api/promo", promoRouter);
+app2.use("/api/gateway/providers", createProviderGatewayRouter());
 app2.get(["/health", "/api/health", "/_health"], (_req, res) => {
   res.status(200).json({
     status: "HEALTHY",

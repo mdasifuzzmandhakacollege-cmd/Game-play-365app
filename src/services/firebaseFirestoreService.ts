@@ -88,9 +88,11 @@ class FirebaseFirestoreService {
       await getDocFromServer(doc(db, 'test', 'connection'));
       this.isConnected = true;
       return true;
-    } catch (error) {
-      if (error instanceof Error && error.message.includes('the client is offline')) {
-        console.warn('Firebase Firestore offline/unavailable - local cache will be used.');
+    } catch (error: any) {
+      // Gracefully catch offline or network unavailable state
+      if (error && (error.code === 'unavailable' || error.message?.includes('offline') || error.message?.includes('unavailable') || error.message?.includes('Failed to get document from server'))) {
+        this.isConnected = false;
+        return false;
       }
       this.isConnected = false;
       return false;

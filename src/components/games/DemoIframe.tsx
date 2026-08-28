@@ -1,8 +1,11 @@
 /**
  * @file DemoIframe.tsx
- * @description Enterprise Certified iGaming Real Demo Aggregator Player for Playall 365.
- * Features Golden Ratio (Φ ≈ 1.618) responsive container, live Pragmatic Play / PG Soft / JILI / Spribe
- * demo feeds, seamless postMessage bridge, latency telemetry, fullscreen toggle, and quick game switcher.
+ * @description Enterprise Certified iGaming Real Demo & Rapidverse Aggregator Player for Playall 365.
+ * Supports:
+ * 1. Rapidverse Live Aggregator API (Demo Mode: https://rapidverse.site/api/demo, Production: /api/verse)
+ * 2. Official certified game feeds (Pragmatic Play, PG Soft, JILI, Spribe, Evolution)
+ * 3. Dynamic Launch payload generation with userId prefix (asi966), user balance, language & phonetype
+ * 4. Golden Ratio responsive container, SLA telemetry, fullscreen toggle & real-time provider switching
  */
 
 import React, { useState, useEffect, useRef } from 'react';
@@ -23,14 +26,24 @@ import {
   Coins,
   ArrowRight,
   TrendingUp,
-  RefreshCw
+  RefreshCw,
+  Server,
+  KeyRound,
+  Check
 } from 'lucide-react';
 import { useWalletGame } from '../../contexts/WalletGameContext';
 import { soundEngine } from '../../services/soundEngine';
 import { assetLoader, GameAsset } from '../../services/assetLoader';
+import {
+  launchRapidverseDemo,
+  launchRapidverseProduction,
+  GAME_CODE_MAP,
+  RapidverseLaunchParams
+} from '../../services/rapidverseService';
 
 interface DemoIframeProps {
   gameId?: string;
+  embedUrl?: string;
   onPostMessageReceived?: (event: MessageEvent) => void;
   onSelectGame?: (gameId: string) => void;
 }
@@ -40,6 +53,9 @@ export interface DemoGameOption {
   name: string;
   nameBn: string;
   provider: string;
+  providerId: string;
+  gameCode: string;
+  vendorCode: string;
   icon: string;
   symbol: string;
   demoUrl: string;
@@ -52,6 +68,9 @@ export const OFFICIAL_DEMO_GAMES: DemoGameOption[] = [
     name: 'Gates of Olympus 1000',
     nameBn: 'গেটস্ অফ অলিম্পাস (Zeus 500X)',
     provider: 'Pragmatic Play',
+    providerId: 'pragmatic',
+    gameCode: 'vs20olympgate',
+    vendorCode: 'PRAGMATIC',
     icon: '⚡',
     symbol: 'vs20olympgate',
     demoUrl: 'https://demogamesfree.pragmaticplay.net/gs2c/openGame.do?lang=en&cur=BDT&gameSymbol=vs20olympgate&websiteUrl=https%3A%2F%2Fdemogamesfree.pragmaticplay.net&lobbyURL=https%3A%2F%2Fwww.pragmaticplay.com',
@@ -62,6 +81,9 @@ export const OFFICIAL_DEMO_GAMES: DemoGameOption[] = [
     name: 'Sweet Bonanza 1000',
     nameBn: 'সুইট বোনানজা ১০০০',
     provider: 'Pragmatic Play',
+    providerId: 'pragmatic',
+    gameCode: 'vs20sweetbonanza',
+    vendorCode: 'PRAGMATIC',
     icon: '🍬',
     symbol: 'vs20sweetbonanza',
     demoUrl: 'https://demogamesfree.pragmaticplay.net/gs2c/openGame.do?lang=en&cur=BDT&gameSymbol=vs20sweetbonanza&websiteUrl=https%3A%2F%2Fdemogamesfree.pragmaticplay.net&lobbyURL=https%3A%2F%2Fwww.pragmaticplay.com',
@@ -72,6 +94,9 @@ export const OFFICIAL_DEMO_GAMES: DemoGameOption[] = [
     name: 'Sugar Rush 1000',
     nameBn: 'সুগার রাশ ১০০০',
     provider: 'Pragmatic Play',
+    providerId: 'pragmatic',
+    gameCode: 'vs20sugarush',
+    vendorCode: 'PRAGMATIC',
     icon: '🍭',
     symbol: 'vs20sugarush',
     demoUrl: 'https://demogamesfree.pragmaticplay.net/gs2c/openGame.do?lang=en&cur=BDT&gameSymbol=vs20sugarush&websiteUrl=https%3A%2F%2Fdemogamesfree.pragmaticplay.net&lobbyURL=https%3A%2F%2Fwww.pragmaticplay.com',
@@ -82,6 +107,9 @@ export const OFFICIAL_DEMO_GAMES: DemoGameOption[] = [
     name: 'Starlight Princess 1000',
     nameBn: 'স্টারলাইট প্রিন্সেস ১০০০',
     provider: 'Pragmatic Play',
+    providerId: 'pragmatic',
+    gameCode: 'vs20starlight',
+    vendorCode: 'PRAGMATIC',
     icon: '✨',
     symbol: 'vs20starlight',
     demoUrl: 'https://demogamesfree.pragmaticplay.net/gs2c/openGame.do?lang=en&cur=BDT&gameSymbol=vs20starlight&websiteUrl=https%3A%2F%2Fdemogamesfree.pragmaticplay.net&lobbyURL=https%3A%2F%2Fwww.pragmaticplay.com',
@@ -92,6 +120,9 @@ export const OFFICIAL_DEMO_GAMES: DemoGameOption[] = [
     name: 'Big Bass Bonanza',
     nameBn: 'বিগ ব্যাস বোনানজা',
     provider: 'Pragmatic Play',
+    providerId: 'pragmatic',
+    gameCode: 'vs10bbbonanza',
+    vendorCode: 'PRAGMATIC',
     icon: '🎣',
     symbol: 'vs10bbbonanza',
     demoUrl: 'https://demogamesfree.pragmaticplay.net/gs2c/openGame.do?lang=en&cur=BDT&gameSymbol=vs10bbbonanza&websiteUrl=https%3A%2F%2Fdemogamesfree.pragmaticplay.net&lobbyURL=https%3A%2F%2Fwww.pragmaticplay.com',
@@ -102,6 +133,9 @@ export const OFFICIAL_DEMO_GAMES: DemoGameOption[] = [
     name: 'The Dog House Megaways',
     nameBn: 'দ্য ডগ হাউজ মেগাওয়েজ',
     provider: 'Pragmatic Play',
+    providerId: 'pragmatic',
+    gameCode: 'vswaysdoghouse',
+    vendorCode: 'PRAGMATIC',
     icon: '🐶',
     symbol: 'vswaysdoghouse',
     demoUrl: 'https://demogamesfree.pragmaticplay.net/gs2c/openGame.do?lang=en&cur=BDT&gameSymbol=vswaysdoghouse&websiteUrl=https%3A%2F%2Fdemogamesfree.pragmaticplay.net&lobbyURL=https%3A%2F%2Fwww.pragmaticplay.com',
@@ -112,6 +146,9 @@ export const OFFICIAL_DEMO_GAMES: DemoGameOption[] = [
     name: 'Wolf Gold',
     nameBn: 'উলফ গোল্ড',
     provider: 'Pragmatic Play',
+    providerId: 'pragmatic',
+    gameCode: 'vs25wolfgold',
+    vendorCode: 'PRAGMATIC',
     icon: '🐺',
     symbol: 'vs25wolfgold',
     demoUrl: 'https://demogamesfree.pragmaticplay.net/gs2c/openGame.do?lang=en&cur=BDT&gameSymbol=vs25wolfgold&websiteUrl=https%3A%2F%2Fdemogamesfree.pragmaticplay.net&lobbyURL=https%3A%2F%2Fwww.pragmaticplay.com',
@@ -121,10 +158,11 @@ export const OFFICIAL_DEMO_GAMES: DemoGameOption[] = [
 
 export const DemoIframe: React.FC<DemoIframeProps> = ({
   gameId = 'vs20olympgate',
+  embedUrl,
   onPostMessageReceived,
   onSelectGame
 }) => {
-  const { currentUser, currency, soundMuted, toggleSound, showToast } = useWalletGame();
+  const { currentUser, currentWallet, currency, soundMuted, toggleSound, showToast } = useWalletGame();
 
   const [selectedGameId, setSelectedGameId] = useState<string>(() => {
     const found = OFFICIAL_DEMO_GAMES.find((g) => g.id === gameId || gameId.includes(g.symbol));
@@ -134,25 +172,32 @@ export const DemoIframe: React.FC<DemoIframeProps> = ({
   const activeDemo = OFFICIAL_DEMO_GAMES.find((g) => g.id === selectedGameId) || OFFICIAL_DEMO_GAMES[0];
   const activeAsset = assetLoader.getGameAsset(activeDemo.id);
 
-  const [currentUrl, setCurrentUrl] = useState<string>(activeDemo.demoUrl);
+  const [currentUrl, setCurrentUrl] = useState<string>(embedUrl || activeDemo.demoUrl);
   const [isFullscreen, setIsFullscreen] = useState<boolean>(false);
   const [iframeLoaded, setIframeLoaded] = useState<boolean>(false);
   const [aspectRatio, setAspectRatio] = useState<'16/9' | '4/3' | '9/16'>('16/9');
   const [latencyMs, setLatencyMs] = useState<number>(38);
   const [demoCreditBalance, setDemoCreditBalance] = useState<number>(100000.0);
-  const [roundCount, setRoundCount] = useState<number>(14);
+  const [endpointMode, setEndpointMode] = useState<'demo' | 'production'>('demo');
+  const [isCallingApi, setIsCallingApi] = useState<boolean>(false);
+  const [apiSessionId, setApiSessionId] = useState<string | null>(null);
 
   const iframeRef = useRef<HTMLIFrameElement | null>(null);
 
   // Sync if prop changes
   useEffect(() => {
+    if (embedUrl) {
+      setCurrentUrl(embedUrl);
+      setIframeLoaded(false);
+      return;
+    }
     const found = OFFICIAL_DEMO_GAMES.find((g) => g.id === gameId || gameId.includes(g.symbol));
     if (found && found.id !== selectedGameId) {
       setSelectedGameId(found.id);
       setCurrentUrl(found.demoUrl);
       setIframeLoaded(false);
     }
-  }, [gameId]);
+  }, [gameId, embedUrl]);
 
   // Ping Latency SLA telemetry
   useEffect(() => {
@@ -162,15 +207,55 @@ export const DemoIframe: React.FC<DemoIframeProps> = ({
     return () => clearInterval(interval);
   }, []);
 
+  const handleLaunchViaRapidverse = async (demo: DemoGameOption, mode: 'demo' | 'production') => {
+    setIsCallingApi(true);
+    soundEngine.playClick(900);
+
+    const userBalance = currentWallet?.real_balance ?? 1000.0;
+    const params: RapidverseLaunchParams = {
+      userId: currentUser?.id || 'demo_player',
+      gameCode: demo.gameCode || demo.symbol,
+      vendorCode: demo.vendorCode || 'JILI',
+      userBalance: userBalance,
+      currency: (currency as 'BDT' | 'USD') || 'BDT',
+      language: '0',
+      returnUrl: window.location.href,
+      isDemo: mode === 'demo'
+    };
+
+    try {
+      const response =
+        mode === 'demo'
+          ? await launchRapidverseDemo(params)
+          : await launchRapidverseProduction(params);
+
+      if (response.success && response.gameUrl) {
+        setCurrentUrl(response.gameUrl);
+        setApiSessionId(response.sessionId || null);
+        setIframeLoaded(false);
+        showToast(
+          mode === 'demo'
+            ? `Rapidverse ডেমো সেশন সক্রিয়: ${demo.name}`
+            : `Rapidverse লাইভ প্রোডাকশন কানেক্টেড: ${demo.name}`
+        );
+      }
+    } catch (err: any) {
+      showToast(err.message || 'Rapidverse সংযোগে ত্রুটি');
+    } finally {
+      setIsCallingApi(false);
+    }
+  };
+
   const handleSelectGame = (demo: DemoGameOption) => {
     soundEngine.playClick(950);
     setSelectedGameId(demo.id);
-    setCurrentUrl(demo.demoUrl);
     setIframeLoaded(false);
     if (onSelectGame) {
       onSelectGame(demo.id);
     }
-    showToast(`লোডিং রিয়েল ডেমো: ${demo.name}`);
+
+    // Launch via Rapidverse Demo Aggregator API endpoint
+    handleLaunchViaRapidverse(demo, endpointMode);
   };
 
   const handleReload = () => {
@@ -190,11 +275,11 @@ export const DemoIframe: React.FC<DemoIframeProps> = ({
 
   return (
     <div
-      className={`w-full bg-[#080b14] border-2 border-amber-500/30 rounded-3xl overflow-hidden shadow-2xl transition-all ${
+      className={`w-full bg-[#080b14] border-2 border-[#54D62C]/40 rounded-3xl overflow-hidden shadow-2xl transition-all ${
         isFullscreen ? 'fixed inset-0 z-50 rounded-none border-none' : ''
       }`}
     >
-      {/* 1. TOP GOLDEN RATIO CONTROL BAR */}
+      {/* 1. TOP CONTROL BAR */}
       <div className="bg-slate-950 px-3 sm:px-5 py-3 border-b border-slate-800/90 flex flex-wrap items-center justify-between gap-3 text-xs font-mono">
         {/* Left Side: Game Branding & Status */}
         <div className="flex items-center space-x-3">
@@ -206,22 +291,59 @@ export const DemoIframe: React.FC<DemoIframeProps> = ({
           <div>
             <div className="font-black text-white flex items-center gap-2 text-xs sm:text-sm">
               <span>{activeDemo.name}</span>
-              <span className="text-[10px] px-2 py-0.5 rounded-full bg-emerald-500/20 border border-emerald-500/40 text-emerald-300 font-mono font-bold">
-                ● LIVE CERTIFIED DEMO
+              <span className="text-[10px] px-2 py-0.5 rounded-full bg-emerald-500/20 border border-emerald-500/40 text-emerald-300 font-mono font-bold flex items-center gap-1">
+                <span className="w-1.5 h-1.5 rounded-full bg-emerald-400 animate-ping" />
+                <span>RAPIDVERSE {endpointMode.toUpperCase()} API</span>
               </span>
             </div>
             <div className="text-[11px] text-slate-400 font-sans">
-              প্রোভাইডার: <span className="text-amber-400 font-bold">{activeDemo.provider}</span> • RTP: <span className="text-emerald-400 font-bold">{activeAsset.rtp}</span>
+              প্রোভাইডার: <span className="text-amber-400 font-bold">{activeDemo.provider}</span> • ভেন্ডর:{' '}
+              <span className="text-[#54D62C] font-mono font-bold">{activeDemo.vendorCode}</span> • আরটিপি:{' '}
+              <span className="text-emerald-400 font-bold">{activeAsset.rtp}</span>
             </div>
           </div>
         </div>
 
-        {/* Right Side: SLA Telemetry & Utility Controls */}
+        {/* Right Side: Rapidverse Mode Switcher & SLA Telemetry */}
         <div className="flex items-center space-x-2">
+          {/* Rapidverse Mode Toggle (Demo vs Production) */}
+          <div className="flex items-center bg-slate-900 p-0.5 rounded-xl border border-slate-800 text-[11px]">
+            <button
+              onClick={() => {
+                soundEngine.playClick(800);
+                setEndpointMode('demo');
+                handleLaunchViaRapidverse(activeDemo, 'demo');
+              }}
+              className={`px-2.5 py-1 rounded-lg font-bold transition-all cursor-pointer flex items-center gap-1 ${
+                endpointMode === 'demo'
+                  ? 'bg-emerald-500 text-slate-950 shadow-md shadow-emerald-500/20'
+                  : 'text-slate-400 hover:text-white'
+              }`}
+            >
+              <Server className="w-3 h-3" />
+              <span>ডেমো API</span>
+            </button>
+            <button
+              onClick={() => {
+                soundEngine.playClick(800);
+                setEndpointMode('production');
+                handleLaunchViaRapidverse(activeDemo, 'production');
+              }}
+              className={`px-2.5 py-1 rounded-lg font-bold transition-all cursor-pointer flex items-center gap-1 ${
+                endpointMode === 'production'
+                  ? 'bg-amber-400 text-slate-950 shadow-md shadow-amber-500/20'
+                  : 'text-slate-400 hover:text-white'
+              }`}
+            >
+              <KeyRound className="w-3 h-3" />
+              <span>লাইভ API</span>
+            </button>
+          </div>
+
           {/* Real Latency Badge */}
           <span className="hidden sm:flex items-center space-x-1.5 px-2.5 py-1 rounded-xl bg-slate-900 border border-slate-800 text-[11px] text-emerald-400">
             <span className="w-2 h-2 rounded-full bg-emerald-400 animate-pulse" />
-            <span>SLA Latency: {latencyMs}ms</span>
+            <span>SLA: {latencyMs}ms</span>
           </span>
 
           {/* Aspect Ratio Switcher */}
@@ -239,7 +361,7 @@ export const DemoIframe: React.FC<DemoIframeProps> = ({
                     : 'text-slate-400 hover:text-white'
                 }`}
               >
-                {ratio === '9/16' ? 'Portrait (Mobile)' : ratio}
+                {ratio === '9/16' ? 'Portrait' : ratio}
               </button>
             ))}
           </div>
@@ -251,7 +373,7 @@ export const DemoIframe: React.FC<DemoIframeProps> = ({
             title="ডেমো ব্যালেন্স রিফিল করুন"
           >
             <Coins className="w-3.5 h-3.5 text-amber-400" />
-            <span className="hidden sm:inline">রিফিল ৳১ লাখ</span>
+            <span className="hidden sm:inline">রিফিল</span>
           </button>
 
           {/* Reload Button */}
@@ -260,7 +382,7 @@ export const DemoIframe: React.FC<DemoIframeProps> = ({
             className="p-2 rounded-xl bg-slate-900 hover:bg-slate-800 border border-slate-800 text-slate-300 transition-all cursor-pointer active:scale-95"
             title="গেম রিলোড"
           >
-            <RotateCcw className="w-4 h-4" />
+            <RotateCcw className={`w-4 h-4 ${isCallingApi ? 'animate-spin' : ''}`} />
           </button>
 
           {/* Fullscreen Button */}
@@ -281,7 +403,7 @@ export const DemoIframe: React.FC<DemoIframeProps> = ({
       <div className="bg-slate-900/90 px-3 sm:px-5 py-2.5 border-b border-slate-800/80 flex items-center space-x-2 overflow-x-auto scrollbar-none">
         <span className="text-[11px] font-mono font-bold text-amber-400/90 uppercase tracking-wider shrink-0 mr-1 flex items-center gap-1">
           <Flame className="w-3.5 h-3.5 text-rose-500 fill-rose-500" />
-          <span>টপ রিয়েল ডেমো:</span>
+          <span>Rapidverse গেমস:</span>
         </span>
 
         {OFFICIAL_DEMO_GAMES.map((demo) => {
@@ -325,20 +447,24 @@ export const DemoIframe: React.FC<DemoIframeProps> = ({
         }`}
       >
         {/* Loading Spinner with Golden Ratio Aesthetics */}
-        {!iframeLoaded && (
+        {(!iframeLoaded || isCallingApi) && (
           <div className="absolute inset-0 flex flex-col items-center justify-center bg-slate-950/95 space-y-4 z-10">
             <div className="relative">
-              <div className="w-16 h-16 border-4 border-amber-500/20 border-t-amber-400 rounded-full animate-spin" />
+              <div className="w-16 h-16 border-4 border-[#54D62C]/20 border-t-[#54D62C] rounded-full animate-spin" />
               <div className="absolute inset-0 flex items-center justify-center text-xl">
                 {activeDemo.icon}
               </div>
             </div>
             <div className="text-center space-y-1">
               <div className="text-sm font-bold text-white font-sans">
-                {activeDemo.name} অফিশিয়াল সার্ভার কানেক্ট হচ্ছে...
+                {activeDemo.name} - Rapidverse API কানেক্ট হচ্ছে...
               </div>
               <div className="text-xs font-mono text-slate-400">
-                Direct Pragmatic Play / Certified Provider Server Feeds
+                Endpoint: https://rapidverse.site/api/{endpointMode === 'demo' ? 'demo' : 'verse'}
+              </div>
+              <div className="text-[11px] font-mono text-[#54D62C]">
+                Player ID: asi966_{currentUser?.id || 'demo'} • Balance: ৳
+                {currentWallet?.real_balance ?? 1000}
               </div>
             </div>
           </div>
@@ -360,19 +486,24 @@ export const DemoIframe: React.FC<DemoIframeProps> = ({
       <div className="px-4 py-2.5 bg-slate-950 border-t border-slate-800/90 flex flex-wrap items-center justify-between gap-2 text-[11px] font-mono text-slate-400">
         <div className="flex items-center space-x-2 text-emerald-400">
           <ShieldCheck className="w-4 h-4 text-emerald-400" />
-          <span>রিয়েল গেমিং ফ্রেমওয়ার্ক • GLI-19 সার্টিফাইড RNG & Provably Fair</span>
+          <span>Rapidverse Aggregator • GLI-19 সার্টিফাইড RNG & Provably Fair</span>
         </div>
 
         <div className="flex items-center space-x-3 text-slate-400">
+          {apiSessionId && (
+            <span className="text-slate-400 truncate max-w-[160px]">
+              Session: <strong className="text-cyan-400">{apiSessionId}</strong>
+            </span>
+          )}
           <span>
-            ডেমো ব্যালেন্স:{' '}
+            ব্যালেন্স:{' '}
             <strong className="text-amber-400 font-mono">
               ৳ {demoCreditBalance.toLocaleString('en-US', { minimumFractionDigits: 2 })}
             </strong>
           </span>
           <span className="text-slate-600">•</span>
           <span>
-            ম্যাক্স মাল্টিপ্লায়ার:{' '}
+            মাল্টিপ্লায়ার:{' '}
             <strong className="text-emerald-400 font-mono">{activeAsset.maxMultiplier}</strong>
           </span>
         </div>

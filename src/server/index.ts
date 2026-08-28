@@ -16,6 +16,7 @@ import { paymentGatewayController } from './controllers/paymentGatewayController
 import { getAffiliateSummaryHandler, claimCommissionHandler } from './controllers/affiliateController';
 import { getVipDetailsHandler, claimVipBonusHandler } from './controllers/vipController';
 import { getPromotionDetailsHandler, claimCheckInHandler, spinWheelHandler } from './controllers/promotionController';
+import { createProviderGatewayRouter } from './controllers/providerGatewayController';
 
 dotenv.config();
 
@@ -110,7 +111,12 @@ promoRouter.post('/spin', spinWheelHandler);
 app.use('/api/promo', promoRouter);
 
 // ----------------------------------------------------------------------------
-// 7. Health Check Endpoint (For Cloud Run / Firebase App Hosting Probes)
+// 7. Server-Side Game Provider Gateway Routes
+// ----------------------------------------------------------------------------
+app.use('/api/gateway/providers', createProviderGatewayRouter());
+
+// ----------------------------------------------------------------------------
+// 8. Health Check Endpoint (For Cloud Run / Firebase App Hosting Probes)
 // ----------------------------------------------------------------------------
 app.get(['/health', '/api/health', '/_health'], (_req: Request, res: Response) => {
   res.status(200).json({

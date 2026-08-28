@@ -883,7 +883,11 @@ export const WalletGameProvider: React.FC<{ children: React.ReactNode }> = ({ ch
         showToast,
         celebrationData,
         triggerCelebration,
-        clearCelebration
+        clearCelebration,
+        isIdleLocked,
+        unlockIdleSession,
+        lockIdleSession,
+        recordUserActivity
       }}
     >
       {children}

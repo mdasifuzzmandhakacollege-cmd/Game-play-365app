@@ -38,6 +38,7 @@ import {
 } from 'lucide-react';
 import { seamlessEngine, ApiResponse, PROVIDER_SECRETS, computeHmac } from '../services/simulatedWalletEngine';
 import { UserEntity, WalletEntity } from '../server/types/seamless';
+import { EndpointPayloadLogViewer } from './EndpointPayloadLogViewer';
 
 interface ProviderSimulatorProps {
   currentUser: UserEntity;
@@ -242,12 +243,15 @@ export const ProviderSimulator: React.FC<ProviderSimulatorProps> = ({
   const [simulateTimeout, setSimulateTimeout] = useState<boolean>(false);
   const [latencyJitterMs, setLatencyJitterMs] = useState<number>(0);
 
+  // Main Simulator View Switcher
+  const [simViewMode, setSimViewMode] = useState<'workbench' | 'payload_viewer'>('workbench');
+
   // Execution & Response State
   const [loading, setLoading] = useState<boolean>(false);
   const [response, setResponse] = useState<ApiResponse | null>(null);
   const [copied, setCopied] = useState<boolean>(false);
   const [inspectorTab, setInspectorTab] = useState<'body' | 'headers' | 'audit'>('body');
-  const [rightPanelTab, setRightPanelTab] = useState<'inspector' | 'debug_log'>('inspector');
+  const [rightPanelTab, setRightPanelTab] = useState<'inspector' | 'payload_viewer' | 'debug_log'>('inspector');
   const [isMinified, setIsMinified] = useState<boolean>(false);
 
   // Idempotency Stress-Tester State
@@ -756,9 +760,59 @@ export const ProviderSimulator: React.FC<ProviderSimulatorProps> = ({
   const count200 = debugLogs.filter((l) => l.statusCode === 200).length;
 
   return (
-    <div className="grid grid-cols-1 lg:grid-cols-12 gap-6">
-      {/* Left Column: Request Configuration, Fault Injection & Rate Limiter (7 cols) */}
-      <div className="lg:col-span-7 space-y-6">
+    <div className="space-y-6">
+      {/* Top View Mode Switcher: Interactive Workbench vs Real-Time Payload Log Viewer */}
+      <div className="bg-slate-900/90 border border-slate-800 rounded-2xl p-2.5 flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3 shadow-lg">
+        <div className="flex items-center space-x-2 font-mono text-xs overflow-x-auto pb-1 sm:pb-0">
+          <button
+            onClick={() => setSimViewMode('workbench')}
+            className={`px-4 py-2 rounded-xl font-bold flex items-center space-x-2 transition-all cursor-pointer whitespace-nowrap ${
+              simViewMode === 'workbench'
+                ? 'bg-gradient-to-r from-amber-500 to-yellow-500 text-slate-950 shadow-md shadow-amber-500/20'
+                : 'bg-slate-950 text-slate-400 hover:text-white border border-slate-800'
+            }`}
+          >
+            <SlidersHorizontal className="w-4 h-4" />
+            <span>Interactive Workbench &amp; Fault Injector</span>
+          </button>
+
+          <button
+            onClick={() => setSimViewMode('payload_viewer')}
+            className={`px-4 py-2 rounded-xl font-bold flex items-center space-x-2 transition-all cursor-pointer whitespace-nowrap relative ${
+              simViewMode === 'payload_viewer'
+                ? 'bg-gradient-to-r from-cyan-500 to-blue-600 text-slate-950 shadow-md shadow-cyan-500/20'
+                : 'bg-slate-950 text-cyan-400 hover:text-cyan-300 border border-cyan-500/30'
+            }`}
+          >
+            <Terminal className="w-4 h-4" />
+            <span>Real-Time /balance, /bet, /win Payload Log Viewer</span>
+            <span className="relative flex h-2 w-2 ml-0.5">
+              <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-emerald-400 opacity-75"></span>
+              <span className="relative inline-flex rounded-full h-2 w-2 bg-emerald-500"></span>
+            </span>
+          </button>
+        </div>
+
+        <div className="flex items-center space-x-2 text-xs font-mono text-slate-400 pr-1">
+          <span>Active Player:</span>
+          <span className="text-white font-bold">{currentUser.username}</span>
+          <span className="text-amber-400 bg-amber-500/10 px-2 py-0.5 rounded border border-amber-500/20">
+            {currentWallet ? `${currentWallet.real_balance.toFixed(2)} ${currentWallet.currency}` : '0.00 USD'}
+          </span>
+        </div>
+      </div>
+
+      {simViewMode === 'payload_viewer' ? (
+        <EndpointPayloadLogViewer
+          currentUser={currentUser}
+          currentWallet={currentWallet}
+          onLedgerMutated={onLedgerMutated}
+          initialEndpointFilter="all"
+        />
+      ) : (
+        <div className="grid grid-cols-1 lg:grid-cols-12 gap-6">
+          {/* Left Column: Request Configuration, Fault Injection & Rate Limiter (7 cols) */}
+          <div className="lg:col-span-7 space-y-6">
         
         {/* Step 1: Provider & Endpoint Selection */}
         <div className="bg-slate-900 border border-slate-800 rounded-xl p-5 shadow-lg">
@@ -1356,12 +1410,12 @@ export const ProviderSimulator: React.FC<ProviderSimulatorProps> = ({
       <div className="lg:col-span-5 space-y-6">
         <div className="bg-slate-900 border border-slate-800 rounded-xl p-5 shadow-lg flex flex-col min-h-[600px]">
           
-          {/* Main Subtabs Header: Inspector vs Debug Log */}
+          {/* Main Subtabs Header: Inspector vs Live Payload Logs vs Debug Log */}
           <div className="flex items-center justify-between mb-4 border-b border-slate-800 pb-3">
-            <div className="flex items-center space-x-2">
+            <div className="flex items-center space-x-2 overflow-x-auto pb-1 sm:pb-0">
               <button
                 onClick={() => setRightPanelTab('inspector')}
-                className={`px-3 py-1.5 rounded-lg text-xs font-bold font-mono transition-all flex items-center gap-1.5 cursor-pointer ${
+                className={`px-2.5 py-1.5 rounded-lg text-xs font-bold font-mono transition-all flex items-center gap-1.5 cursor-pointer whitespace-nowrap ${
                   rightPanelTab === 'inspector'
                     ? 'bg-cyan-500/20 text-cyan-300 border border-cyan-500/40 shadow-sm'
                     : 'text-slate-400 hover:text-white'
@@ -1372,15 +1426,28 @@ export const ProviderSimulator: React.FC<ProviderSimulatorProps> = ({
               </button>
 
               <button
+                onClick={() => setRightPanelTab('payload_viewer')}
+                className={`px-2.5 py-1.5 rounded-lg text-xs font-bold font-mono transition-all flex items-center gap-1.5 cursor-pointer whitespace-nowrap ${
+                  rightPanelTab === 'payload_viewer'
+                    ? 'bg-emerald-500/20 text-emerald-300 border border-emerald-500/40 shadow-sm'
+                    : 'text-slate-400 hover:text-white'
+                }`}
+              >
+                <Terminal className="w-3.5 h-3.5 text-emerald-400" />
+                <span>Payload Logs</span>
+                <span className="w-2 h-2 rounded-full bg-emerald-400 animate-pulse"></span>
+              </button>
+
+              <button
                 onClick={() => setRightPanelTab('debug_log')}
-                className={`px-3 py-1.5 rounded-lg text-xs font-bold font-mono transition-all flex items-center gap-1.5 cursor-pointer relative ${
+                className={`px-2.5 py-1.5 rounded-lg text-xs font-bold font-mono transition-all flex items-center gap-1.5 cursor-pointer whitespace-nowrap relative ${
                   rightPanelTab === 'debug_log'
                     ? 'bg-amber-500/20 text-amber-300 border border-amber-500/40 shadow-sm'
                     : 'text-slate-400 hover:text-white'
                 }`}
               >
-                <Terminal className="w-3.5 h-3.5 text-amber-400" />
-                <span>Debug Log</span>
+                <Layers className="w-3.5 h-3.5 text-amber-400" />
+                <span>Debug Console</span>
                 <span className="px-1.5 py-0.2 bg-slate-800 text-[10px] rounded-full text-slate-300">
                   {debugLogs.length}
                 </span>
@@ -1789,8 +1856,21 @@ export const ProviderSimulator: React.FC<ProviderSimulatorProps> = ({
             </div>
           )}
 
+          {/* VIEW 3: LIVE PAYLOAD LOG VIEWER */}
+          {rightPanelTab === 'payload_viewer' && (
+            <div className="flex-1">
+              <EndpointPayloadLogViewer
+                currentUser={currentUser}
+                currentWallet={currentWallet}
+                onLedgerMutated={onLedgerMutated}
+              />
+            </div>
+          )}
+
         </div>
       </div>
     </div>
-  );
+  )}
+</div>
+);
 };

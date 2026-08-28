@@ -56,6 +56,9 @@ CREATE TABLE IF NOT EXISTS wallets (
     user_id UUID NOT NULL REFERENCES users(id) ON DELETE CASCADE,
     currency VARCHAR(3) NOT NULL,
     
+    -- Integer minor units (e.g. 10050 = 100.50 BDT/USD) for exact zero-drift arithmetic
+    balance_minor BIGINT NOT NULL DEFAULT 0,
+    
     -- Balances stored with 4 decimal places for micro-cent precision in casino games
     real_balance NUMERIC(18, 4) NOT NULL DEFAULT 0.0000,
     bonus_balance NUMERIC(18, 4) NOT NULL DEFAULT 0.0000,
@@ -71,12 +74,56 @@ CREATE TABLE IF NOT EXISTS wallets (
     -- Constraints: A user can have only one wallet per currency
     CONSTRAINT uq_wallet_user_currency UNIQUE (user_id, currency),
     
-    -- Zero-overdraft constraint: Real balance cannot drop below zero
+    -- Zero-overdraft constraint: Real balance and minor balance cannot drop below zero
+    CONSTRAINT chk_balance_minor_non_negative CHECK (balance_minor >= 0),
     CONSTRAINT chk_real_balance_non_negative CHECK (real_balance >= 0),
     CONSTRAINT chk_bonus_balance_non_negative CHECK (bonus_balance >= 0)
 );
 
 CREATE INDEX IF NOT EXISTS idx_wallets_user_currency ON wallets(user_id, currency);
+
+-- ----------------------------------------------------------------------------
+-- 3b. Immutable Ledger Entries Table (Append-Only Core Financial Ledger)
+-- Every financial debit, credit, reversal, or adjustment is permanently recorded.
+-- ----------------------------------------------------------------------------
+CREATE TABLE IF NOT EXISTS ledger_entries (
+    id VARCHAR(64) PRIMARY KEY,
+    wallet_id UUID NOT NULL REFERENCES wallets(id),
+    user_id UUID NOT NULL REFERENCES users(id),
+    transaction_id VARCHAR(128) NOT NULL,
+    reference_transaction_id VARCHAR(128),
+    type VARCHAR(32) NOT NULL,                    -- 'DEBIT', 'CREDIT', 'REVERSAL', 'ADJUSTMENT'
+    amount_minor BIGINT NOT NULL,                 -- Exact integer minor units
+    currency VARCHAR(3) NOT NULL,
+    before_balance_minor BIGINT NOT NULL,
+    after_balance_minor BIGINT NOT NULL,
+    status VARCHAR(32) NOT NULL DEFAULT 'COMMITTED', -- 'COMMITTED', 'REJECTED', 'ROLLED_BACK'
+    correlation_id VARCHAR(128) NOT NULL,
+    audit_metadata JSONB DEFAULT '{}'::jsonb,     -- Masked audit trail (no secrets)
+    created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+
+    CONSTRAINT chk_ledger_amount_minor_positive CHECK (amount_minor > 0),
+    CONSTRAINT chk_ledger_balances_non_negative CHECK (before_balance_minor >= 0 AND after_balance_minor >= 0),
+    CONSTRAINT uq_ledger_user_transaction UNIQUE (user_id, transaction_id)
+);
+
+CREATE INDEX IF NOT EXISTS idx_ledger_wallet_created ON ledger_entries(wallet_id, created_at DESC);
+CREATE INDEX IF NOT EXISTS idx_ledger_user_tx ON ledger_entries(user_id, transaction_id);
+CREATE INDEX IF NOT EXISTS idx_ledger_correlation ON ledger_entries(correlation_id);
+
+-- ----------------------------------------------------------------------------
+-- 3c. Idempotency Records Table (Guarantees Exactly-Once Processing)
+-- ----------------------------------------------------------------------------
+CREATE TABLE IF NOT EXISTS idempotency_records (
+    idempotency_key VARCHAR(192) PRIMARY KEY,
+    transaction_id VARCHAR(128) NOT NULL,
+    status_code INTEGER NOT NULL DEFAULT 200,
+    response_payload JSONB NOT NULL,
+    created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+    expires_at TIMESTAMPTZ NOT NULL DEFAULT (NOW() + INTERVAL '7 days')
+);
+
+CREATE INDEX IF NOT EXISTS idx_idempotency_records_expires ON idempotency_records(expires_at);
 
 -- ----------------------------------------------------------------------------
 -- 4. Game Rounds Table (Tracks the lifecycle of casino spins/rounds)
