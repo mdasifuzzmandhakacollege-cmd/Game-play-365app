@@ -19,13 +19,40 @@
     <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent" />
     <meta name="apple-mobile-web-app-title" content="GamePlay 365" />
     
-    <meta property="og:title" content="GamePlay 365 Seamless Wallet &amp; iGaming Platform" />
+    <meta property="og:title" content="PLAY369 Seamless Wallet &amp; iGaming Platform" />
     <meta property="og:description" content="B2B Seamless Wallet Engine with PostgreSQL Row-Level Locking, HMAC validation, and concurrency stress testing." />
     <meta property="og:type" content="website" />
     <meta name="twitter:card" content="summary_large_image" />
+
+    <!-- Defensive browser global shims -->
+    <script>
+      (function() {
+        if (typeof window !== 'undefined') {
+          window.global = window;
+          window.process = window.process || { env: { NODE_ENV: 'production' } };
+          window.Buffer = window.Buffer || [];
+        }
+      })();
+    </script>
   </head>
-  <body class="bg-[#02180e] text-slate-100 select-none antialiased">
-    <div id="root"></div>
+  <body class="bg-[#02180e] text-slate-100 select-none antialiased" style="background-color: #02180e; color: #f1f5f9; margin: 0; min-height: 100vh;">
+    <div id="root">
+      <!-- High-performance Initial Loading Shell -->
+      <div id="app-initial-loader" style="display: flex; flex-direction: column; align-items: center; justify-content: center; min-height: 100vh; background-color: #02180e; color: #ffffff; font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif; text-align: center; padding: 20px; box-sizing: border-box;">
+        <div style="position: relative; width: 64px; height: 64px; margin-bottom: 20px;">
+          <div style="position: absolute; inset: 0; border-radius: 16px; background: linear-gradient(135deg, #10b981, #059669); opacity: 0.2; filter: blur(8px);"></div>
+          <div style="position: relative; width: 64px; height: 64px; border-radius: 16px; background: #064e3b; border: 1px solid #10b98166; display: flex; align-items: center; justify-content: center; font-weight: 900; font-size: 24px; color: #34d399; letter-spacing: -1px;">
+            369
+          </div>
+        </div>
+        <div style="width: 32px; height: 32px; border: 3px solid rgba(16, 185, 129, 0.2); border-top-color: #10b981; border-radius: 50%; animation: p369-spin 0.8s linear infinite; margin-bottom: 16px;"></div>
+        <h1 style="margin: 0 0 6px 0; font-size: 20px; font-weight: 800; letter-spacing: 0.5px; color: #ffffff;">PLAY369</h1>
+        <p style="margin: 0; font-size: 12px; color: #94a3b8; font-weight: 500;">অপেক্ষা করুন, লোড হচ্ছে...</p>
+        <style>
+          @keyframes p369-spin { to { transform: rotate(360deg); } }
+        </style>
+      </div>
+    </div>
     <script async defer src="https://apis.google.com/js/api.js"></script>
     <script type="module" src="/src/main.tsx"></script>
   </body>

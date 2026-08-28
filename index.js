@@ -9556,14 +9556,6 @@ var GameService = class {
   constructor(registry = gameProviderRegistry, healthService = providerHealthService) {
     this.registry = registry;
     this.healthService = healthService;
-    this.isBrowser = typeof window !== "undefined" && typeof window.fetch === "function";
-  }
-  /**
-   * Helper to generate client correlation ID
-   */
-  createCorrelationId() {
-    const rand = Math.random().toString(36).substring(2, 9);
-    return `client-gw-${Date.now()}-${rand}`;
   }
   /**
    * Get the underlying registry instance
@@ -9579,36 +9571,9 @@ var GameService = class {
   }
   /**
    * Fetch game catalog matching the requested filters.
-   * Routes via Server Provider Gateway when running in client, with fallback to adapter registry.
+   * Aggregates across all registered adapters or targets a specific adapter.
    */
   async listGames(filter) {
-    if (this.isBrowser) {
-      try {
-        const queryParams = new URLSearchParams();
-        if (filter?.category && filter.category !== "all") queryParams.set("category", filter.category);
-        if (filter?.providerId && filter.providerId !== "all") queryParams.set("providerId", filter.providerId);
-        if (filter?.search) queryParams.set("search", filter.search);
-        if (filter?.isHot) queryParams.set("isHot", "true");
-        if (filter?.limit) queryParams.set("limit", String(filter.limit));
-        if (filter?.offset) queryParams.set("offset", String(filter.offset));
-        const url = `/api/gateway/providers/games${queryParams.toString() ? `?${queryParams.toString()}` : ""}`;
-        const response = await fetch(url, {
-          method: "GET",
-          headers: {
-            "Content-Type": "application/json",
-            "x-correlation-id": this.createCorrelationId()
-          }
-        });
-        if (response.ok) {
-          const json = await response.json();
-          if (json && json.success && Array.isArray(json.data)) {
-            return json.data;
-          }
-        }
-      } catch (err) {
-        console.warn("[GameService] Gateway fetch fallback to local registry:", err);
-      }
-    }
     try {
       if (filter?.providerId && filter.providerId !== "all") {
         const targetAdapter = this.registry.getProvider(filter.providerId);
@@ -9627,28 +9592,8 @@ var GameService = class {
    * Retrieve game details by unique game ID
    */
   async getGame(gameId) {
-    if (!gameId) return null;
-    if (this.isBrowser) {
-      try {
-        const url = `/api/gateway/providers/games/${encodeURIComponent(gameId)}`;
-        const response = await fetch(url, {
-          method: "GET",
-          headers: {
-            "Content-Type": "application/json",
-            "x-correlation-id": this.createCorrelationId()
-          }
-        });
-        if (response.ok) {
-          const json = await response.json();
-          if (json && json.success && json.data) {
-            return json.data;
-          }
-        }
-      } catch (err) {
-        console.warn(`[GameService] Gateway getGame fallback for ${gameId}:`, err);
-      }
-    }
     try {
+      if (!gameId) return null;
       const allAdapters = this.registry.getAllProviders();
       for (const adapter of allAdapters) {
         const game = await adapter.getGame(gameId);
@@ -9664,26 +9609,6 @@ var GameService = class {
    * Create an authorized game session for an authenticated user
    */
   async createGameSession(request) {
-    if (this.isBrowser) {
-      try {
-        const response = await fetch("/api/gateway/providers/session", {
-          method: "POST",
-          headers: {
-            "Content-Type": "application/json",
-            "x-correlation-id": this.createCorrelationId()
-          },
-          body: JSON.stringify(request)
-        });
-        if (response.ok) {
-          const json = await response.json();
-          if (json && json.success && json.data) {
-            return json.data;
-          }
-        }
-      } catch (err) {
-        console.warn("[GameService] Gateway session fallback to local adapter:", err);
-      }
-    }
     const game = await this.getGame(request.gameId);
     const targetProviderId = game?.providerId || "mock_aggregator";
     const adapter = this.registry.getProvider(targetProviderId) || this.registry.getDefaultProvider();
@@ -9693,26 +9618,6 @@ var GameService = class {
    * Launch game flow for player
    */
   async launchGame(request) {
-    if (this.isBrowser) {
-      try {
-        const response = await fetch("/api/gateway/providers/launch", {
-          method: "POST",
-          headers: {
-            "Content-Type": "application/json",
-            "x-correlation-id": this.createCorrelationId()
-          },
-          body: JSON.stringify(request)
-        });
-        if (response.ok) {
-          const json = await response.json();
-          if (json && json.success && json.data) {
-            return json.data;
-          }
-        }
-      } catch (err) {
-        console.warn("[GameService] Gateway launch fallback to local adapter:", err);
-      }
-    }
     try {
       const game = await this.getGame(request.gameId);
       const targetProviderId = game?.providerId || "mock_aggregator";
@@ -10345,7 +10250,7 @@ dotenv.config();
 var __filename = fileURLToPath(import.meta.url);
 var __dirname = path.dirname(__filename);
 var app2 = express();
-var PORT = Number(process.env.PORT) || 8080;
+var PORT = Number(process.env.PORT) || 3e3;
 var HOST = "0.0.0.0";
 app2.use(
   express.json({
@@ -10399,16 +10304,50 @@ app2.get(["/health", "/api/health", "/_health"], (_req, res) => {
     port: PORT
   });
 });
-var distPath = path.resolve(process.cwd(), "dist");
-if (fs.existsSync(distPath)) {
-  app2.use(express.static(distPath));
-  app2.get("*", (req, res) => {
-    if (req.path.startsWith("/api")) {
-      return res.status(404).json({ code: "NOT_FOUND", message: "API route not found" });
-    }
-    res.sendFile(path.join(distPath, "index.html"));
-  });
-}
+var candidateDistPaths = [
+  path.resolve(process.cwd(), "dist"),
+  path.resolve(__dirname, "dist"),
+  path.resolve(__dirname, "../dist")
+];
+var resolvedDistPath = candidateDistPaths.find((p) => fs.existsSync(path.join(p, "index.html"))) || candidateDistPaths[0];
+app2.use(express.static(resolvedDistPath, {
+  index: false,
+  // Handle index via SPA fallback for consistent routing
+  maxAge: "1h"
+}));
+app2.get("*", (req, res) => {
+  if (req.path.startsWith("/api") || req.path.startsWith("/health") || req.path.startsWith("/_health")) {
+    return res.status(404).json({ code: "NOT_FOUND", message: `API route '${req.path}' not found` });
+  }
+  const indexPath = path.join(resolvedDistPath, "index.html");
+  if (fs.existsSync(indexPath)) {
+    res.setHeader("Content-Type", "text/html; charset=UTF-8");
+    return res.sendFile(indexPath);
+  }
+  res.setHeader("Content-Type", "text/html; charset=UTF-8");
+  return res.status(200).send(`<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8"/>
+    <meta name="viewport" content="width=device-width, initial-scale=1"/>
+    <title>PLAY369 | Seamless Core</title>
+    <style>
+      body { background: #02180e; color: #e2e8f0; font-family: sans-serif; display: flex; align-items: center; justify-content: center; height: 100vh; margin: 0; }
+      .loader { text-align: center; }
+      .spinner { width: 40px; height: 40px; border: 4px solid #10b98133; border-top-color: #10b981; border-radius: 50%; animation: spin 1s linear infinite; margin: 0 auto 16px; }
+      @keyframes spin { to { transform: rotate(360deg); } }
+    </style>
+  </head>
+  <body>
+    <div class="loader">
+      <div class="spinner"></div>
+      <h2>Initializing PLAY369 Application...</h2>
+      <p>Frontend assets are readying. Reloading...</p>
+    </div>
+    <script>setTimeout(() => window.location.reload(), 1500);</script>
+  </body>
+</html>`);
+});
 app2.use((err, _req, res, _next) => {
   console.error("[Fatal Server Error]:", err);
   res.status(500).json({
@@ -10417,7 +10356,7 @@ app2.use((err, _req, res, _next) => {
     timestamp: Date.now()
   });
 });
-if (process.env.NODE_ENV !== "test") {
+if (process.env.NODE_ENV !== "test" && process.env.VITEST !== "true" && process.env.DISABLE_SERVER_LISTEN !== "true") {
   const server = app2.listen(PORT, HOST, () => {
     console.log(`[Seamless Wallet Core] Server successfully listening on http://${HOST}:${PORT} (PORT=${PORT})`);
   });

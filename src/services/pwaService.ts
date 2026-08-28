@@ -28,7 +28,8 @@ class PWAService {
   }
 
   public registerServiceWorker(): void {
-    if ('serviceWorker' in navigator && process.env.NODE_ENV !== 'test') {
+    const isTest = typeof process !== 'undefined' && process.env && process.env.NODE_ENV === 'test';
+    if ('serviceWorker' in navigator && !isTest) {
       window.addEventListener('load', () => {
         navigator.serviceWorker
           .register('/sw.js')

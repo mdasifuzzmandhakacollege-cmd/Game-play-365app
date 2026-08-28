@@ -80,8 +80,8 @@ async function runProductionServerTests() {
       if (!contentType.includes('text/html')) {
         throw new Error(`Expected text/html content-type, got ${contentType}`);
       }
-      if (!res.body.includes('<div id="root"></div>')) {
-        throw new Error('Response HTML missing <div id="root"></div> container');
+      if (!res.body.includes('id="root"')) {
+        throw new Error('Response HTML missing id="root" container');
       }
       if (!res.body.includes('PLAY369') && !res.body.includes('Seamless')) {
         throw new Error('Response HTML missing application title tags');
@@ -109,7 +109,7 @@ async function runProductionServerTests() {
         if (res.status !== 200) {
           throw new Error(`Route ${route} returned status ${res.status}`);
         }
-        if (!res.body.includes('<div id="root"></div>')) {
+        if (!res.body.includes('id="root"')) {
           throw new Error(`Route ${route} did not return SPA index.html`);
         }
       }
