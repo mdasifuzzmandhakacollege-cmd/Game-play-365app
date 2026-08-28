@@ -13,14 +13,29 @@ import crypto from 'crypto';
 import { Request, Response, NextFunction } from 'express';
 import { SeamlessErrorCode } from '../types/seamless';
 
-// In-memory or Redis-backed provider secrets registry
-export const PROVIDER_SECRETS: Record<string, string> = {
-  pragmatic_play: 'sk_live_pragmatic_seamless_88492048102',
-  evolution: 'sk_live_evolution_seamless_39104859103',
-  pgsoft: 'sk_live_pgsoft_seamless_91823019482',
-  spribe: 'sk_live_spribe_seamless_74910284910',
-  custom_provider: 'sk_live_custom_seamless_secret_123456'
-};
+// Dynamically resolve provider secret exclusively from environment variables
+export function getProviderSecret(providerId: string): string | undefined {
+  const norm = providerId.toLowerCase().trim();
+  switch (norm) {
+    case 'pragmatic_play':
+    case 'pragmatic':
+      return process.env.PROVIDER_PRAGMATIC_SECRET;
+    case 'evolution':
+      return process.env.PROVIDER_EVOLUTION_SECRET;
+    case 'pgsoft':
+      return process.env.PROVIDER_PGSOFT_SECRET;
+    case 'spribe':
+      return process.env.PROVIDER_SPRIBE_SECRET;
+    case 'custom_provider':
+      return process.env.PROVIDER_CUSTOM_SECRET;
+    default:
+      return process.env[`PROVIDER_${norm.toUpperCase()}_SECRET`];
+  }
+}
+
+export const PROVIDER_SECRETS: Record<string, string | undefined> = new Proxy({}, {
+  get: (_, prop: string) => getProviderSecret(prop)
+});
 
 // Configurable replay tolerance window in milliseconds (5 minutes default)
 const REPLAY_TOLERANCE_MS = 5 * 60 * 1000;

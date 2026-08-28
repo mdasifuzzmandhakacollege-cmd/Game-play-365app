@@ -141,7 +141,11 @@ export class PaymentGatewayController {
   async handleWebhook(req: Request, res: Response): Promise<void> {
     try {
       const provider = req.params.provider as PaymentProviderId;
-      const signature = (req.headers['x-signature'] || req.headers['x-webhook-signature'] || 'SIG_VALID') as string;
+      const signature = (req.headers['x-signature'] || req.headers['x-webhook-signature'] || '') as string;
+      if (!signature) {
+        res.status(401).json({ error: 'Missing required webhook signature header (x-signature)' });
+        return;
+      }
 
       const log = await paymentGatewayEngine.handleWebhook(provider, req.body, signature);
 

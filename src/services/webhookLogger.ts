@@ -31,6 +31,7 @@ export interface InterceptWebhookParams {
     eventType?: string;
     headers?: Record<string, string>;
     expectedSignature?: string;
+    isSignatureValid?: boolean;
     simulatedLatency?: number;
     ipAddress?: string;
     source?: string;
@@ -214,10 +215,10 @@ class WebhookLoggerService {
       payload.trxID ||
       `evt_${provider}_${Date.now()}_${Math.floor(1000 + Math.random() * 9000)}`;
 
-    const expectedSig = options?.expectedSignature || signature;
+    const expectedSig = options?.expectedSignature || '';
     const isSignatureValid = options?.expectedSignature
       ? signature === options.expectedSignature
-      : signature !== '0000000000000000000000000000000000000000000000000000000000000000' && signature.length >= 16;
+      : (options?.isSignatureValid ?? false);
 
     const latency =
       options?.simulatedLatency ??

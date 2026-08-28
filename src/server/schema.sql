@@ -236,11 +236,11 @@ FOR EACH ROW EXECUTE FUNCTION update_timestamp_column();
 -- ============================================================================
 INSERT INTO game_providers (id, name, secret_key, webhook_timeout_ms)
 VALUES 
-    ('pragmatic_play', 'Pragmatic Play Live & Slots', 'sk_live_pragmatic_seamless_88492048102', 4000),
-    ('evolution', 'Evolution Gaming Live Casino', 'sk_live_evolution_seamless_39104859103', 4000),
-    ('pgsoft', 'Pocket Games Soft', 'sk_live_pgsoft_seamless_91823019482', 4000),
-    ('spribe', 'Spribe Turbo Games (Aviator)', 'sk_live_spribe_seamless_74910284910', 4000)
-ON CONFLICT (id) DO UPDATE SET secret_key = EXCLUDED.secret_key;
+    ('pragmatic_play', 'Pragmatic Play Live & Slots', '', 4000),
+    ('evolution', 'Evolution Gaming Live Casino', '', 4000),
+    ('pgsoft', 'Pocket Games Soft', '', 4000),
+    ('spribe', 'Spribe Turbo Games (Aviator)', '', 4000)
+ON CONFLICT (id) DO NOTHING;
 
 INSERT INTO users (id, username, operator_id, currency, status)
 VALUES 
