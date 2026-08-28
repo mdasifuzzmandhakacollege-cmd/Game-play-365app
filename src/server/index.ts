@@ -9,7 +9,8 @@ import path from 'path';
 import fs from 'fs';
 import { fileURLToPath } from 'url';
 import { validateHmacSignature, AuthenticatedRequest } from './middleware/hmac';
-import { SeamlessWalletService, IDbPool } from './services/walletService';
+import { PostgresLedgerPool } from './ledger/db';
+import { WalletLedgerService } from './ledger/walletLedgerService';
 import { SeamlessWalletController } from './controllers/seamlessWalletController';
 import { paymentController } from './controllers/paymentController';
 import { paymentGatewayController } from './controllers/paymentGatewayController';
@@ -24,7 +25,7 @@ const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
 
 const app = express();
-const PORT = Number(process.env.PORT) || 8080;
+const PORT = Number(process.env.PORT) || 3000;
 const HOST = '0.0.0.0';
 
 // ----------------------------------------------------------------------------
@@ -40,25 +41,15 @@ app.use(
 );
 
 // ----------------------------------------------------------------------------
-// 2. Database Connection Pool Mock / Real PG Client setup
-// In production, instantiate `new pg.Pool({ connectionString: process.env.DATABASE_URL })`
+// 2. Production PostgreSQL Connection Pool & Wallet Ledger Service
+// Connected to PostgreSQL via process.env.DATABASE_URL
 // ----------------------------------------------------------------------------
-const dbPoolMock: IDbPool = {
-  connect: async () => ({
-    query: async (sql: string, params?: any[]) => ({ rows: [], rowCount: 0 }),
-    release: () => {}
-  }),
-  query: async (sql: string, params?: any[]) => ({ rows: [], rowCount: 0 })
-};
+export const postgresLedgerPool = new PostgresLedgerPool(process.env.DATABASE_URL);
+export const walletLedgerService = new WalletLedgerService(postgresLedgerPool);
+export const walletController = new SeamlessWalletController(walletLedgerService);
 
 // ----------------------------------------------------------------------------
-// 3. Dependency Injection & Service / Controller Instantiation
-// ----------------------------------------------------------------------------
-const walletService = new SeamlessWalletService(dbPoolMock);
-const walletController = new SeamlessWalletController(walletService);
-
-// ----------------------------------------------------------------------------
-// 4. B2B Seamless Wallet Routes (Protected by HMAC Validation Middleware)
+// 3. B2B Seamless Wallet Routes (Protected by HMAC Validation Middleware)
 // ----------------------------------------------------------------------------
 const seamlessRouter = express.Router();
 seamlessRouter.use(validateHmacSignature);
@@ -128,18 +119,59 @@ app.get(['/health', '/api/health', '/_health'], (_req: Request, res: Response) =
 });
 
 // ----------------------------------------------------------------------------
-// 8. Serve Static Frontend Bundle (dist directory) in Production
+// 8. Serve Static Frontend Bundle (dist directory) in Production & SPA Fallback
 // ----------------------------------------------------------------------------
-const distPath = path.resolve(process.cwd(), 'dist');
-if (fs.existsSync(distPath)) {
-  app.use(express.static(distPath));
-  app.get('*', (req: Request, res: Response) => {
-    if (req.path.startsWith('/api')) {
-      return res.status(404).json({ code: 'NOT_FOUND', message: 'API route not found' });
-    }
-    res.sendFile(path.join(distPath, 'index.html'));
-  });
-}
+const candidateDistPaths = [
+  path.resolve(process.cwd(), 'dist'),
+  path.resolve(__dirname, 'dist'),
+  path.resolve(__dirname, '../dist')
+];
+
+const resolvedDistPath = candidateDistPaths.find(p => fs.existsSync(path.join(p, 'index.html'))) || candidateDistPaths[0];
+
+// Static asset handler with cache control
+app.use(express.static(resolvedDistPath, {
+  index: false, // Handle index via SPA fallback for consistent routing
+  maxAge: '1h'
+}));
+
+// SPA Fallback: Route all non-API GET requests to dist/index.html
+app.get('*', (req: Request, res: Response) => {
+  if (req.path.startsWith('/api') || req.path.startsWith('/health') || req.path.startsWith('/_health')) {
+    return res.status(404).json({ code: 'NOT_FOUND', message: `API route '${req.path}' not found` });
+  }
+
+  const indexPath = path.join(resolvedDistPath, 'index.html');
+  if (fs.existsSync(indexPath)) {
+    res.setHeader('Content-Type', 'text/html; charset=UTF-8');
+    return res.sendFile(indexPath);
+  }
+
+  // Graceful fallback if dist/index.html is missing
+  res.setHeader('Content-Type', 'text/html; charset=UTF-8');
+  return res.status(200).send(`<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8"/>
+    <meta name="viewport" content="width=device-width, initial-scale=1"/>
+    <title>PLAY369 | Seamless Core</title>
+    <style>
+      body { background: #02180e; color: #e2e8f0; font-family: sans-serif; display: flex; align-items: center; justify-content: center; height: 100vh; margin: 0; }
+      .loader { text-align: center; }
+      .spinner { width: 40px; height: 40px; border: 4px solid #10b98133; border-top-color: #10b981; border-radius: 50%; animation: spin 1s linear infinite; margin: 0 auto 16px; }
+      @keyframes spin { to { transform: rotate(360deg); } }
+    </style>
+  </head>
+  <body>
+    <div class="loader">
+      <div class="spinner"></div>
+      <h2>Initializing PLAY369 Application...</h2>
+      <p>Frontend assets are readying. Reloading...</p>
+    </div>
+    <script>setTimeout(() => window.location.reload(), 1500);</script>
+  </body>
+</html>`);
+});
 
 // Global Error Handler
 app.use((err: any, _req: Request, res: Response, _next: NextFunction) => {
@@ -151,7 +183,7 @@ app.use((err: any, _req: Request, res: Response, _next: NextFunction) => {
   });
 });
 
-if (process.env.NODE_ENV !== 'test') {
+if (process.env.NODE_ENV !== 'test' && process.env.VITEST !== 'true' && process.env.DISABLE_SERVER_LISTEN !== 'true') {
   const server = app.listen(PORT, HOST, () => {
     console.log(`[Seamless Wallet Core] Server successfully listening on http://${HOST}:${PORT} (PORT=${PORT})`);
   });

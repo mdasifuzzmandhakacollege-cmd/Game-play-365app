@@ -8,6 +8,7 @@
  * - Supports PostgreSQL row-level locking semantics (SELECT ... FOR UPDATE).
  */
 
+import pg from 'pg';
 import { maskSensitiveData } from '../gateway/masking';
 
 export interface IDbResult<T = any> {
@@ -23,6 +24,62 @@ export interface ILedgerDbClient {
 export interface ILedgerDbPool {
   connect(): Promise<ILedgerDbClient>;
   query<T = any>(sql: string, params?: any[]): Promise<IDbResult<T>>;
+}
+
+/**
+ * Production-Grade PostgreSQL Connection Pool for Wallet Ledger.
+ * Uses real pg.Pool connecting via DATABASE_URL or PoolConfig with robust connection lifecycle.
+ */
+export class PostgresLedgerPool implements ILedgerDbPool {
+  private pool: pg.Pool;
+
+  constructor(connectionStringOrConfig?: string | pg.PoolConfig) {
+    if (typeof connectionStringOrConfig === 'string') {
+      this.pool = new pg.Pool({ connectionString: connectionStringOrConfig });
+    } else if (connectionStringOrConfig) {
+      this.pool = new pg.Pool(connectionStringOrConfig);
+    } else {
+      this.pool = new pg.Pool({
+        connectionString: process.env.DATABASE_URL
+      });
+    }
+
+    this.pool.on('error', (err) => {
+      console.error('[PostgresLedgerPool] Unexpected idle client error:', err);
+    });
+  }
+
+  public async connect(): Promise<ILedgerDbClient> {
+    const client = await this.pool.connect();
+    return {
+      query: async <T = any>(sql: string, params?: any[]): Promise<IDbResult<T>> => {
+        const result = await client.query(sql, params);
+        return {
+          rows: result.rows as T[],
+          rowCount: result.rowCount ?? result.rows.length
+        };
+      },
+      release: () => {
+        client.release();
+      }
+    };
+  }
+
+  public async query<T = any>(sql: string, params?: any[]): Promise<IDbResult<T>> {
+    const result = await this.pool.query(sql, params);
+    return {
+      rows: result.rows as T[],
+      rowCount: result.rowCount ?? result.rows.length
+    };
+  }
+
+  public async end(): Promise<void> {
+    await this.pool.end();
+  }
+
+  public getRawPool(): pg.Pool {
+    return this.pool;
+  }
 }
 
 /**

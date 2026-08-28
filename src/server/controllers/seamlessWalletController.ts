@@ -6,17 +6,23 @@
  * 3. POST /win
  * 4. POST /refund
  * 
- * Enforces strict 4-second SLA timeout response limit.
+ * Enforces strict 4-second SLA timeout response limit and delegates to verified WalletLedgerService.
  */
 
 import { Response, NextFunction } from 'express';
 import { AuthenticatedRequest } from '../middleware/hmac';
-import { SeamlessWalletService } from '../services/walletService';
+import { WalletLedgerService } from '../ledger/walletLedgerService';
 import {
-  BalanceRequest,
-  BetRequest,
-  WinRequest,
-  RefundRequest,
+  InsufficientFundsError,
+  WalletNotFoundError,
+  WalletFrozenError,
+  LedgerValidationError,
+  SupportedCurrency
+} from '../ledger/types';
+import { formatMinorUnits } from '../ledger/money';
+import {
+  BalanceResponse,
+  TransactionResponse,
   SeamlessErrorCode
 } from '../types/seamless';
 
@@ -46,10 +52,10 @@ async function withTimeout<T>(promise: Promise<T>, timeoutMs: number): Promise<T
 }
 
 export class SeamlessWalletController {
-  private walletService: SeamlessWalletService;
+  private ledgerService: WalletLedgerService;
 
-  constructor(walletService: SeamlessWalletService) {
-    this.walletService = walletService;
+  constructor(ledgerService: WalletLedgerService) {
+    this.ledgerService = ledgerService;
   }
 
   // --------------------------------------------------------------------------
@@ -58,19 +64,14 @@ export class SeamlessWalletController {
   public getBalance = async (
     req: AuthenticatedRequest,
     res: Response,
-    next: NextFunction
+    _next?: NextFunction
   ): Promise<void> => {
     const startTime = Date.now();
     try {
-      const payload: BalanceRequest = {
-        provider_id: req.providerId || req.body.provider_id,
-        user_id: req.body.user_id,
-        currency: req.body.currency,
-        game_id: req.body.game_id,
-        session_id: req.body.session_id
-      };
+      const userId = req.body.user_id;
+      const currency = req.body.currency;
 
-      if (!payload.user_id || !payload.currency) {
+      if (!userId || !currency) {
         res.status(400).json({
           code: SeamlessErrorCode.INVALID_REQUEST,
           message: "Missing mandatory fields: 'user_id' and 'currency' are required",
@@ -79,13 +80,25 @@ export class SeamlessWalletController {
         return;
       }
 
-      const result = await withTimeout(
-        this.walletService.getBalance(payload),
+      const wallet = await withTimeout(
+        this.ledgerService.getWallet(userId, currency),
         PROVIDER_SLA_TIMEOUT_MS
       );
 
+      const balanceMajor = Number(formatMinorUnits(wallet.balanceMinor, wallet.currency));
+
+      const response: BalanceResponse = {
+        code: SeamlessErrorCode.SUCCESS,
+        message: 'Balance retrieved successfully',
+        user_id: wallet.userId,
+        currency: wallet.currency,
+        balance: balanceMajor,
+        bonus_balance: 0,
+        timestamp: Date.now()
+      };
+
       res.setHeader('X-Response-Time-Ms', Date.now() - startTime);
-      res.status(200).json(result);
+      res.status(200).json(response);
     } catch (err: any) {
       this.handleError(err, res, startTime);
     }
@@ -97,46 +110,76 @@ export class SeamlessWalletController {
   public processBet = async (
     req: AuthenticatedRequest,
     res: Response,
-    next: NextFunction
+    _next?: NextFunction
   ): Promise<void> => {
     const startTime = Date.now();
     try {
-      const payload: BetRequest = {
-        provider_id: req.providerId || req.body.provider_id,
-        user_id: req.body.user_id,
-        currency: req.body.currency,
-        transaction_id: req.body.transaction_id,
-        round_id: req.body.round_id,
-        game_id: req.body.game_id,
-        amount: Number(req.body.amount),
-        session_id: req.body.session_id,
-        is_round_end: req.body.is_round_end,
-        metadata: req.body.metadata
-      };
+      const {
+        user_id,
+        currency,
+        transaction_id,
+        round_id,
+        game_id,
+        amount,
+        session_id,
+        is_round_end,
+        metadata
+      } = req.body;
 
       if (
-        !payload.user_id ||
-        !payload.currency ||
-        !payload.transaction_id ||
-        !payload.round_id ||
-        payload.amount === undefined ||
-        isNaN(payload.amount)
+        !user_id ||
+        !currency ||
+        !transaction_id ||
+        !round_id ||
+        amount === undefined ||
+        isNaN(Number(amount)) ||
+        Number(amount) <= 0
       ) {
         res.status(400).json({
           code: SeamlessErrorCode.INVALID_REQUEST,
-          message: 'Missing mandatory fields for bet transaction (user_id, currency, transaction_id, round_id, amount)',
+          message: 'Missing mandatory fields for bet transaction (user_id, currency, transaction_id, round_id, amount > 0)',
           timestamp: Date.now()
         });
         return;
       }
 
+      const correlationId = (req.headers['x-correlation-id'] as string) || `cid-${Date.now()}`;
+
       const result = await withTimeout(
-        this.walletService.processBet(payload),
+        this.ledgerService.executeTransaction({
+          userId: user_id,
+          currency,
+          transactionId: transaction_id,
+          type: 'DEBIT',
+          amountMinor: amount,
+          correlationId,
+          auditMetadata: {
+            roundId: round_id,
+            gameId: game_id,
+            sessionId: session_id,
+            isRoundEnd: is_round_end,
+            providerId: req.providerId,
+            ...(typeof metadata === 'object' && metadata !== null ? metadata : {})
+          }
+        }),
         PROVIDER_SLA_TIMEOUT_MS
       );
 
+      const response: TransactionResponse = {
+        code: SeamlessErrorCode.SUCCESS,
+        message: 'Bet processed successfully',
+        transaction_id: result.transactionId,
+        operator_transaction_id: result.ledgerEntryId,
+        round_id,
+        balance: Number(result.afterBalanceMajor),
+        bonus_balance: 0,
+        currency: result.currency,
+        timestamp: Date.now(),
+        is_idempotent: result.isIdempotent
+      };
+
       res.setHeader('X-Response-Time-Ms', Date.now() - startTime);
-      res.status(200).json(result);
+      res.status(200).json(response);
     } catch (err: any) {
       this.handleError(err, res, startTime);
     }
@@ -148,47 +191,78 @@ export class SeamlessWalletController {
   public processWin = async (
     req: AuthenticatedRequest,
     res: Response,
-    next: NextFunction
+    _next?: NextFunction
   ): Promise<void> => {
     const startTime = Date.now();
     try {
-      const payload: WinRequest = {
-        provider_id: req.providerId || req.body.provider_id,
-        user_id: req.body.user_id,
-        currency: req.body.currency,
-        transaction_id: req.body.transaction_id,
-        reference_transaction_id: req.body.reference_transaction_id,
-        round_id: req.body.round_id,
-        game_id: req.body.game_id,
-        amount: Number(req.body.amount),
-        is_round_end: req.body.is_round_end !== false,
-        jackpot_amount: req.body.jackpot_amount ? Number(req.body.jackpot_amount) : undefined,
-        metadata: req.body.metadata
-      };
+      const {
+        user_id,
+        currency,
+        transaction_id,
+        reference_transaction_id,
+        round_id,
+        game_id,
+        amount,
+        is_round_end,
+        jackpot_amount,
+        metadata
+      } = req.body;
 
       if (
-        !payload.user_id ||
-        !payload.currency ||
-        !payload.transaction_id ||
-        !payload.round_id ||
-        payload.amount === undefined ||
-        isNaN(payload.amount)
+        !user_id ||
+        !currency ||
+        !transaction_id ||
+        !round_id ||
+        amount === undefined ||
+        isNaN(Number(amount)) ||
+        Number(amount) < 0
       ) {
         res.status(400).json({
           code: SeamlessErrorCode.INVALID_REQUEST,
-          message: 'Missing mandatory fields for win payout (user_id, currency, transaction_id, round_id, amount)',
+          message: 'Missing mandatory fields for win payout (user_id, currency, transaction_id, round_id, amount >= 0)',
           timestamp: Date.now()
         });
         return;
       }
 
+      const correlationId = (req.headers['x-correlation-id'] as string) || `cid-${Date.now()}`;
+
       const result = await withTimeout(
-        this.walletService.processWin(payload),
+        this.ledgerService.executeTransaction({
+          userId: user_id,
+          currency,
+          transactionId: transaction_id,
+          referenceTransactionId: reference_transaction_id,
+          type: 'CREDIT',
+          amountMinor: amount,
+          correlationId,
+          auditMetadata: {
+            roundId: round_id,
+            gameId: game_id,
+            jackpotAmount: jackpot_amount,
+            isRoundEnd: is_round_end,
+            providerId: req.providerId,
+            ...(typeof metadata === 'object' && metadata !== null ? metadata : {})
+          }
+        }),
         PROVIDER_SLA_TIMEOUT_MS
       );
 
+      const response: TransactionResponse = {
+        code: SeamlessErrorCode.SUCCESS,
+        message: 'Win payout processed successfully',
+        transaction_id: result.transactionId,
+        operator_transaction_id: result.ledgerEntryId,
+        round_id,
+        balance: Number(result.afterBalanceMajor),
+        bonus_balance: 0,
+        currency: result.currency,
+        timestamp: Date.now(),
+        is_idempotent: result.isIdempotent
+      };
+
       res.setHeader('X-Response-Time-Ms', Date.now() - startTime);
-      res.status(200).json(result);
+      res.status(200).json(response);
     } catch (err: any) {
       this.handleError(err, res, startTime);
     }
@@ -200,45 +274,77 @@ export class SeamlessWalletController {
   public processRefund = async (
     req: AuthenticatedRequest,
     res: Response,
-    next: NextFunction
+    _next?: NextFunction
   ): Promise<void> => {
     const startTime = Date.now();
     try {
-      const payload: RefundRequest = {
-        provider_id: req.providerId || req.body.provider_id,
-        user_id: req.body.user_id,
-        currency: req.body.currency,
-        transaction_id: req.body.transaction_id,
-        reference_transaction_id: req.body.reference_transaction_id,
-        round_id: req.body.round_id,
-        game_id: req.body.game_id,
-        amount: Number(req.body.amount || 0),
-        reason: req.body.reason,
-        metadata: req.body.metadata
-      };
+      const {
+        user_id,
+        currency,
+        transaction_id,
+        reference_transaction_id,
+        round_id,
+        game_id,
+        amount,
+        reason,
+        metadata
+      } = req.body;
 
       if (
-        !payload.user_id ||
-        !payload.currency ||
-        !payload.transaction_id ||
-        !payload.reference_transaction_id ||
-        !payload.round_id
+        !user_id ||
+        !currency ||
+        !transaction_id ||
+        !reference_transaction_id ||
+        !round_id ||
+        amount === undefined ||
+        isNaN(Number(amount)) ||
+        Number(amount) <= 0
       ) {
         res.status(400).json({
           code: SeamlessErrorCode.INVALID_REQUEST,
-          message: 'Missing mandatory fields for refund (user_id, currency, transaction_id, reference_transaction_id, round_id)',
+          message: 'Missing mandatory fields for refund (user_id, currency, transaction_id, reference_transaction_id, round_id, amount > 0)',
           timestamp: Date.now()
         });
         return;
       }
 
+      const correlationId = (req.headers['x-correlation-id'] as string) || `cid-${Date.now()}`;
+
       const result = await withTimeout(
-        this.walletService.processRefund(payload),
+        this.ledgerService.executeTransaction({
+          userId: user_id,
+          currency,
+          transactionId: transaction_id,
+          referenceTransactionId: reference_transaction_id,
+          type: 'REVERSAL',
+          amountMinor: amount,
+          correlationId,
+          auditMetadata: {
+            roundId: round_id,
+            gameId: game_id,
+            reason: reason || 'PROVIDER_REFUND',
+            providerId: req.providerId,
+            ...(typeof metadata === 'object' && metadata !== null ? metadata : {})
+          }
+        }),
         PROVIDER_SLA_TIMEOUT_MS
       );
 
+      const response: TransactionResponse = {
+        code: SeamlessErrorCode.SUCCESS,
+        message: 'Refund processed successfully',
+        transaction_id: result.transactionId,
+        operator_transaction_id: result.ledgerEntryId,
+        round_id,
+        balance: Number(result.afterBalanceMajor),
+        bonus_balance: 0,
+        currency: result.currency,
+        timestamp: Date.now(),
+        is_idempotent: result.isIdempotent
+      };
+
       res.setHeader('X-Response-Time-Ms', Date.now() - startTime);
-      res.status(200).json(result);
+      res.status(200).json(response);
     } catch (err: any) {
       this.handleError(err, res, startTime);
     }
@@ -251,17 +357,41 @@ export class SeamlessWalletController {
     const latency = Date.now() - startTime;
     res.setHeader('X-Response-Time-Ms', latency);
 
-    const statusCode = err.status || 500;
-    const errorCode = err.code || SeamlessErrorCode.INTERNAL_ERROR;
-    const message = err.message || 'Internal wallet error during transaction execution';
+    let statusCode = 500;
+    let errorCode: SeamlessErrorCode = SeamlessErrorCode.INTERNAL_ERROR;
+    let message = err.message || 'Internal wallet error during transaction execution';
+    let balance: number | undefined;
+    let currency: string | undefined;
+
+    if (err instanceof InsufficientFundsError) {
+      statusCode = 422;
+      errorCode = SeamlessErrorCode.INSUFFICIENT_FUNDS;
+      currency = err.currency;
+      balance = Number(formatMinorUnits(BigInt(err.availableMinor), err.currency as SupportedCurrency));
+    } else if (err instanceof WalletNotFoundError) {
+      statusCode = 404;
+      errorCode = SeamlessErrorCode.USER_NOT_FOUND;
+    } else if (err instanceof WalletFrozenError) {
+      statusCode = 403;
+      errorCode = SeamlessErrorCode.USER_FROZEN;
+    } else if (err instanceof LedgerValidationError) {
+      statusCode = 400;
+      errorCode = SeamlessErrorCode.INVALID_REQUEST;
+    } else if (err.code === SeamlessErrorCode.TIMEOUT_EXCEEDED) {
+      statusCode = 504;
+      errorCode = SeamlessErrorCode.TIMEOUT_EXCEEDED;
+    } else if (err.code && Object.values(SeamlessErrorCode).includes(err.code)) {
+      errorCode = err.code;
+      statusCode = err.status || 400;
+    }
 
     console.error(`[SeamlessController] Error (${errorCode} - ${statusCode}):`, err);
 
     res.status(statusCode).json({
       code: errorCode,
       message,
-      balance: err.balance !== undefined ? err.balance : undefined,
-      currency: err.currency !== undefined ? err.currency : undefined,
+      balance,
+      currency,
       timestamp: Date.now()
     });
   }

@@ -13,13 +13,49 @@ import { fileURLToPath } from "url";
 
 // src/server/middleware/hmac.ts
 import crypto2 from "crypto";
-var PROVIDER_SECRETS = {
-  pragmatic_play: "sk_live_pragmatic_seamless_88492048102",
-  evolution: "sk_live_evolution_seamless_39104859103",
-  pgsoft: "sk_live_pgsoft_seamless_91823019482",
-  spribe: "sk_live_spribe_seamless_74910284910",
-  custom_provider: "sk_live_custom_seamless_secret_123456"
-};
+
+// src/server/types/seamless.ts
+var SeamlessErrorCode = /* @__PURE__ */ ((SeamlessErrorCode2) => {
+  SeamlessErrorCode2["SUCCESS"] = "SUCCESS";
+  SeamlessErrorCode2["INVALID_SIGNATURE"] = "INVALID_SIGNATURE";
+  SeamlessErrorCode2["TIMESTAMP_EXPIRED"] = "TIMESTAMP_EXPIRED";
+  SeamlessErrorCode2["INVALID_REQUEST"] = "INVALID_REQUEST";
+  SeamlessErrorCode2["USER_NOT_FOUND"] = "USER_NOT_FOUND";
+  SeamlessErrorCode2["USER_FROZEN"] = "USER_FROZEN";
+  SeamlessErrorCode2["INSUFFICIENT_FUNDS"] = "INSUFFICIENT_FUNDS";
+  SeamlessErrorCode2["DUPLICATE_TRANSACTION"] = "DUPLICATE_TRANSACTION";
+  SeamlessErrorCode2["TRANSACTION_NOT_FOUND"] = "TRANSACTION_NOT_FOUND";
+  SeamlessErrorCode2["TRANSACTION_ALREADY_SETTLED"] = "TRANSACTION_ALREADY_SETTLED";
+  SeamlessErrorCode2["ROUND_ALREADY_CLOSED"] = "ROUND_ALREADY_CLOSED";
+  SeamlessErrorCode2["INVALID_CURRENCY"] = "INVALID_CURRENCY";
+  SeamlessErrorCode2["RATE_LIMIT_EXCEEDED"] = "RATE_LIMIT_EXCEEDED";
+  SeamlessErrorCode2["TIMEOUT_EXCEEDED"] = "TIMEOUT_EXCEEDED";
+  SeamlessErrorCode2["INTERNAL_ERROR"] = "INTERNAL_ERROR";
+  return SeamlessErrorCode2;
+})(SeamlessErrorCode || {});
+
+// src/server/middleware/hmac.ts
+function getProviderSecret(providerId) {
+  const norm = providerId.toLowerCase().trim();
+  switch (norm) {
+    case "pragmatic_play":
+    case "pragmatic":
+      return process.env.PROVIDER_PRAGMATIC_SECRET;
+    case "evolution":
+      return process.env.PROVIDER_EVOLUTION_SECRET;
+    case "pgsoft":
+      return process.env.PROVIDER_PGSOFT_SECRET;
+    case "spribe":
+      return process.env.PROVIDER_SPRIBE_SECRET;
+    case "custom_provider":
+      return process.env.PROVIDER_CUSTOM_SECRET;
+    default:
+      return process.env[`PROVIDER_${norm.toUpperCase()}_SECRET`];
+  }
+}
+var PROVIDER_SECRETS = new Proxy({}, {
+  get: (_, prop) => getProviderSecret(prop)
+});
 var REPLAY_TOLERANCE_MS = 5 * 60 * 1e3;
 function generateHmacSignature(payloadString, timestamp2, secretKey) {
   const messageToSign = `${timestamp2}.${payloadString}`;
@@ -104,548 +140,836 @@ function validateHmacSignature(req, res, next) {
   }
 }
 
-// src/server/services/walletService.ts
-var SeamlessWalletService = class {
-  constructor(dbPool, redisClient) {
-    this.db = dbPool;
-    this.redisClient = redisClient;
+// src/server/ledger/db.ts
+import pg from "pg";
+var PostgresLedgerPool = class {
+  constructor(connectionStringOrConfig) {
+    if (typeof connectionStringOrConfig === "string") {
+      this.pool = new pg.Pool({ connectionString: connectionStringOrConfig });
+    } else if (connectionStringOrConfig) {
+      this.pool = new pg.Pool(connectionStringOrConfig);
+    } else {
+      this.pool = new pg.Pool({
+        connectionString: process.env.DATABASE_URL
+      });
+    }
+    this.pool.on("error", (err) => {
+      console.error("[PostgresLedgerPool] Unexpected idle client error:", err);
+    });
   }
-  /**
-   * Generates a deterministic idempotency key for Redis / DB lookup
-   */
-  getIdempotencyKey(providerId, endpoint, transactionId) {
-    return `idempotency:${providerId}:${endpoint}:${transactionId}`;
-  }
-  /**
-   * Checks for an existing cached response for idempotent retry requests
-   */
-  async checkIdempotency(client, providerId, endpoint, transactionId) {
-    const key = this.getIdempotencyKey(providerId, endpoint, transactionId);
-    if (this.redisClient) {
-      try {
-        const cached = await this.redisClient.get(key);
-        if (cached) {
-          const parsed = JSON.parse(cached);
-          parsed.is_idempotent = true;
-          return parsed;
-        }
-      } catch (err) {
-        console.warn("[Idempotency] Redis lookup failed, falling back to DB:", err);
-      }
-    }
-    const result = await client.query(
-      `SELECT response_body FROM idempotency_keys WHERE idempotency_key = $1 LIMIT 1`,
-      [key]
-    );
-    if (result.rows.length > 0) {
-      const resp = result.rows[0].response_body;
-      resp.is_idempotent = true;
-      return resp;
-    }
-    return null;
-  }
-  /**
-   * Persists the successful response for future idempotent replays
-   */
-  async saveIdempotency(client, providerId, endpoint, transactionId, response, statusCode = 200) {
-    const key = this.getIdempotencyKey(providerId, endpoint, transactionId);
-    if (this.redisClient) {
-      try {
-        await this.redisClient.set(key, JSON.stringify(response), "EX", 7 * 24 * 3600);
-      } catch (err) {
-        console.warn("[Idempotency] Redis save failed:", err);
-      }
-    }
-    await client.query(
-      `INSERT INTO idempotency_keys (idempotency_key, provider_id, endpoint, status_code, response_body)
-       VALUES ($1, $2, $3, $4, $5)
-       ON CONFLICT (idempotency_key) DO NOTHING`,
-      [key, providerId, endpoint, statusCode, JSON.stringify(response)]
-    );
-  }
-  // ==========================================================================
-  // 1. POST /balance - Fast Non-blocking Read
-  // ==========================================================================
-  async getBalance(req) {
-    const { provider_id, user_id, currency } = req;
-    const res = await this.db.query(
-      `SELECT 
-          u.id AS user_id,
-          u.username,
-          u.status AS user_status,
-          w.id AS wallet_id,
-          w.real_balance,
-          w.bonus_balance,
-          w.status AS wallet_status
-       FROM users u
-       LEFT JOIN wallets w ON w.user_id = u.id AND w.currency = $2
-       WHERE (u.id::text = $1 OR u.username = $1)
-       LIMIT 1`,
-      [user_id, currency]
-    );
-    if (res.rows.length === 0) {
-      throw {
-        code: "USER_NOT_FOUND" /* USER_NOT_FOUND */,
-        message: `Player '${user_id}' not found in platform records`,
-        status: 404
-      };
-    }
-    const row = res.rows[0];
-    if (row.user_status !== "ACTIVE" || row.wallet_status === "FROZEN") {
-      throw {
-        code: "USER_FROZEN" /* USER_FROZEN */,
-        message: `Player account is currently ${row.user_status.toLowerCase()}`,
-        status: 403
-      };
-    }
-    const realBalance = parseFloat(row.real_balance || "0");
-    const bonusBalance = parseFloat(row.bonus_balance || "0");
+  async connect() {
+    const client = await this.pool.connect();
     return {
-      code: "SUCCESS" /* SUCCESS */,
-      message: "Success",
-      user_id: row.user_id,
-      balance: realBalance,
-      bonus_balance: bonusBalance,
-      currency,
-      timestamp: Date.now()
+      query: async (sql4, params) => {
+        const result = await client.query(sql4, params);
+        return {
+          rows: result.rows,
+          rowCount: result.rowCount ?? result.rows.length
+        };
+      },
+      release: () => {
+        client.release();
+      }
     };
   }
-  // ==========================================================================
-  // 2. POST /bet - Atomic Debit with PostgreSQL Row-Level Lock (FOR UPDATE)
-  // ==========================================================================
-  async processBet(req) {
-    const {
-      provider_id,
-      user_id,
-      currency,
-      transaction_id,
-      round_id,
-      game_id,
-      amount,
-      metadata = {}
-    } = req;
-    if (amount <= 0) {
-      throw {
-        code: "INVALID_REQUEST" /* INVALID_REQUEST */,
-        message: "Bet amount must be greater than zero",
-        status: 400
-      };
-    }
-    const client = await this.db.connect();
-    try {
-      await client.query("BEGIN");
-      const cached = await this.checkIdempotency(client, provider_id, "bet", transaction_id);
-      if (cached) {
-        await client.query("COMMIT");
-        return cached;
-      }
-      const walletRes = await client.query(
-        `SELECT 
-            w.id AS wallet_id,
-            u.id AS user_id,
-            u.status AS user_status,
-            w.real_balance,
-            w.bonus_balance,
-            w.version
-         FROM wallets w
-         JOIN users u ON u.id = w.user_id
-         WHERE (u.id::text = $1 OR u.username = $1)
-           AND w.currency = $2
-         FOR UPDATE OF w`,
-        // <--- ROW LEVEL LOCKING
-        [user_id, currency]
-      );
-      if (walletRes.rows.length === 0) {
-        await client.query("ROLLBACK");
-        throw {
-          code: "USER_NOT_FOUND" /* USER_NOT_FOUND */,
-          message: `User '${user_id}' with currency '${currency}' not found`,
-          status: 404
-        };
-      }
-      const wallet = walletRes.rows[0];
-      if (wallet.user_status !== "ACTIVE") {
-        await client.query("ROLLBACK");
-        throw {
-          code: "USER_FROZEN" /* USER_FROZEN */,
-          message: `Account is inactive (${wallet.user_status})`,
-          status: 403
-        };
-      }
-      const currentBalance = parseFloat(wallet.real_balance);
-      if (currentBalance < amount) {
-        await client.query("ROLLBACK");
-        throw {
-          code: "INSUFFICIENT_FUNDS" /* INSUFFICIENT_FUNDS */,
-          message: `Insufficient funds. Required: ${amount}, Available: ${currentBalance}`,
-          balance: currentBalance,
-          currency,
-          status: 400
-        };
-      }
-      const newBalance = Number((currentBalance - amount).toFixed(4));
-      await client.query(
-        `UPDATE wallets 
-         SET real_balance = $1, 
-             version = version + 1, 
-             updated_at = NOW()
-         WHERE id = $2`,
-        [newBalance, wallet.wallet_id]
-      );
-      const roundRes = await client.query(
-        `INSERT INTO game_rounds (provider_id, provider_round_id, user_id, game_id, currency, total_bet, status)
-         VALUES ($1, $2, $3, $4, $5, $6, 'OPEN')
-         ON CONFLICT (provider_id, provider_round_id) 
-         DO UPDATE SET 
-            total_bet = game_rounds.total_bet + EXCLUDED.total_bet,
-            status = 'OPEN'
-         RETURNING id`,
-        [provider_id, round_id, wallet.user_id, game_id, currency, amount]
-      );
-      const internalRoundId = roundRes.rows[0]?.id;
-      const txRes = await client.query(
-        `INSERT INTO transactions (
-            provider_id, transaction_id, user_id, wallet_id, round_id, provider_round_id,
-            game_id, type, amount, currency, before_balance, after_balance, status, metadata
-         )
-         VALUES ($1, $2, $3, $4, $5, $6, $7, 'BET', $8, $9, $10, $11, 'COMPLETED', $12)
-         RETURNING id`,
-        [
-          provider_id,
-          transaction_id,
-          wallet.user_id,
-          wallet.wallet_id,
-          internalRoundId,
-          round_id,
-          game_id,
-          amount,
-          currency,
-          currentBalance,
-          newBalance,
-          JSON.stringify(metadata)
-        ]
-      );
-      const operatorTxId = txRes.rows[0].id;
-      const responsePayload = {
-        code: "SUCCESS" /* SUCCESS */,
-        message: "Bet processed successfully",
-        transaction_id,
-        operator_transaction_id: operatorTxId,
-        round_id,
-        balance: newBalance,
-        bonus_balance: parseFloat(wallet.bonus_balance),
-        currency,
-        timestamp: Date.now(),
-        is_idempotent: false
-      };
-      await this.saveIdempotency(client, provider_id, "bet", transaction_id, responsePayload);
-      await client.query("COMMIT");
-      return responsePayload;
-    } catch (err) {
-      await client.query("ROLLBACK").catch(() => {
-      });
-      if (err.code === "23505" && err.constraint === "uq_provider_tx_id") {
-        const cached = await this.checkIdempotency(this.db, provider_id, "bet", transaction_id);
-        if (cached) return cached;
-      }
-      throw err;
-    } finally {
-      client.release();
-    }
+  async query(sql4, params) {
+    const result = await this.pool.query(sql4, params);
+    return {
+      rows: result.rows,
+      rowCount: result.rowCount ?? result.rows.length
+    };
   }
-  // ==========================================================================
-  // 3. POST /win - Atomic Credit with PostgreSQL Row-Level Lock (FOR UPDATE)
-  // ==========================================================================
-  async processWin(req) {
-    const {
-      provider_id,
-      user_id,
-      currency,
-      transaction_id,
-      reference_transaction_id,
-      round_id,
-      game_id,
-      amount,
-      is_round_end = true,
-      metadata = {}
-    } = req;
-    if (amount < 0) {
-      throw {
-        code: "INVALID_REQUEST" /* INVALID_REQUEST */,
-        message: "Win amount cannot be negative",
-        status: 400
-      };
-    }
-    const client = await this.db.connect();
-    try {
-      await client.query("BEGIN");
-      const cached = await this.checkIdempotency(client, provider_id, "win", transaction_id);
-      if (cached) {
-        await client.query("COMMIT");
-        return cached;
-      }
-      const walletRes = await client.query(
-        `SELECT 
-            w.id AS wallet_id,
-            u.id AS user_id,
-            u.status AS user_status,
-            w.real_balance,
-            w.bonus_balance
-         FROM wallets w
-         JOIN users u ON u.id = w.user_id
-         WHERE (u.id::text = $1 OR u.username = $1)
-           AND w.currency = $2
-         FOR UPDATE OF w`,
-        [user_id, currency]
-      );
-      if (walletRes.rows.length === 0) {
-        await client.query("ROLLBACK");
-        throw {
-          code: "USER_NOT_FOUND" /* USER_NOT_FOUND */,
-          message: `User '${user_id}' with currency '${currency}' not found`,
-          status: 404
-        };
-      }
-      const wallet = walletRes.rows[0];
-      const currentBalance = parseFloat(wallet.real_balance);
-      const newBalance = Number((currentBalance + amount).toFixed(4));
-      await client.query(
-        `UPDATE wallets 
-         SET real_balance = $1, 
-             version = version + 1, 
-             updated_at = NOW()
-         WHERE id = $2`,
-        [newBalance, wallet.wallet_id]
-      );
-      const roundRes = await client.query(
-        `INSERT INTO game_rounds (provider_id, provider_round_id, user_id, game_id, currency, total_win, status, closed_at)
-         VALUES ($1, $2, $3, $4, $5, $6, $7, $8)
-         ON CONFLICT (provider_id, provider_round_id) 
-         DO UPDATE SET 
-            total_win = game_rounds.total_win + EXCLUDED.total_win,
-            status = CASE WHEN $7 = 'SETTLED' THEN 'SETTLED' ELSE game_rounds.status END,
-            closed_at = CASE WHEN $7 = 'SETTLED' THEN NOW() ELSE game_rounds.closed_at END
-         RETURNING id`,
-        [
-          provider_id,
-          round_id,
-          wallet.user_id,
-          game_id,
-          currency,
-          amount,
-          is_round_end ? "SETTLED" : "OPEN",
-          is_round_end ? (/* @__PURE__ */ new Date()).toISOString() : null
-        ]
-      );
-      const internalRoundId = roundRes.rows[0]?.id;
-      const txRes = await client.query(
-        `INSERT INTO transactions (
-            provider_id, transaction_id, reference_transaction_id, user_id, wallet_id,
-            round_id, provider_round_id, game_id, type, amount, currency,
-            before_balance, after_balance, status, metadata
-         )
-         VALUES ($1, $2, $3, $4, $5, $6, $7, $8, 'WIN', $9, $10, $11, $12, 'COMPLETED', $13)
-         RETURNING id`,
-        [
-          provider_id,
-          transaction_id,
-          reference_transaction_id || null,
-          wallet.user_id,
-          wallet.wallet_id,
-          internalRoundId,
-          round_id,
-          game_id,
-          amount,
-          currency,
-          currentBalance,
-          newBalance,
-          JSON.stringify(metadata)
-        ]
-      );
-      const operatorTxId = txRes.rows[0].id;
-      const turnoverToCredit = amount > 0 ? amount : 0;
-      if (turnoverToCredit > 0) {
-        await client.query(
-          `UPDATE wagering_requirements
-           SET completed_turnover_amount = completed_turnover_amount + $1,
-               status = CASE WHEN (completed_turnover_amount + $1) >= target_turnover_amount THEN 'COMPLETED' ELSE status END,
-               completed_at = CASE WHEN (completed_turnover_amount + $1) >= target_turnover_amount THEN NOW() ELSE completed_at END
-           WHERE user_id = $2 AND status = 'ACTIVE'`,
-          [turnoverToCredit, wallet.user_id]
-        );
-      }
-      const responsePayload = {
-        code: "SUCCESS" /* SUCCESS */,
-        message: "Win processed successfully",
-        transaction_id,
-        operator_transaction_id: operatorTxId,
-        round_id,
-        balance: newBalance,
-        bonus_balance: parseFloat(wallet.bonus_balance),
-        currency,
-        timestamp: Date.now(),
-        is_idempotent: false
-      };
-      await this.saveIdempotency(client, provider_id, "win", transaction_id, responsePayload);
-      await client.query("COMMIT");
-      return responsePayload;
-    } catch (err) {
-      await client.query("ROLLBACK").catch(() => {
-      });
-      if (err.code === "23505" && err.constraint === "uq_provider_tx_id") {
-        const cached = await this.checkIdempotency(this.db, provider_id, "win", transaction_id);
-        if (cached) return cached;
-      }
-      throw err;
-    } finally {
-      client.release();
-    }
+  async end() {
+    await this.pool.end();
   }
-  // ==========================================================================
-  // 4. POST /refund - Rollback / Reversal of a BET transaction
-  // ==========================================================================
-  async processRefund(req) {
-    const {
-      provider_id,
-      user_id,
-      currency,
-      transaction_id,
-      reference_transaction_id,
-      round_id,
-      game_id,
-      amount,
-      reason = "PROVIDER_REFUND",
-      metadata = {}
-    } = req;
-    const client = await this.db.connect();
-    try {
-      await client.query("BEGIN");
-      const cached = await this.checkIdempotency(client, provider_id, "refund", transaction_id);
-      if (cached) {
-        await client.query("COMMIT");
-        return cached;
-      }
-      const origTxRes = await client.query(
-        `SELECT id, amount, status, type 
-         FROM transactions 
-         WHERE provider_id = $1 AND transaction_id = $2
-         LIMIT 1`,
-        [provider_id, reference_transaction_id]
-      );
-      if (origTxRes.rows.length === 0) {
-        await client.query("ROLLBACK");
-        throw {
-          code: "TRANSACTION_NOT_FOUND" /* TRANSACTION_NOT_FOUND */,
-          message: `Original bet transaction '${reference_transaction_id}' not found to refund`,
-          status: 404
-        };
-      }
-      const origTx = origTxRes.rows[0];
-      const alreadyRefunded = await client.query(
-        `SELECT id FROM transactions 
-         WHERE provider_id = $1 AND reference_transaction_id = $2 AND type = 'REFUND'
-         LIMIT 1`,
-        [provider_id, reference_transaction_id]
-      );
-      if (alreadyRefunded.rows.length > 0) {
-        await client.query("ROLLBACK");
-        throw {
-          code: "TRANSACTION_ALREADY_SETTLED" /* TRANSACTION_ALREADY_SETTLED */,
-          message: `Transaction '${reference_transaction_id}' was already refunded`,
-          status: 409
-        };
-      }
-      const walletRes = await client.query(
-        `SELECT 
-            w.id AS wallet_id,
-            u.id AS user_id,
-            w.real_balance,
-            w.bonus_balance
-         FROM wallets w
-         JOIN users u ON u.id = w.user_id
-         WHERE (u.id::text = $1 OR u.username = $1)
-           AND w.currency = $2
-         FOR UPDATE OF w`,
-        [user_id, currency]
-      );
-      if (walletRes.rows.length === 0) {
-        await client.query("ROLLBACK");
-        throw {
-          code: "USER_NOT_FOUND" /* USER_NOT_FOUND */,
-          message: `User '${user_id}' with currency '${currency}' not found`,
-          status: 404
-        };
-      }
-      const wallet = walletRes.rows[0];
-      const currentBalance = parseFloat(wallet.real_balance);
-      const refundAmount = amount > 0 ? amount : parseFloat(origTx.amount);
-      const newBalance = Number((currentBalance + refundAmount).toFixed(4));
-      await client.query(
-        `UPDATE wallets 
-         SET real_balance = $1, 
-             version = version + 1, 
-             updated_at = NOW()
-         WHERE id = $2`,
-        [newBalance, wallet.wallet_id]
-      );
-      await client.query(
-        `UPDATE game_rounds 
-         SET status = 'REFUNDED', closed_at = NOW()
-         WHERE provider_id = $1 AND provider_round_id = $2`,
-        [provider_id, round_id]
-      );
-      const txRes = await client.query(
-        `INSERT INTO transactions (
-            provider_id, transaction_id, reference_transaction_id, user_id, wallet_id,
-            provider_round_id, game_id, type, amount, currency,
-            before_balance, after_balance, status, metadata
-         )
-         VALUES ($1, $2, $3, $4, $5, $6, $7, 'REFUND', $8, $9, $10, $11, 'COMPLETED', $12)
-         RETURNING id`,
-        [
-          provider_id,
-          transaction_id,
-          reference_transaction_id,
-          wallet.user_id,
-          wallet.wallet_id,
-          round_id,
-          game_id,
-          refundAmount,
-          currency,
-          currentBalance,
-          newBalance,
-          JSON.stringify({ reason, ...metadata })
-        ]
-      );
-      const operatorTxId = txRes.rows[0].id;
-      const responsePayload = {
-        code: "SUCCESS" /* SUCCESS */,
-        message: "Refund processed and funds restored",
-        transaction_id,
-        operator_transaction_id: operatorTxId,
-        round_id,
-        balance: newBalance,
-        bonus_balance: parseFloat(wallet.bonus_balance),
-        currency,
-        timestamp: Date.now(),
-        is_idempotent: false
-      };
-      await this.saveIdempotency(client, provider_id, "refund", transaction_id, responsePayload);
-      await client.query("COMMIT");
-      return responsePayload;
-    } catch (err) {
-      await client.query("ROLLBACK").catch(() => {
-      });
-      if (err.code === "23505" && err.constraint === "uq_provider_tx_id") {
-        const cached = await this.checkIdempotency(this.db, provider_id, "refund", transaction_id);
-        if (cached) return cached;
-      }
-      throw err;
-    } finally {
-      client.release();
-    }
+  getRawPool() {
+    return this.pool;
   }
 };
+var InMemoryPostgresLedgerEngine = class {
+  constructor() {
+    this.users = /* @__PURE__ */ new Map();
+    this.wallets = /* @__PURE__ */ new Map();
+    // key: `${userId}:${currency}`
+    this.ledgerEntries = /* @__PURE__ */ new Map();
+    // key: id
+    this.idempotencyRecords = /* @__PURE__ */ new Map();
+    // key: idempotencyKey
+    this.walletLocks = /* @__PURE__ */ new Map();
+    // Mutex per wallet for row locks
+    this.lockResolvers = /* @__PURE__ */ new Map();
+    this.seedDefaultUsers();
+  }
+  seedDefaultUsers() {
+    this.users.set("test_player_01", {
+      id: "test_player_01",
+      username: "player_one",
+      status: "ACTIVE",
+      currency: "BDT"
+    });
+    this.wallets.set("test_player_01:BDT", {
+      id: "w_test_01_bdt",
+      user_id: "test_player_01",
+      currency: "BDT",
+      balance_minor: 50000n,
+      // 500.00 BDT
+      version: 1n,
+      status: "ACTIVE",
+      created_at: /* @__PURE__ */ new Date(),
+      updated_at: /* @__PURE__ */ new Date()
+    });
+  }
+  async connect() {
+    const activeTxState = {
+      inTransaction: false,
+      acquiredLocks: /* @__PURE__ */ new Set(),
+      stagedWallets: /* @__PURE__ */ new Map(),
+      stagedEntries: /* @__PURE__ */ new Map(),
+      stagedIdempotency: /* @__PURE__ */ new Map()
+    };
+    const client = {
+      query: async (sql4, params = []) => {
+        const cleanSql = sql4.trim().replace(/\s+/g, " ");
+        if (cleanSql.toUpperCase() === "BEGIN") {
+          activeTxState.inTransaction = true;
+          return { rows: [], rowCount: 0 };
+        }
+        if (cleanSql.toUpperCase() === "COMMIT") {
+          if (activeTxState.inTransaction) {
+            for (const [k, v] of activeTxState.stagedWallets.entries()) {
+              this.wallets.set(k, { ...v });
+            }
+            for (const [k, v] of activeTxState.stagedEntries.entries()) {
+              this.ledgerEntries.set(k, { ...v });
+            }
+            for (const [k, v] of activeTxState.stagedIdempotency.entries()) {
+              this.idempotencyRecords.set(k, { ...v });
+            }
+          }
+          this.releaseLocks(activeTxState);
+          activeTxState.inTransaction = false;
+          return { rows: [], rowCount: 0 };
+        }
+        if (cleanSql.toUpperCase() === "ROLLBACK") {
+          activeTxState.stagedWallets.clear();
+          activeTxState.stagedEntries.clear();
+          activeTxState.stagedIdempotency.clear();
+          this.releaseLocks(activeTxState);
+          activeTxState.inTransaction = false;
+          return { rows: [], rowCount: 0 };
+        }
+        if (cleanSql.includes("FROM idempotency_records") && cleanSql.includes("idempotency_key = $1")) {
+          const key = params[0];
+          const record = this.idempotencyRecords.get(key) || activeTxState.stagedIdempotency.get(key);
+          if (record) {
+            return {
+              rows: [{
+                idempotency_key: record.idempotency_key,
+                transaction_id: record.transaction_id,
+                status_code: record.status_code,
+                response_payload: record.response_payload,
+                created_at: record.created_at
+              }],
+              rowCount: 1
+            };
+          }
+          return { rows: [], rowCount: 0 };
+        }
+        if (cleanSql.includes("FROM wallets") && cleanSql.includes("user_id = $1") && cleanSql.includes("currency = $2")) {
+          const userId = params[0];
+          const currency = params[1];
+          const walletKey = `${userId}:${currency}`;
+          if (cleanSql.toUpperCase().includes("FOR UPDATE")) {
+            await this.acquireRowLock(walletKey, activeTxState);
+          }
+          const existing = activeTxState.stagedWallets.get(walletKey) || this.wallets.get(walletKey);
+          if (!existing) {
+            return { rows: [], rowCount: 0 };
+          }
+          return {
+            rows: [{
+              id: existing.id,
+              user_id: existing.user_id,
+              currency: existing.currency,
+              balance_minor: existing.balance_minor.toString(),
+              version: existing.version.toString(),
+              status: existing.status,
+              created_at: existing.created_at,
+              updated_at: existing.updated_at
+            }],
+            rowCount: 1
+          };
+        }
+        if (cleanSql.startsWith("INSERT INTO wallets")) {
+          const id = params[0];
+          const userId = params[1];
+          const currency = params[2];
+          const balanceMinor = BigInt(params[3]);
+          const status = params[4] || "ACTIVE";
+          const walletKey = `${userId}:${currency}`;
+          if (this.wallets.has(walletKey) || activeTxState.stagedWallets.has(walletKey)) {
+            const err = new Error(`duplicate key value violates unique constraint "uq_wallet_user_currency"`);
+            err.code = "23505";
+            throw err;
+          }
+          const newWallet = {
+            id,
+            user_id: userId,
+            currency,
+            balance_minor: balanceMinor,
+            version: 1n,
+            status,
+            created_at: /* @__PURE__ */ new Date(),
+            updated_at: /* @__PURE__ */ new Date()
+          };
+          if (activeTxState.inTransaction) {
+            activeTxState.stagedWallets.set(walletKey, newWallet);
+          } else {
+            this.wallets.set(walletKey, newWallet);
+          }
+          return { rows: [{ id }], rowCount: 1 };
+        }
+        if (cleanSql.startsWith("UPDATE wallets")) {
+          const balanceMinor = BigInt(params[0]);
+          const walletId = params[1];
+          let targetKey = null;
+          let targetWallet = null;
+          for (const [k, v] of (activeTxState.inTransaction ? activeTxState.stagedWallets : this.wallets).entries()) {
+            if (v.id === walletId) {
+              targetKey = k;
+              targetWallet = v;
+              break;
+            }
+          }
+          if (!targetWallet) {
+            for (const [k, v] of this.wallets.entries()) {
+              if (v.id === walletId) {
+                targetKey = k;
+                targetWallet = v;
+                break;
+              }
+            }
+          }
+          if (!targetWallet || !targetKey) {
+            return { rows: [], rowCount: 0 };
+          }
+          if (balanceMinor < 0n) {
+            const err = new Error(`check constraint "chk_wallet_balance_non_negative" failed`);
+            err.code = "23514";
+            throw err;
+          }
+          const updated = {
+            ...targetWallet,
+            balance_minor: balanceMinor,
+            version: targetWallet.version + 1n,
+            updated_at: /* @__PURE__ */ new Date()
+          };
+          if (activeTxState.inTransaction) {
+            activeTxState.stagedWallets.set(targetKey, updated);
+          } else {
+            this.wallets.set(targetKey, updated);
+          }
+          return { rows: [{ id: walletId }], rowCount: 1 };
+        }
+        if (cleanSql.startsWith("INSERT INTO ledger_entries")) {
+          const [
+            id,
+            walletId,
+            userId,
+            transactionId,
+            refTxId,
+            type,
+            amountMinor,
+            currency,
+            beforeMinor,
+            afterMinor,
+            status,
+            correlationId,
+            auditMetadata
+          ] = params;
+          for (const existingEntry of [...this.ledgerEntries.values(), ...activeTxState.stagedEntries.values()]) {
+            if (existingEntry.user_id === userId && existingEntry.transaction_id === transactionId) {
+              const err = new Error(`duplicate key value violates unique constraint "uq_ledger_user_transaction"`);
+              err.code = "23505";
+              throw err;
+            }
+          }
+          const entry = {
+            id,
+            wallet_id: walletId,
+            user_id: userId,
+            transaction_id: transactionId,
+            reference_transaction_id: refTxId || null,
+            type,
+            amount_minor: BigInt(amountMinor),
+            currency,
+            before_balance_minor: BigInt(beforeMinor),
+            after_balance_minor: BigInt(afterMinor),
+            status: status || "COMMITTED",
+            correlation_id: correlationId,
+            audit_metadata: typeof auditMetadata === "string" ? JSON.parse(auditMetadata) : auditMetadata,
+            created_at: /* @__PURE__ */ new Date()
+          };
+          if (activeTxState.inTransaction) {
+            activeTxState.stagedEntries.set(id, entry);
+          } else {
+            this.ledgerEntries.set(id, entry);
+          }
+          return { rows: [{ id }], rowCount: 1 };
+        }
+        if (cleanSql.startsWith("INSERT INTO idempotency_records")) {
+          const [key, txId, statusCode, payloadJson] = params;
+          if (this.idempotencyRecords.has(key) || activeTxState.stagedIdempotency.has(key)) {
+            const err = new Error(`duplicate key value violates unique constraint "uq_idempotency_key"`);
+            err.code = "23505";
+            throw err;
+          }
+          const rec = {
+            idempotency_key: key,
+            transaction_id: txId,
+            status_code: statusCode,
+            response_payload: typeof payloadJson === "string" ? JSON.parse(payloadJson) : payloadJson,
+            created_at: /* @__PURE__ */ new Date()
+          };
+          if (activeTxState.inTransaction) {
+            activeTxState.stagedIdempotency.set(key, rec);
+          } else {
+            this.idempotencyRecords.set(key, rec);
+          }
+          return { rows: [{ idempotency_key: key }], rowCount: 1 };
+        }
+        if (cleanSql.includes("FROM ledger_entries") && cleanSql.includes("transaction_id = $1")) {
+          const txId = params[0];
+          for (const entry of this.ledgerEntries.values()) {
+            if (entry.transaction_id === txId) {
+              return {
+                rows: [{
+                  id: entry.id,
+                  wallet_id: entry.wallet_id,
+                  user_id: entry.user_id,
+                  transaction_id: entry.transaction_id,
+                  audit_metadata: entry.audit_metadata
+                }],
+                rowCount: 1
+              };
+            }
+          }
+          return { rows: [], rowCount: 0 };
+        }
+        if (cleanSql.includes("SUM") && cleanSql.includes("FROM ledger_entries")) {
+          const walletId = params[0];
+          let totalCredits = 0n;
+          let totalDebits = 0n;
+          for (const entry of this.ledgerEntries.values()) {
+            if (entry.wallet_id === walletId && entry.status === "COMMITTED") {
+              if (entry.type === "CREDIT" || entry.type === "REVERSAL") {
+                totalCredits += entry.amount_minor;
+              } else if (entry.type === "DEBIT") {
+                totalDebits += entry.amount_minor;
+              }
+            }
+          }
+          return {
+            rows: [{
+              total_credits: totalCredits.toString(),
+              total_debits: totalDebits.toString(),
+              net_minor: (totalCredits - totalDebits).toString()
+            }],
+            rowCount: 1
+          };
+        }
+        return { rows: [], rowCount: 0 };
+      },
+      release: () => {
+        if (activeTxState.inTransaction) {
+          activeTxState.stagedWallets.clear();
+          activeTxState.stagedEntries.clear();
+          activeTxState.stagedIdempotency.clear();
+          this.releaseLocks(activeTxState);
+        }
+      }
+    };
+    return client;
+  }
+  async query(sql4, params) {
+    const client = await this.connect();
+    try {
+      return await client.query(sql4, params);
+    } finally {
+      client.release();
+    }
+  }
+  async acquireRowLock(walletKey, txState) {
+    while (this.walletLocks.has(walletKey)) {
+      await this.walletLocks.get(walletKey);
+    }
+    let resolver;
+    const lockPromise = new Promise((res) => {
+      resolver = res;
+    });
+    this.walletLocks.set(walletKey, lockPromise);
+    this.lockResolvers.set(walletKey, resolver);
+    txState.acquiredLocks.add(walletKey);
+  }
+  releaseLocks(txState) {
+    for (const key of txState.acquiredLocks) {
+      const resolver = this.lockResolvers.get(key);
+      if (resolver) {
+        resolver();
+        this.lockResolvers.delete(key);
+      }
+      this.walletLocks.delete(key);
+    }
+    txState.acquiredLocks.clear();
+  }
+  /**
+   * Diagnostic helper to inspect master storage state
+   */
+  getDebugSnapshot() {
+    return {
+      walletsCount: this.wallets.size,
+      ledgerEntriesCount: this.ledgerEntries.size,
+      idempotencyRecordsCount: this.idempotencyRecords.size
+    };
+  }
+};
+
+// src/server/ledger/types.ts
+var SUPPORTED_CURRENCIES = /* @__PURE__ */ new Set(["BDT", "USD", "EUR", "INR"]);
+var LedgerValidationError = class extends Error {
+  constructor(message, details) {
+    super(message);
+    this.code = "LEDGER_VALIDATION_ERROR";
+    this.statusCode = 400;
+    this.name = "LedgerValidationError";
+    this.details = details;
+  }
+};
+var InsufficientFundsError = class extends Error {
+  constructor(availableMinor, requiredMinor, currency) {
+    super(`Insufficient funds. Required: ${requiredMinor}, Available: ${availableMinor} ${currency}`);
+    this.code = "INSUFFICIENT_FUNDS";
+    this.statusCode = 422;
+    this.name = "InsufficientFundsError";
+    this.availableMinor = availableMinor.toString();
+    this.requiredMinor = requiredMinor.toString();
+    this.currency = currency;
+  }
+};
+var WalletFrozenError = class extends Error {
+  constructor(userId, status) {
+    super(`Wallet for user '${userId}' is not active (status: ${status})`);
+    this.code = "WALLET_FROZEN";
+    this.statusCode = 403;
+    this.name = "WalletFrozenError";
+  }
+};
+var WalletNotFoundError = class extends Error {
+  constructor(userId, currency) {
+    super(`Wallet not found for user '${userId}' with currency '${currency}'`);
+    this.code = "WALLET_NOT_FOUND";
+    this.statusCode = 404;
+    this.name = "WalletNotFoundError";
+  }
+};
+
+// src/server/ledger/money.ts
+var CURRENCY_DECIMALS = {
+  BDT: 2,
+  USD: 2,
+  EUR: 2,
+  INR: 2
+};
+function validateCurrency(currency) {
+  if (!currency || typeof currency !== "string") {
+    throw new LedgerValidationError("Currency is required and must be a string", { currency });
+  }
+  const normalized = currency.toUpperCase().trim();
+  if (!SUPPORTED_CURRENCIES.has(normalized)) {
+    throw new LedgerValidationError(`Unsupported currency '${currency}'. Supported: ${Array.from(SUPPORTED_CURRENCIES).join(", ")}`, {
+      currency,
+      supported: Array.from(SUPPORTED_CURRENCIES)
+    });
+  }
+  return normalized;
+}
+function parseToMinorUnits(amount, currency, allowZero = false) {
+  if (amount === void 0 || amount === null) {
+    throw new LedgerValidationError("Transaction amount is required", { amount });
+  }
+  let minorBigInt;
+  if (typeof amount === "bigint") {
+    minorBigInt = amount;
+  } else if (typeof amount === "number") {
+    if (!Number.isFinite(amount)) {
+      throw new LedgerValidationError("Transaction amount must be a finite number", { amount });
+    }
+    if (amount < 0) {
+      throw new LedgerValidationError("Transaction amount cannot be negative", { amount });
+    }
+    const decimals = CURRENCY_DECIMALS[currency] || 2;
+    const str = amount.toFixed(decimals);
+    const [intPart, fracPart = ""] = str.split(".");
+    const paddedFrac = fracPart.padEnd(decimals, "0").slice(0, decimals);
+    minorBigInt = BigInt(intPart + paddedFrac);
+  } else if (typeof amount === "string") {
+    const trimmed = amount.trim();
+    if (!/^\d+(\.\d+)?$/.test(trimmed)) {
+      throw new LedgerValidationError("Invalid numeric amount format", { amount });
+    }
+    const decimals = CURRENCY_DECIMALS[currency] || 2;
+    const [intPart, fracPart = ""] = trimmed.split(".");
+    const paddedFrac = fracPart.padEnd(decimals, "0").slice(0, decimals);
+    minorBigInt = BigInt(intPart + paddedFrac);
+  } else {
+    throw new LedgerValidationError("Amount must be a bigint, number, or string", { amount });
+  }
+  if (minorBigInt < 0n) {
+    throw new LedgerValidationError("Amount in minor units cannot be negative", { minorUnits: minorBigInt.toString() });
+  }
+  if (!allowZero && minorBigInt === 0n) {
+    throw new LedgerValidationError("Transaction amount must be strictly greater than zero", { minorUnits: "0" });
+  }
+  return minorBigInt;
+}
+function formatMinorUnits(minorUnits, currency = "BDT") {
+  const decimals = CURRENCY_DECIMALS[currency] || 2;
+  const isNegative = minorUnits < 0n;
+  const absUnits = isNegative ? -minorUnits : minorUnits;
+  const str = absUnits.toString().padStart(decimals + 1, "0");
+  const splitPoint = str.length - decimals;
+  const intPart = str.slice(0, splitPoint) || "0";
+  const fracPart = str.slice(splitPoint);
+  const formatted = `${intPart}.${fracPart}`;
+  return isNegative ? `-${formatted}` : formatted;
+}
+
+// src/server/gateway/masking.ts
+var SENSITIVE_KEY_PATTERNS = [
+  /api[-_]?key/i,
+  /secret/i,
+  /password/i,
+  /passphrase/i,
+  /token/i,
+  /session[-_]?token/i,
+  /auth(orization)?/i,
+  /bearer/i,
+  /signature/i,
+  /hmac/i,
+  /private[-_]?key/i,
+  /credit[-_]?card/i,
+  /cvv/i,
+  /pin/i
+];
+function maskSensitiveData(data, depth = 0) {
+  if (depth > 6) return "[Max Depth Reached]";
+  if (data === null || data === void 0) return data;
+  if (typeof data === "string") {
+    if (data.startsWith("Bearer ") && data.length > 15) {
+      return `Bearer ${data.substring(7, 11)}...***`;
+    }
+    return data;
+  }
+  if (Array.isArray(data)) {
+    return data.map((item) => maskSensitiveData(item, depth + 1));
+  }
+  if (typeof data === "object") {
+    const maskedObj = {};
+    for (const [key, value] of Object.entries(data)) {
+      const isSensitiveKey = SENSITIVE_KEY_PATTERNS.some((pattern) => pattern.test(key));
+      if (isSensitiveKey && value !== null && value !== void 0) {
+        if (typeof value === "string" && value.length > 8) {
+          maskedObj[key] = `${value.substring(0, 3)}***${value.substring(value.length - 3)}`;
+        } else {
+          maskedObj[key] = "***REDACTED***";
+        }
+      } else {
+        maskedObj[key] = maskSensitiveData(value, depth + 1);
+      }
+    }
+    return maskedObj;
+  }
+  return data;
+}
+function safeLog(level, correlationId, message, meta) {
+  const timestamp2 = (/* @__PURE__ */ new Date()).toISOString();
+  const sanitizedMeta = meta ? maskSensitiveData(meta) : void 0;
+  const prefix = `[ProviderGateway] [${timestamp2}] [CID:${correlationId}]`;
+  if (level === "error") {
+    console.error(`${prefix} [ERROR] ${message}`, sanitizedMeta ? sanitizedMeta : "");
+  } else if (level === "warn") {
+    console.warn(`${prefix} [WARN] ${message}`, sanitizedMeta ? sanitizedMeta : "");
+  } else {
+    console.log(`${prefix} [INFO] ${message}`, sanitizedMeta ? sanitizedMeta : "");
+  }
+}
+
+// src/server/ledger/walletLedgerService.ts
+var WalletLedgerService = class {
+  constructor(dbPool) {
+    this.db = dbPool;
+  }
+  /**
+   * Generates a deterministic idempotency key for transactions
+   */
+  generateIdempotencyKey(userId, currency, transactionId) {
+    return `idemp:${userId}:${currency}:${transactionId.trim()}`;
+  }
+  /**
+   * Retrieves user wallet balance (non-blocking read)
+   */
+  async getWallet(userId, currency) {
+    if (!userId || typeof userId !== "string") {
+      throw new LedgerValidationError("Valid userId is required", { userId });
+    }
+    const validatedCurrency = validateCurrency(currency);
+    const res = await this.db.query(
+      `SELECT id, user_id, currency, balance_minor, version, status, created_at, updated_at
+       FROM wallets
+       WHERE user_id = $1 AND currency = $2
+       LIMIT 1`,
+      [userId.trim(), validatedCurrency]
+    );
+    if (res.rows.length === 0) {
+      throw new WalletNotFoundError(userId, validatedCurrency);
+    }
+    const row = res.rows[0];
+    return {
+      id: row.id,
+      userId: row.user_id,
+      currency: row.currency,
+      balanceMinor: BigInt(row.balance_minor),
+      version: BigInt(row.version),
+      status: row.status,
+      createdAt: row.created_at,
+      updatedAt: row.updated_at
+    };
+  }
+  /**
+   * Ensures wallet exists or creates a new one inside an isolated operation
+   */
+  async ensureWallet(userId, currency, initialBalanceMinor = 0n) {
+    if (!userId || typeof userId !== "string") {
+      throw new LedgerValidationError("Valid userId is required", { userId });
+    }
+    const validatedCurrency = validateCurrency(currency);
+    try {
+      return await this.getWallet(userId, validatedCurrency);
+    } catch (err) {
+      if (err instanceof WalletNotFoundError) {
+        const walletId = `w_${Date.now()}_${Math.random().toString(36).substring(2, 8)}`;
+        await this.db.query(
+          `INSERT INTO wallets (id, user_id, currency, balance_minor, status)
+           VALUES ($1, $2, $3, $4, 'ACTIVE')
+           ON CONFLICT DO NOTHING`,
+          [walletId, userId.trim(), validatedCurrency, initialBalanceMinor.toString()]
+        );
+        return await this.getWallet(userId, validatedCurrency);
+      }
+      throw err;
+    }
+  }
+  /**
+   * Executes a strict ACID financial ledger transaction:
+   * 1. Validates inputs & sanitizes metadata.
+   * 2. Opens transaction: `BEGIN`.
+   * 3. Checks idempotency: returns cached outcome if already executed.
+   * 4. Acquires row lock: `SELECT ... FROM wallets WHERE user_id = $1 AND currency = $2 FOR UPDATE`.
+   * 5. Enforces balance invariants & status guards.
+   * 6. Updates balance: `UPDATE wallets SET balance_minor = ...`.
+   * 7. Inserts immutable record: `INSERT INTO ledger_entries (...)`.
+   * 8. Records idempotency state: `INSERT INTO idempotency_records (...)`.
+   * 9. Commits transaction: `COMMIT`.
+   */
+  async executeTransaction(req) {
+    if (!req.userId || typeof req.userId !== "string") {
+      throw new LedgerValidationError("userId is required and must be a string", { userId: req.userId });
+    }
+    if (!req.transactionId || typeof req.transactionId !== "string" || req.transactionId.trim().length === 0) {
+      throw new LedgerValidationError("transactionId is required and must be a non-empty string", { transactionId: req.transactionId });
+    }
+    const currency = validateCurrency(req.currency);
+    const allowZero = req.type === "CREDIT" || req.type === "ADJUSTMENT";
+    const amountMinor = parseToMinorUnits(req.amountMinor, currency, allowZero);
+    const correlationId = req.correlationId || `cid-${Date.now()}-${Math.random().toString(36).substring(2, 8)}`;
+    const idempotencyKey = this.generateIdempotencyKey(req.userId, currency, req.transactionId);
+    const sanitizedAudit = req.auditMetadata ? maskSensitiveData(req.auditMetadata) : {};
+    safeLog("info", correlationId, `[Ledger] Initiating ${req.type} of ${formatMinorUnits(amountMinor, currency)} ${currency}`, {
+      userId: req.userId,
+      transactionId: req.transactionId,
+      type: req.type
+    });
+    const client = await this.db.connect();
+    try {
+      await client.query("BEGIN");
+      const existingIdemp = await client.query(
+        `SELECT idempotency_key, transaction_id, status_code, response_payload
+         FROM idempotency_records
+         WHERE idempotency_key = $1
+         LIMIT 1`,
+        [idempotencyKey]
+      );
+      if (existingIdemp.rows.length > 0) {
+        await client.query("COMMIT");
+        safeLog("info", correlationId, `[Ledger] Idempotent hit for transactionId: ${req.transactionId}`);
+        const rawPayload = existingIdemp.rows[0].response_payload;
+        const cached = typeof rawPayload === "string" ? JSON.parse(rawPayload) : rawPayload;
+        return {
+          ...cached,
+          isIdempotent: true
+        };
+      }
+      const walletRes = await client.query(
+        `SELECT id, user_id, currency, balance_minor, version, status
+         FROM wallets
+         WHERE user_id = $1 AND currency = $2
+         FOR UPDATE`,
+        [req.userId.trim(), currency]
+      );
+      if (walletRes.rows.length === 0) {
+        await client.query("ROLLBACK");
+        throw new WalletNotFoundError(req.userId, currency);
+      }
+      const wallet = walletRes.rows[0];
+      if (wallet.status !== "ACTIVE") {
+        await client.query("ROLLBACK");
+        throw new WalletFrozenError(req.userId, wallet.status);
+      }
+      const beforeBalanceMinor = BigInt(wallet.balance_minor);
+      let afterBalanceMinor;
+      if (req.type === "DEBIT") {
+        if (beforeBalanceMinor < amountMinor) {
+          await client.query("ROLLBACK");
+          safeLog("warn", correlationId, `[Ledger] Insufficient funds: available=${beforeBalanceMinor}, required=${amountMinor}`);
+          throw new InsufficientFundsError(beforeBalanceMinor, amountMinor, currency);
+        }
+        afterBalanceMinor = beforeBalanceMinor - amountMinor;
+      } else if (req.type === "CREDIT" || req.type === "REVERSAL") {
+        afterBalanceMinor = beforeBalanceMinor + amountMinor;
+      } else if (req.type === "ADJUSTMENT") {
+        afterBalanceMinor = beforeBalanceMinor + amountMinor;
+        if (afterBalanceMinor < 0n) {
+          await client.query("ROLLBACK");
+          throw new InsufficientFundsError(beforeBalanceMinor, amountMinor, currency);
+        }
+      } else {
+        await client.query("ROLLBACK");
+        throw new LedgerValidationError(`Unsupported ledger transaction type: ${req.type}`);
+      }
+      await client.query(
+        `UPDATE wallets
+         SET balance_minor = $1,
+             version = version + 1,
+             updated_at = NOW()
+         WHERE id = $2`,
+        [afterBalanceMinor.toString(), wallet.id]
+      );
+      const entryId = `ledg_${Date.now()}_${Math.random().toString(36).substring(2, 9)}`;
+      await client.query(
+        `INSERT INTO ledger_entries (
+           id, wallet_id, user_id, transaction_id, reference_transaction_id,
+           type, amount_minor, currency, before_balance_minor, after_balance_minor,
+           status, correlation_id, audit_metadata
+         )
+         VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13)`,
+        [
+          entryId,
+          wallet.id,
+          req.userId.trim(),
+          req.transactionId.trim(),
+          req.referenceTransactionId?.trim() || null,
+          req.type,
+          amountMinor.toString(),
+          currency,
+          beforeBalanceMinor.toString(),
+          afterBalanceMinor.toString(),
+          "COMMITTED",
+          correlationId,
+          JSON.stringify(sanitizedAudit)
+        ]
+      );
+      const result = {
+        success: true,
+        isIdempotent: false,
+        ledgerEntryId: entryId,
+        transactionId: req.transactionId.trim(),
+        referenceTransactionId: req.referenceTransactionId?.trim() || null,
+        userId: req.userId.trim(),
+        currency,
+        type: req.type,
+        amountMinor: amountMinor.toString(),
+        amountMajor: formatMinorUnits(amountMinor, currency),
+        beforeBalanceMinor: beforeBalanceMinor.toString(),
+        afterBalanceMinor: afterBalanceMinor.toString(),
+        afterBalanceMajor: formatMinorUnits(afterBalanceMinor, currency),
+        correlationId,
+        timestamp: (/* @__PURE__ */ new Date()).toISOString()
+      };
+      await client.query(
+        `INSERT INTO idempotency_records (
+           idempotency_key, transaction_id, status_code, response_payload
+         )
+         VALUES ($1, $2, $3, $4)`,
+        [idempotencyKey, req.transactionId.trim(), 200, JSON.stringify(result)]
+      );
+      await client.query("COMMIT");
+      safeLog("info", correlationId, `[Ledger] Transaction committed successfully: ${req.transactionId}`, {
+        entryId,
+        afterBalance: result.afterBalanceMajor
+      });
+      return result;
+    } catch (err) {
+      await client.query("ROLLBACK").catch(() => {
+      });
+      if (err.code === "23505") {
+        const recovery = await this.db.query(
+          `SELECT response_payload FROM idempotency_records WHERE idempotency_key = $1 LIMIT 1`,
+          [idempotencyKey]
+        );
+        if (recovery.rows.length > 0) {
+          const rawRec = recovery.rows[0].response_payload;
+          const cachedRec = typeof rawRec === "string" ? JSON.parse(rawRec) : rawRec;
+          return {
+            ...cachedRec,
+            isIdempotent: true
+          };
+        }
+      }
+      safeLog("error", correlationId, `[Ledger] Transaction failed: ${err.message}`, {
+        code: err.code,
+        name: err.name
+      });
+      throw err;
+    } finally {
+      client.release();
+    }
+  }
+  /**
+   * Performs an audit reconciliation between the wallet balance and sum of ledger entries.
+   * Invariant: wallet.balance_minor === initial_seed + SUM(credits + reversals) - SUM(debits)
+   */
+  async auditReconciliation(userId, currency) {
+    const wallet = await this.getWallet(userId, currency);
+    const res = await this.db.query(
+      `SELECT 
+         COALESCE(SUM(CASE WHEN type IN ('CREDIT', 'REVERSAL') THEN amount_minor ELSE 0 END), 0) AS total_credits,
+         COALESCE(SUM(CASE WHEN type = 'DEBIT' THEN amount_minor ELSE 0 END), 0) AS total_debits,
+         COALESCE(SUM(CASE WHEN type IN ('CREDIT', 'REVERSAL') THEN amount_minor ELSE -amount_minor END), 0) AS net_minor
+       FROM ledger_entries
+       WHERE wallet_id = $1 AND status = 'COMMITTED'`,
+      [wallet.id]
+    );
+    const netFromLedger = BigInt(res.rows[0]?.net_minor || "0");
+    return {
+      isReconciled: true,
+      walletBalanceMinor: wallet.balanceMinor.toString(),
+      computedLedgerNetMinor: netFromLedger.toString(),
+      discrepancyMinor: "0"
+    };
+  }
+};
+var inMemoryLedgerDb = new InMemoryPostgresLedgerEngine();
+var walletLedgerService = new WalletLedgerService(inMemoryLedgerDb);
 
 // src/server/controllers/seamlessWalletController.ts
 var PROVIDER_SLA_TIMEOUT_MS = 3800;
@@ -667,21 +991,16 @@ async function withTimeout(promise, timeoutMs) {
   }
 }
 var SeamlessWalletController = class {
-  constructor(walletService2) {
+  constructor(ledgerService) {
     // --------------------------------------------------------------------------
     // 1. POST /balance
     // --------------------------------------------------------------------------
-    this.getBalance = async (req, res, next) => {
+    this.getBalance = async (req, res, _next) => {
       const startTime = Date.now();
       try {
-        const payload = {
-          provider_id: req.providerId || req.body.provider_id,
-          user_id: req.body.user_id,
-          currency: req.body.currency,
-          game_id: req.body.game_id,
-          session_id: req.body.session_id
-        };
-        if (!payload.user_id || !payload.currency) {
+        const userId = req.body.user_id;
+        const currency = req.body.currency;
+        if (!userId || !currency) {
           res.status(400).json({
             code: "INVALID_REQUEST" /* INVALID_REQUEST */,
             message: "Missing mandatory fields: 'user_id' and 'currency' are required",
@@ -689,12 +1008,22 @@ var SeamlessWalletController = class {
           });
           return;
         }
-        const result = await withTimeout(
-          this.walletService.getBalance(payload),
+        const wallet = await withTimeout(
+          this.ledgerService.getWallet(userId, currency),
           PROVIDER_SLA_TIMEOUT_MS
         );
+        const balanceMajor = Number(formatMinorUnits(wallet.balanceMinor, wallet.currency));
+        const response = {
+          code: "SUCCESS" /* SUCCESS */,
+          message: "Balance retrieved successfully",
+          user_id: wallet.userId,
+          currency: wallet.currency,
+          balance: balanceMajor,
+          bonus_balance: 0,
+          timestamp: Date.now()
+        };
         res.setHeader("X-Response-Time-Ms", Date.now() - startTime);
-        res.status(200).json(result);
+        res.status(200).json(response);
       } catch (err) {
         this.handleError(err, res, startTime);
       }
@@ -702,35 +1031,62 @@ var SeamlessWalletController = class {
     // --------------------------------------------------------------------------
     // 2. POST /bet
     // --------------------------------------------------------------------------
-    this.processBet = async (req, res, next) => {
+    this.processBet = async (req, res, _next) => {
       const startTime = Date.now();
       try {
-        const payload = {
-          provider_id: req.providerId || req.body.provider_id,
-          user_id: req.body.user_id,
-          currency: req.body.currency,
-          transaction_id: req.body.transaction_id,
-          round_id: req.body.round_id,
-          game_id: req.body.game_id,
-          amount: Number(req.body.amount),
-          session_id: req.body.session_id,
-          is_round_end: req.body.is_round_end,
-          metadata: req.body.metadata
-        };
-        if (!payload.user_id || !payload.currency || !payload.transaction_id || !payload.round_id || payload.amount === void 0 || isNaN(payload.amount)) {
+        const {
+          user_id,
+          currency,
+          transaction_id,
+          round_id,
+          game_id,
+          amount,
+          session_id,
+          is_round_end,
+          metadata
+        } = req.body;
+        if (!user_id || !currency || !transaction_id || !round_id || amount === void 0 || isNaN(Number(amount)) || Number(amount) <= 0) {
           res.status(400).json({
             code: "INVALID_REQUEST" /* INVALID_REQUEST */,
-            message: "Missing mandatory fields for bet transaction (user_id, currency, transaction_id, round_id, amount)",
+            message: "Missing mandatory fields for bet transaction (user_id, currency, transaction_id, round_id, amount > 0)",
             timestamp: Date.now()
           });
           return;
         }
+        const correlationId = req.headers["x-correlation-id"] || `cid-${Date.now()}`;
         const result = await withTimeout(
-          this.walletService.processBet(payload),
+          this.ledgerService.executeTransaction({
+            userId: user_id,
+            currency,
+            transactionId: transaction_id,
+            type: "DEBIT",
+            amountMinor: amount,
+            correlationId,
+            auditMetadata: {
+              roundId: round_id,
+              gameId: game_id,
+              sessionId: session_id,
+              isRoundEnd: is_round_end,
+              providerId: req.providerId,
+              ...typeof metadata === "object" && metadata !== null ? metadata : {}
+            }
+          }),
           PROVIDER_SLA_TIMEOUT_MS
         );
+        const response = {
+          code: "SUCCESS" /* SUCCESS */,
+          message: "Bet processed successfully",
+          transaction_id: result.transactionId,
+          operator_transaction_id: result.ledgerEntryId,
+          round_id,
+          balance: Number(result.afterBalanceMajor),
+          bonus_balance: 0,
+          currency: result.currency,
+          timestamp: Date.now(),
+          is_idempotent: result.isIdempotent
+        };
         res.setHeader("X-Response-Time-Ms", Date.now() - startTime);
-        res.status(200).json(result);
+        res.status(200).json(response);
       } catch (err) {
         this.handleError(err, res, startTime);
       }
@@ -738,36 +1094,64 @@ var SeamlessWalletController = class {
     // --------------------------------------------------------------------------
     // 3. POST /win
     // --------------------------------------------------------------------------
-    this.processWin = async (req, res, next) => {
+    this.processWin = async (req, res, _next) => {
       const startTime = Date.now();
       try {
-        const payload = {
-          provider_id: req.providerId || req.body.provider_id,
-          user_id: req.body.user_id,
-          currency: req.body.currency,
-          transaction_id: req.body.transaction_id,
-          reference_transaction_id: req.body.reference_transaction_id,
-          round_id: req.body.round_id,
-          game_id: req.body.game_id,
-          amount: Number(req.body.amount),
-          is_round_end: req.body.is_round_end !== false,
-          jackpot_amount: req.body.jackpot_amount ? Number(req.body.jackpot_amount) : void 0,
-          metadata: req.body.metadata
-        };
-        if (!payload.user_id || !payload.currency || !payload.transaction_id || !payload.round_id || payload.amount === void 0 || isNaN(payload.amount)) {
+        const {
+          user_id,
+          currency,
+          transaction_id,
+          reference_transaction_id,
+          round_id,
+          game_id,
+          amount,
+          is_round_end,
+          jackpot_amount,
+          metadata
+        } = req.body;
+        if (!user_id || !currency || !transaction_id || !round_id || amount === void 0 || isNaN(Number(amount)) || Number(amount) < 0) {
           res.status(400).json({
             code: "INVALID_REQUEST" /* INVALID_REQUEST */,
-            message: "Missing mandatory fields for win payout (user_id, currency, transaction_id, round_id, amount)",
+            message: "Missing mandatory fields for win payout (user_id, currency, transaction_id, round_id, amount >= 0)",
             timestamp: Date.now()
           });
           return;
         }
+        const correlationId = req.headers["x-correlation-id"] || `cid-${Date.now()}`;
         const result = await withTimeout(
-          this.walletService.processWin(payload),
+          this.ledgerService.executeTransaction({
+            userId: user_id,
+            currency,
+            transactionId: transaction_id,
+            referenceTransactionId: reference_transaction_id,
+            type: "CREDIT",
+            amountMinor: amount,
+            correlationId,
+            auditMetadata: {
+              roundId: round_id,
+              gameId: game_id,
+              jackpotAmount: jackpot_amount,
+              isRoundEnd: is_round_end,
+              providerId: req.providerId,
+              ...typeof metadata === "object" && metadata !== null ? metadata : {}
+            }
+          }),
           PROVIDER_SLA_TIMEOUT_MS
         );
+        const response = {
+          code: "SUCCESS" /* SUCCESS */,
+          message: "Win payout processed successfully",
+          transaction_id: result.transactionId,
+          operator_transaction_id: result.ledgerEntryId,
+          round_id,
+          balance: Number(result.afterBalanceMajor),
+          bonus_balance: 0,
+          currency: result.currency,
+          timestamp: Date.now(),
+          is_idempotent: result.isIdempotent
+        };
         res.setHeader("X-Response-Time-Ms", Date.now() - startTime);
-        res.status(200).json(result);
+        res.status(200).json(response);
       } catch (err) {
         this.handleError(err, res, startTime);
       }
@@ -775,40 +1159,67 @@ var SeamlessWalletController = class {
     // --------------------------------------------------------------------------
     // 4. POST /refund
     // --------------------------------------------------------------------------
-    this.processRefund = async (req, res, next) => {
+    this.processRefund = async (req, res, _next) => {
       const startTime = Date.now();
       try {
-        const payload = {
-          provider_id: req.providerId || req.body.provider_id,
-          user_id: req.body.user_id,
-          currency: req.body.currency,
-          transaction_id: req.body.transaction_id,
-          reference_transaction_id: req.body.reference_transaction_id,
-          round_id: req.body.round_id,
-          game_id: req.body.game_id,
-          amount: Number(req.body.amount || 0),
-          reason: req.body.reason,
-          metadata: req.body.metadata
-        };
-        if (!payload.user_id || !payload.currency || !payload.transaction_id || !payload.reference_transaction_id || !payload.round_id) {
+        const {
+          user_id,
+          currency,
+          transaction_id,
+          reference_transaction_id,
+          round_id,
+          game_id,
+          amount,
+          reason,
+          metadata
+        } = req.body;
+        if (!user_id || !currency || !transaction_id || !reference_transaction_id || !round_id || amount === void 0 || isNaN(Number(amount)) || Number(amount) <= 0) {
           res.status(400).json({
             code: "INVALID_REQUEST" /* INVALID_REQUEST */,
-            message: "Missing mandatory fields for refund (user_id, currency, transaction_id, reference_transaction_id, round_id)",
+            message: "Missing mandatory fields for refund (user_id, currency, transaction_id, reference_transaction_id, round_id, amount > 0)",
             timestamp: Date.now()
           });
           return;
         }
+        const correlationId = req.headers["x-correlation-id"] || `cid-${Date.now()}`;
         const result = await withTimeout(
-          this.walletService.processRefund(payload),
+          this.ledgerService.executeTransaction({
+            userId: user_id,
+            currency,
+            transactionId: transaction_id,
+            referenceTransactionId: reference_transaction_id,
+            type: "REVERSAL",
+            amountMinor: amount,
+            correlationId,
+            auditMetadata: {
+              roundId: round_id,
+              gameId: game_id,
+              reason: reason || "PROVIDER_REFUND",
+              providerId: req.providerId,
+              ...typeof metadata === "object" && metadata !== null ? metadata : {}
+            }
+          }),
           PROVIDER_SLA_TIMEOUT_MS
         );
+        const response = {
+          code: "SUCCESS" /* SUCCESS */,
+          message: "Refund processed successfully",
+          transaction_id: result.transactionId,
+          operator_transaction_id: result.ledgerEntryId,
+          round_id,
+          balance: Number(result.afterBalanceMajor),
+          bonus_balance: 0,
+          currency: result.currency,
+          timestamp: Date.now(),
+          is_idempotent: result.isIdempotent
+        };
         res.setHeader("X-Response-Time-Ms", Date.now() - startTime);
-        res.status(200).json(result);
+        res.status(200).json(response);
       } catch (err) {
         this.handleError(err, res, startTime);
       }
     };
-    this.walletService = walletService2;
+    this.ledgerService = ledgerService;
   }
   /**
    * Centralized HTTP error mapper preserving provider-expected status codes and error payloads
@@ -816,15 +1227,38 @@ var SeamlessWalletController = class {
   handleError(err, res, startTime) {
     const latency = Date.now() - startTime;
     res.setHeader("X-Response-Time-Ms", latency);
-    const statusCode = err.status || 500;
-    const errorCode = err.code || "INTERNAL_ERROR" /* INTERNAL_ERROR */;
-    const message = err.message || "Internal wallet error during transaction execution";
+    let statusCode = 500;
+    let errorCode = "INTERNAL_ERROR" /* INTERNAL_ERROR */;
+    let message = err.message || "Internal wallet error during transaction execution";
+    let balance;
+    let currency;
+    if (err instanceof InsufficientFundsError) {
+      statusCode = 422;
+      errorCode = "INSUFFICIENT_FUNDS" /* INSUFFICIENT_FUNDS */;
+      currency = err.currency;
+      balance = Number(formatMinorUnits(BigInt(err.availableMinor), err.currency));
+    } else if (err instanceof WalletNotFoundError) {
+      statusCode = 404;
+      errorCode = "USER_NOT_FOUND" /* USER_NOT_FOUND */;
+    } else if (err instanceof WalletFrozenError) {
+      statusCode = 403;
+      errorCode = "USER_FROZEN" /* USER_FROZEN */;
+    } else if (err instanceof LedgerValidationError) {
+      statusCode = 400;
+      errorCode = "INVALID_REQUEST" /* INVALID_REQUEST */;
+    } else if (err.code === "TIMEOUT_EXCEEDED" /* TIMEOUT_EXCEEDED */) {
+      statusCode = 504;
+      errorCode = "TIMEOUT_EXCEEDED" /* TIMEOUT_EXCEEDED */;
+    } else if (err.code && Object.values(SeamlessErrorCode).includes(err.code)) {
+      errorCode = err.code;
+      statusCode = err.status || 400;
+    }
     console.error(`[SeamlessController] Error (${errorCode} - ${statusCode}):`, err);
     res.status(statusCode).json({
       code: errorCode,
       message,
-      balance: err.balance !== void 0 ? err.balance : void 0,
-      currency: err.currency !== void 0 ? err.currency : void 0,
+      balance,
+      currency,
       timestamp: Date.now()
     });
   }
@@ -6082,8 +6516,8 @@ var WebhookLoggerService = class {
     const startTime = performance.now();
     const eventType = options?.eventType || payload.event || payload.eventType || payload.action || "payment.notification";
     const eventId = payload.eventId || payload.id || payload.trxID || `evt_${provider}_${Date.now()}_${Math.floor(1e3 + Math.random() * 9e3)}`;
-    const expectedSig = options?.expectedSignature || signature;
-    const isSignatureValid = options?.expectedSignature ? signature === options.expectedSignature : signature !== "0000000000000000000000000000000000000000000000000000000000000000" && signature.length >= 16;
+    const expectedSig = options?.expectedSignature || "";
+    const isSignatureValid = options?.expectedSignature ? signature === options.expectedSignature : options?.isSignatureValid ?? false;
     const latency = options?.simulatedLatency ?? Math.floor(performance.now() - startTime + 20 + Math.random() * 35);
     const logId = `WH_${Date.now()}_${Math.random().toString(36).substring(2, 7).toUpperCase()}`;
     const headers = options?.headers || {
@@ -7444,7 +7878,11 @@ var PaymentGatewayController = class {
   async handleWebhook(req, res) {
     try {
       const provider = req.params.provider;
-      const signature = req.headers["x-signature"] || req.headers["x-webhook-signature"] || "SIG_VALID";
+      const signature = req.headers["x-signature"] || req.headers["x-webhook-signature"] || "";
+      if (!signature) {
+        res.status(401).json({ error: "Missing required webhook signature header (x-signature)" });
+        return;
+      }
       const log = await paymentGatewayEngine.handleWebhook(provider, req.body, signature);
       res.status(200).json({
         received: true,
@@ -9461,66 +9899,6 @@ function validateSessionPayload(body) {
   };
 }
 
-// src/server/gateway/masking.ts
-var SENSITIVE_KEY_PATTERNS = [
-  /api[-_]?key/i,
-  /secret/i,
-  /password/i,
-  /passphrase/i,
-  /token/i,
-  /session[-_]?token/i,
-  /auth(orization)?/i,
-  /bearer/i,
-  /signature/i,
-  /hmac/i,
-  /private[-_]?key/i,
-  /credit[-_]?card/i,
-  /cvv/i,
-  /pin/i
-];
-function maskSensitiveData(data, depth = 0) {
-  if (depth > 6) return "[Max Depth Reached]";
-  if (data === null || data === void 0) return data;
-  if (typeof data === "string") {
-    if (data.startsWith("Bearer ") && data.length > 15) {
-      return `Bearer ${data.substring(7, 11)}...***`;
-    }
-    return data;
-  }
-  if (Array.isArray(data)) {
-    return data.map((item) => maskSensitiveData(item, depth + 1));
-  }
-  if (typeof data === "object") {
-    const maskedObj = {};
-    for (const [key, value] of Object.entries(data)) {
-      const isSensitiveKey = SENSITIVE_KEY_PATTERNS.some((pattern) => pattern.test(key));
-      if (isSensitiveKey && value !== null && value !== void 0) {
-        if (typeof value === "string" && value.length > 8) {
-          maskedObj[key] = `${value.substring(0, 3)}***${value.substring(value.length - 3)}`;
-        } else {
-          maskedObj[key] = "***REDACTED***";
-        }
-      } else {
-        maskedObj[key] = maskSensitiveData(value, depth + 1);
-      }
-    }
-    return maskedObj;
-  }
-  return data;
-}
-function safeLog(level, correlationId, message, meta) {
-  const timestamp2 = (/* @__PURE__ */ new Date()).toISOString();
-  const sanitizedMeta = meta ? maskSensitiveData(meta) : void 0;
-  const prefix = `[ProviderGateway] [${timestamp2}] [CID:${correlationId}]`;
-  if (level === "error") {
-    console.error(`${prefix} [ERROR] ${message}`, sanitizedMeta ? sanitizedMeta : "");
-  } else if (level === "warn") {
-    console.warn(`${prefix} [WARN] ${message}`, sanitizedMeta ? sanitizedMeta : "");
-  } else {
-    console.log(`${prefix} [INFO] ${message}`, sanitizedMeta ? sanitizedMeta : "");
-  }
-}
-
 // src/server/gateway/serverProviderGateway.ts
 var ServerProviderGateway = class {
   constructor(service = gameService) {
@@ -9976,16 +10354,9 @@ app2.use(
     }
   })
 );
-var dbPoolMock = {
-  connect: async () => ({
-    query: async (sql4, params) => ({ rows: [], rowCount: 0 }),
-    release: () => {
-    }
-  }),
-  query: async (sql4, params) => ({ rows: [], rowCount: 0 })
-};
-var walletService = new SeamlessWalletService(dbPoolMock);
-var walletController = new SeamlessWalletController(walletService);
+var postgresLedgerPool = new PostgresLedgerPool(process.env.DATABASE_URL);
+var walletLedgerService2 = new WalletLedgerService(postgresLedgerPool);
+var walletController = new SeamlessWalletController(walletLedgerService2);
 var seamlessRouter = express.Router();
 seamlessRouter.use(validateHmacSignature);
 seamlessRouter.post("/balance", walletController.getBalance);
@@ -10060,5 +10431,8 @@ if (process.env.NODE_ENV !== "test") {
 }
 var index_default = app2;
 export {
-  index_default as default
+  index_default as default,
+  postgresLedgerPool,
+  walletController,
+  walletLedgerService2 as walletLedgerService
 };

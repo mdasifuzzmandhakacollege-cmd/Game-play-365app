@@ -135,7 +135,8 @@ export class WalletLedgerService {
     }
 
     const currency = validateCurrency(req.currency);
-    const amountMinor = parseToMinorUnits(req.amountMinor, currency, false); // Strict > 0
+    const allowZero = req.type === 'CREDIT' || req.type === 'ADJUSTMENT';
+    const amountMinor = parseToMinorUnits(req.amountMinor, currency, allowZero);
     const correlationId = req.correlationId || `cid-${Date.now()}-${Math.random().toString(36).substring(2, 8)}`;
     const idempotencyKey = this.generateIdempotencyKey(req.userId, currency, req.transactionId);
     const sanitizedAudit = req.auditMetadata ? maskSensitiveData(req.auditMetadata) : {};
