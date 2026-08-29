@@ -15,7 +15,8 @@ interface AuthContextType {
   user: User | null;
   firestoreUser: UserEntity | null;
   isAdmin: boolean;
-  userRole: 'ADMIN' | 'PLAYER' | 'VIP';
+  isPrivileged: boolean;
+  userRole: 'ADMIN' | 'PLAYER' | 'VIP' | 'OPERATOR' | 'SUPER_ADMIN';
   loading: boolean;
   token: string | null;
   signInWithGoogle: () => Promise<User | null>;
@@ -23,12 +24,14 @@ interface AuthContextType {
   loginWithEmail: (email: string, pass: string) => Promise<User | null>;
   logout: () => Promise<void>;
   syncFirestoreProfile: (preferredCurrency?: 'BDT' | 'USD') => Promise<UserEntity | null>;
+  refreshRole: () => Promise<void>;
 }
 
 const AuthContext = createContext<AuthContextType>({
   user: null,
   firestoreUser: null,
   isAdmin: false,
+  isPrivileged: false,
   userRole: 'PLAYER',
   loading: true,
   token: null,
@@ -37,6 +40,7 @@ const AuthContext = createContext<AuthContextType>({
   loginWithEmail: async () => null,
   logout: async () => {},
   syncFirestoreProfile: async () => null,
+  refreshRole: async () => {},
 });
 
 export const useAuth = () => useContext(AuthContext);
@@ -46,6 +50,59 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
   const [firestoreUser, setFirestoreUser] = useState<UserEntity | null>(null);
   const [token, setToken] = useState<string | null>(null);
   const [loading, setLoading] = useState<boolean>(true);
+  const [isPrivileged, setIsPrivileged] = useState<boolean>(false);
+  const [userRole, setUserRole] = useState<'ADMIN' | 'PLAYER' | 'VIP' | 'OPERATOR' | 'SUPER_ADMIN'>('PLAYER');
+
+  // Authoritative server-side role verification via /api/auth/verify-role
+  const verifyServerPrivilege = useCallback(async (authToken: string | null): Promise<{ isPrivileged: boolean; role: string }> => {
+    if (!authToken) {
+      setIsPrivileged(false);
+      setUserRole('PLAYER');
+      return { isPrivileged: false, role: 'PLAYER' };
+    }
+
+    try {
+      const res = await fetch('/api/auth/verify-role', {
+        headers: {
+          Authorization: `Bearer ${authToken}`
+        }
+      });
+
+      if (res.ok) {
+        const data = await res.json();
+        const privileged = data.isPrivileged === true;
+        const role = (data.role || (privileged ? 'ADMIN' : 'PLAYER')) as 'ADMIN' | 'PLAYER' | 'VIP' | 'OPERATOR' | 'SUPER_ADMIN';
+        setIsPrivileged(privileged);
+        setUserRole(role);
+        return { isPrivileged: privileged, role };
+      }
+    } catch (err) {
+      console.warn('[AuthContext] /api/auth/verify-role fetch notice:', err);
+    }
+
+    // Fail closed
+    setIsPrivileged(false);
+    setUserRole('PLAYER');
+    return { isPrivileged: false, role: 'PLAYER' };
+  }, []);
+
+  const refreshRole = useCallback(async () => {
+    const currentUser = auth.currentUser || user;
+    if (!currentUser) {
+      setIsPrivileged(false);
+      setUserRole('PLAYER');
+      return;
+    }
+    try {
+      const freshToken = await currentUser.getIdToken(true);
+      setToken(freshToken);
+      await verifyServerPrivilege(freshToken);
+    } catch (e) {
+      console.warn('[AuthContext] refreshRole error:', e);
+      setIsPrivileged(false);
+      setUserRole('PLAYER');
+    }
+  }, [user, verifyServerPrivilege]);
 
   // Sync profile helper
   const syncFirestoreProfile = useCallback(async (preferredCurrency: 'BDT' | 'USD' = 'BDT'): Promise<UserEntity | null> => {
@@ -86,6 +143,19 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
           // Ignore localStorage errors
         }
 
+        // 1. Authoritative Server-Side Role Verification (Highest priority authorization authority)
+        if (authToken) {
+          await verifyServerPrivilege(authToken);
+        } else {
+          try {
+            const token = await authUser.getIdToken();
+            await verifyServerPrivilege(token);
+          } catch {
+            setIsPrivileged(false);
+            setUserRole('PLAYER');
+          }
+        }
+
         // Guarantee user doc & wallet exist in Firestore on session restoration or sign-up
         try {
           const profile = await firebaseFirestore.syncUserProfile({
@@ -112,6 +182,8 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
         setUser(null);
         setToken(null);
         setFirestoreUser(null);
+        setIsPrivileged(false);
+        setUserRole('PLAYER');
         setLoading(false);
       }
     );
@@ -120,7 +192,7 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
       isMounted = false;
       unsubscribe();
     };
-  }, []);
+  }, [verifyServerPrivilege]);
 
   const signInWithGoogle = async (): Promise<User | null> => {
     try {
@@ -133,6 +205,10 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
           localStorage.setItem('playall365_session_active', 'true');
           localStorage.setItem('playall365_user_id', res.user.uid);
         } catch {}
+
+        if (res.accessToken) {
+          await verifyServerPrivilege(res.accessToken);
+        }
 
         // Ensure Firestore document & wallet are linked immediately with 0 initial balance
         try {
@@ -177,6 +253,10 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
           localStorage.setItem('playall365_user_id', res.user.uid);
         } catch {}
 
+        if (res.accessToken) {
+          await verifyServerPrivilege(res.accessToken);
+        }
+
         // Ensure user document and initial wallet with 0 balance are linked in Firestore
         try {
           const profile = await firebaseFirestore.syncUserProfile({
@@ -214,6 +294,10 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
           localStorage.setItem('playall365_user_id', res.user.uid);
         } catch {}
 
+        if (res.accessToken) {
+          await verifyServerPrivilege(res.accessToken);
+        }
+
         try {
           const profile = await firebaseFirestore.syncUserProfile({
             uid: res.user.uid,
@@ -243,6 +327,8 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
       setUser(null);
       setToken(null);
       setFirestoreUser(null);
+      setIsPrivileged(false);
+      setUserRole('PLAYER');
       try {
         localStorage.removeItem('playall365_session_active');
         localStorage.removeItem('playall365_user_id');
@@ -252,16 +338,8 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
     }
   };
 
-  const isAdmin = Boolean(
-    firestoreUser?.isAdmin ||
-    firestoreUser?.role === 'ADMIN' ||
-    (firestoreUser?.role && String(firestoreUser.role).toUpperCase() === 'OPERATOR') ||
-    (firestoreUser?.role && String(firestoreUser.role).toUpperCase() === 'SUPER_ADMIN')
-  );
-
-  const userRole: 'ADMIN' | 'PLAYER' | 'VIP' = isAdmin
-    ? 'ADMIN'
-    : (firestoreUser?.role as 'ADMIN' | 'PLAYER' | 'VIP') || 'PLAYER';
+  // Authority is STRICTLY isPrivileged from server /api/auth/verify-role
+  const isAdmin = isPrivileged;
 
   return (
     <AuthContext.Provider
@@ -269,6 +347,7 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
         user,
         firestoreUser,
         isAdmin,
+        isPrivileged,
         userRole,
         loading,
         token,
@@ -276,7 +355,8 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
         registerWithEmail,
         loginWithEmail,
         logout,
-        syncFirestoreProfile
+        syncFirestoreProfile,
+        refreshRole
       }}
     >
       {children}

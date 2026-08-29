@@ -8,9 +8,12 @@
  * 3. Authoritative role resolution from server claims/Firestore (never trusting client-supplied isAdmin or hardcoded emails).
  * 4. Privileged roles (ADMIN, OPERATOR, SUPER_ADMIN) successfully authorized.
  * 5. Route-level client protection & navbar navigation gating.
+ * 6. Legacy endpoints (/api/cashier/requests, /api/v2/payment/destination-pool, /api/v2/payment/stats) locked down with requireAdmin.
+ * 7. Server verification failure fails closed.
+ * 8. Forged client roles cannot reveal privileged navigation.
  */
 
-import { requireAdmin, getAuthoritativeUserRole, AuthRequest } from '../../middleware/auth.js';
+import { requireAuth, requireAdmin, getAuthoritativeUserRole, AuthRequest } from '../../middleware/auth.js';
 import fs from 'fs';
 import path from 'path';
 
@@ -162,26 +165,95 @@ async function runPrivilegedAccessTests() {
   });
 
   // --------------------------------------------------------------------------
-  // TEST 6: Verify No Hardcoded Whitelist Emails in Source Code
+  // TEST 6: /api/auth/verify-role Returns isPrivileged = true for ADMIN and false for PLAYER
+  // --------------------------------------------------------------------------
+  await assert('/api/auth/verify-role authority payload calculation', async () => {
+    const adminUser = { uid: 'admin_123', role: 'ADMIN' };
+    const playerUser = { uid: 'player_456', role: 'PLAYER' };
+
+    const adminRole = await getAuthoritativeUserRole(adminUser as any);
+    const adminIsPrivileged = ['ADMIN', 'OPERATOR', 'SUPER_ADMIN'].includes(adminRole);
+
+    const playerRole = await getAuthoritativeUserRole(playerUser as any);
+    const playerIsPrivileged = ['ADMIN', 'OPERATOR', 'SUPER_ADMIN'].includes(playerRole);
+
+    if (!adminIsPrivileged || adminRole !== 'ADMIN') {
+      throw new Error(`Admin role calculation failed: ${adminRole}, isPrivileged=${adminIsPrivileged}`);
+    }
+    if (playerIsPrivileged || playerRole !== 'PLAYER') {
+      throw new Error(`Player role calculation failed: ${playerRole}, isPrivileged=${playerIsPrivileged}`);
+    }
+  });
+
+  // --------------------------------------------------------------------------
+  // TEST 7: Legacy Privileged Endpoints (/api/cashier/requests, /api/v2/payment/destination-pool, /api/v2/payment/stats) Locked Down
+  // --------------------------------------------------------------------------
+  await assert('Legacy privileged endpoints in server/index.ts are locked down with requireAdmin', () => {
+    const serverIndexContent = fs.readFileSync(path.resolve(process.cwd(), 'src/server/index.ts'), 'utf-8');
+
+    if (!serverIndexContent.includes("cashierRouter.get('/requests', requireAdmin,")) {
+      throw new Error("cashierRouter.get('/requests') is not protected by requireAdmin");
+    }
+    if (!serverIndexContent.includes("paymentV2Router.get('/destination-pool', requireAdmin,")) {
+      throw new Error("paymentV2Router.get('/destination-pool') is not protected by requireAdmin");
+    }
+    if (!serverIndexContent.includes("paymentV2Router.get('/stats', requireAdmin,")) {
+      throw new Error("paymentV2Router.get('/stats') is not protected by requireAdmin");
+    }
+  });
+
+  // --------------------------------------------------------------------------
+  // TEST 8: AuthContext Derives isAdmin and isPrivileged STRICTLY from Server /api/auth/verify-role
+  // --------------------------------------------------------------------------
+  await assert('AuthContext does not trust client Firestore role or localStorage or email whitelist', () => {
+    const authContextContent = fs.readFileSync(path.resolve(process.cwd(), 'src/contexts/AuthContext.tsx'), 'utf-8');
+
+    if (authContextContent.includes('firestoreUser?.isAdmin')) {
+      throw new Error('AuthContext still reads firestoreUser?.isAdmin');
+    }
+    if (!authContextContent.includes('/api/auth/verify-role')) {
+      throw new Error('AuthContext does not query /api/auth/verify-role');
+    }
+    if (!authContextContent.includes('const isAdmin = isPrivileged;')) {
+      throw new Error('AuthContext does not bind isAdmin strictly to isPrivileged');
+    }
+  });
+
+  // --------------------------------------------------------------------------
+  // TEST 9: AdminPanel Consumes data.isPrivileged and Fails Closed without Client Firestore Fallback
+  // --------------------------------------------------------------------------
+  await assert('AdminPanel consumes data.isPrivileged and has no client Firestore fallback', () => {
+    const adminPanelContent = fs.readFileSync(path.resolve(process.cwd(), 'src/components/AdminPanel.tsx'), 'utf-8');
+
+    if (adminPanelContent.includes("doc(db, 'users'")) {
+      throw new Error('AdminPanel still queries Firestore users collection directly');
+    }
+    if (adminPanelContent.includes("doc(db, 'admins'")) {
+      throw new Error('AdminPanel still queries Firestore admins collection directly');
+    }
+    if (!adminPanelContent.includes('data.isPrivileged === true')) {
+      throw new Error('AdminPanel does not check data.isPrivileged === true');
+    }
+  });
+
+  // --------------------------------------------------------------------------
+  // TEST 10: Zero Hardcoded Whitelist Emails Across the Entire Project
   // --------------------------------------------------------------------------
   await assert('Zero hardcoded email whitelists in codebase', () => {
     const adminPanelContent = fs.readFileSync(path.resolve(process.cwd(), 'src/components/AdminPanel.tsx'), 'utf-8');
     const authMiddlewareContent = fs.readFileSync(path.resolve(process.cwd(), 'src/middleware/auth.ts'), 'utf-8');
     const navbarContent = fs.readFileSync(path.resolve(process.cwd(), 'src/components/Navbar.tsx'), 'utf-8');
+    const authContextContent = fs.readFileSync(path.resolve(process.cwd(), 'src/contexts/AuthContext.tsx'), 'utf-8');
 
-    if (adminPanelContent.includes('dhakacollege@gmail.com')) {
-      throw new Error('Found hardcoded email whitelist in AdminPanel.tsx');
-    }
-    if (authMiddlewareContent.includes('dhakacollege@gmail.com')) {
-      throw new Error('Found hardcoded email whitelist in auth.ts');
-    }
-    if (navbarContent.includes('dhakacollege@gmail.com')) {
-      throw new Error('Found hardcoded email whitelist in Navbar.tsx');
-    }
+    const email = 'dhakacollege@gmail.com';
+    if (adminPanelContent.includes(email)) throw new Error('Found hardcoded email in AdminPanel.tsx');
+    if (authMiddlewareContent.includes(email)) throw new Error('Found hardcoded email in auth.ts');
+    if (navbarContent.includes(email)) throw new Error('Found hardcoded email in Navbar.tsx');
+    if (authContextContent.includes(email)) throw new Error('Found hardcoded email in AuthContext.tsx');
   });
 
   // --------------------------------------------------------------------------
-  // TEST 7: Verify Route Protection & Navigation Gating in App.tsx & Navbar.tsx
+  // TEST 11: Route Protection & Navigation Gating in App.tsx & Navbar.tsx
   // --------------------------------------------------------------------------
   await assert('App.tsx and Navbar.tsx gate privileged views with isAdmin', () => {
     const appContent = fs.readFileSync(path.resolve(process.cwd(), 'src/App.tsx'), 'utf-8');

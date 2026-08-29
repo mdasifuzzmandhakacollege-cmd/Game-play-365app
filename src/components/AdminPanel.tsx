@@ -44,8 +44,6 @@ import {
   AlertOctagon,
   KeyRound
 } from 'lucide-react';
-import { doc, getDoc } from 'firebase/firestore';
-import { db } from '../lib/firebase';
 import { useAuth } from '../contexts/AuthContext';
 import { useWalletGame } from '../contexts/WalletGameContext';
 import { seamlessEngine } from '../services/simulatedWalletEngine';
@@ -96,123 +94,88 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({ onStateMutated, onClose,
     }
   }, [onRedirect, onClose, setActiveTab]);
 
-  // Query Firestore database directly for current user document & role
+  // Authoritative Server-Side Role Verification via /api/auth/verify-role
   useEffect(() => {
     let isCancelled = false;
 
-    const verifyFirestoreRole = async () => {
+    const verifyServerRole = async () => {
       setRoleVerifying(true);
-      const targetUid = authUser?.uid || currentUser?.id;
 
-      if (!targetUid) {
+      if (!authUser) {
         if (!isCancelled) {
           setIsAuthorized(false);
-          setAuthErrorReason('কোনো সক্রিয় সেশন বা ইউজার আইডি পাওয়া যায়নি (No authenticated user session).');
+          setVerifiedRole('PLAYER');
+          setAuthErrorReason('কোনো সক্রিয় অথেনটিকেটেড সেশন পাওয়া যায়নি (No authenticated user session).');
           setRoleVerifying(false);
         }
         return;
       }
 
       try {
-        // Try server-side authoritative verification first if token exists
-        if (authUser) {
-          try {
-            const idToken = await authUser.getIdToken();
-            const res = await fetch('/api/auth/verify-role', {
-              headers: {
-                Authorization: `Bearer ${idToken}`
-              }
-            });
-            if (res.ok) {
-              const data = await res.json();
-              if (data.isAdmin || data.isOperator) {
-                if (!isCancelled) {
-                  setIsAuthorized(true);
-                  setVerifiedRole(data.role || 'ADMIN');
-                  setRoleVerifying(false);
-                }
-                return;
-              }
-            }
-          } catch (e) {
-            console.warn('Server role verification notice:', e);
-          }
-        }
-
-        let isDocAdmin = false;
-        let roleFound = 'PLAYER';
-
-        // 1. Direct fetch from Firestore /users/{userId} document
-        try {
-          const userDocSnap = await getDoc(doc(db, 'users', targetUid));
-          if (userDocSnap.exists()) {
-            const data = userDocSnap.data();
-            roleFound = (data.role || (data.isAdmin ? 'ADMIN' : 'PLAYER')).toUpperCase();
-            if (
-              data.isAdmin === true ||
-              roleFound === 'ADMIN' ||
-              roleFound === 'OPERATOR' ||
-              roleFound === 'SUPER_ADMIN'
-            ) {
-              isDocAdmin = true;
-            }
-          }
-        } catch (readErr) {
-          console.warn('Direct Firestore user document read notice:', readErr);
-        }
-
-        // 2. Secondary check against /admins/{userId} document
-        if (!isDocAdmin) {
-          try {
-            const adminDocSnap = await getDoc(doc(db, 'admins', targetUid));
-            if (adminDocSnap.exists()) {
-              isDocAdmin = true;
-              roleFound = 'ADMIN';
-            }
-          } catch {
-            // Ignore sub-collection read errors
-          }
-        }
-
-        // 3. Fallback to cached authenticated Firestore profile if offline or local
-        if (!isDocAdmin && firestoreUser) {
-          const fsRole = (firestoreUser.role || '').toUpperCase();
-          if (firestoreUser.isAdmin || fsRole === 'ADMIN' || fsRole === 'OPERATOR' || fsRole === 'SUPER_ADMIN') {
-            isDocAdmin = true;
-            roleFound = fsRole || 'ADMIN';
-          }
-        }
-
-        if (!isCancelled) {
-          if (isDocAdmin) {
-            setIsAuthorized(true);
-            setVerifiedRole(roleFound);
-            setRoleVerifying(false);
-          } else {
+        const idToken = await authUser.getIdToken();
+        if (!idToken) {
+          if (!isCancelled) {
             setIsAuthorized(false);
-            setVerifiedRole(roleFound);
-            setAuthErrorReason(
-              `Firestore ব্যবহারকারী নথিতে (${targetUid}) 'ADMIN' বা 'OPERATOR' রোল অনুমোদিত নয়। আপনার বর্তমান রোল: '${roleFound}'।`
-            );
+            setVerifiedRole('PLAYER');
+            setAuthErrorReason('অথেনটিকেশন টোকেন পাওয়া যায়নি (Missing authentication token).');
+            setRoleVerifying(false);
+          }
+          return;
+        }
+
+        const res = await fetch('/api/auth/verify-role', {
+          headers: {
+            Authorization: `Bearer ${idToken}`
+          }
+        });
+
+        if (res.ok) {
+          const data = await res.json();
+          if (data.isPrivileged === true) {
+            if (!isCancelled) {
+              setIsAuthorized(true);
+              setVerifiedRole(data.role || 'ADMIN');
+              setRoleVerifying(false);
+            }
+            return;
+          } else {
+            if (!isCancelled) {
+              setIsAuthorized(false);
+              setVerifiedRole(data.role || 'PLAYER');
+              setAuthErrorReason(
+                `সার্ভার নিরাপত্তা যাচাইয়ে আপনার অ্যাকাউন্ট (${authUser.email || authUser.uid}) অ্যাডমিন বা অপারেটর হিসেবে অনুমোদিত নয়। বর্তমান রোল: '${data.role || 'PLAYER'}'।`
+              );
+              setRoleVerifying(false);
+            }
+            return;
+          }
+        } else {
+          const errData = await res.json().catch(() => ({}));
+          if (!isCancelled) {
+            setIsAuthorized(false);
+            setVerifiedRole('PLAYER');
+            setAuthErrorReason(errData.error || 'সার্ভার রোল ভেরিফিকেশন ব্যর্থ হয়েছে (Role verification failed on server).');
             setRoleVerifying(false);
           }
         }
       } catch (err: any) {
-        console.warn('Strict Firestore admin role check error:', err);
+        console.warn('[AdminPanel] Authoritative server role check error:', err);
         if (!isCancelled) {
+          // Fail closed
           setIsAuthorized(false);
-          setAuthErrorReason(err?.message || 'Firestore role verification check failed.');
+          setVerifiedRole('PLAYER');
+          setAuthErrorReason('সার্ভার নিরাপত্তা যাচাই করতে ত্রুটি হয়েছে (Failed to verify role with authoritative server).');
           setRoleVerifying(false);
         }
       }
     };
 
-    verifyFirestoreRole();
+    verifyServerRole();
 
     return () => {
       isCancelled = true;
     };
-  }, [authUser, currentUser, firestoreUser]);
+  }, [authUser]);
 
   // Automatic Redirection Mechanism for Unauthorized Users
   useEffect(() => {

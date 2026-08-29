@@ -72,7 +72,7 @@ app.use('/api/seamless', seamlessRouter);
 const cashierRouter = express.Router();
 cashierRouter.post('/deposit', (req, res) => paymentController.submitDeposit(req, res));
 cashierRouter.post('/withdraw', (req, res) => paymentController.submitWithdrawal(req, res));
-cashierRouter.get('/requests', (req, res) => paymentController.getRequests(req, res));
+cashierRouter.get('/requests', requireAdmin, (req, res) => paymentController.getRequests(req, res));
 
 app.use('/api/cashier', cashierRouter);
 
@@ -82,8 +82,8 @@ paymentV2Router.post('/deposit/intent', (req, res) => paymentGatewayController.c
 paymentV2Router.post('/deposit/verify-trx', (req, res) => paymentGatewayController.verifyTrxId(req, res));
 paymentV2Router.post('/withdraw/request', (req, res) => paymentGatewayController.requestWithdrawal(req, res));
 paymentV2Router.post('/webhook/:provider', (req, res) => paymentGatewayController.handleWebhook(req, res));
-paymentV2Router.get('/destination-pool', (req, res) => paymentGatewayController.getDestinationPool(req, res));
-paymentV2Router.get('/stats', (req, res) => paymentGatewayController.getStats(req, res));
+paymentV2Router.get('/destination-pool', requireAdmin, (req, res) => paymentGatewayController.getDestinationPool(req, res));
+paymentV2Router.get('/stats', requireAdmin, (req, res) => paymentGatewayController.getStats(req, res));
 
 app.use('/api/v2/payment', paymentV2Router);
 
@@ -141,6 +141,7 @@ adminRouter.get('/stats', (req: AuthRequest, res: Response) => {
 
 adminRouter.get('/requests', (req: AuthRequest, res: Response) => paymentController.getRequests(req, res));
 adminRouter.get('/destination-pool', (req: AuthRequest, res: Response) => paymentGatewayController.getDestinationPool(req, res));
+adminRouter.get('/payment-stats', (req: AuthRequest, res: Response) => paymentGatewayController.getStats(req, res));
 
 app.use('/api/admin', adminRouter);
 

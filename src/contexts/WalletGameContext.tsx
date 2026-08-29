@@ -200,17 +200,12 @@ export const WalletGameProvider: React.FC<{ children: React.ReactNode }> = ({ ch
     };
   });
 
-  const isAdmin = Boolean(
-    authIsAdmin ||
-    currentUser.isAdmin ||
-    currentUser.role === 'ADMIN' ||
-    (currentUser.role && String(currentUser.role).toUpperCase() === 'OPERATOR') ||
-    (currentUser.role && String(currentUser.role).toUpperCase() === 'SUPER_ADMIN')
-  );
+  // Authority is STRICTLY server-verified isPrivileged / authIsAdmin from AuthContext
+  const isAdmin = Boolean(authIsAdmin);
 
   const userRole: 'ADMIN' | 'PLAYER' | 'VIP' = isAdmin
     ? 'ADMIN'
-    : (authUserRole || (currentUser.role as 'ADMIN' | 'PLAYER' | 'VIP') || 'PLAYER');
+    : (authUserRole === 'VIP' ? 'VIP' : 'PLAYER');
 
   const [currentWallet, setCurrentWallet] = useState<WalletEntity>(() => {
     const localWallets = seamlessEngine.getWallets();
