@@ -28,11 +28,12 @@ export interface AffiliateCommissionRecord {
   sourceUserId: number;
   sourceTransactionId: string;
   tier: number;
+  validBetAmount: string;
   commissionRate: string;
-  betAmount: string;
   commissionAmount: string;
-  status: 'SETTLED' | 'CLAIMED' | 'CANCELLED';
-  createdAt: string;
+  currency: string;
+  status: 'PENDING' | 'SETTLED' | 'CLAIMED' | 'CANCELLED' | string;
+  settledAt: string;
 }
 
 export interface AffiliateSummaryResponse {

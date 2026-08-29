@@ -118,7 +118,7 @@ export const AffiliateDashboard: React.FC<AffiliateDashboardProps> = ({
 
   // Authoritative values
   const node = summary?.node;
-  const referralCode = node?.referralCode || `PLAY369_${currentUser.id}`;
+  const referralCode = node?.referralCode || '';
   const totalDirectReferrals = node?.totalDirectReferrals || 0;
   const totalSubordinates = node?.totalSubordinates || 0;
   const totalMembers = totalDirectReferrals + totalSubordinates;
@@ -128,17 +128,20 @@ export const AffiliateDashboard: React.FC<AffiliateDashboardProps> = ({
   const unclaimedAmount = parseFloat(node?.unclaimedCommission || '0');
   const recentCommissions: AffiliateCommissionRecord[] = summary?.recentCommissions || [];
 
-  // Referral link derived strictly from authoritative server referralCode
+  // Referral link derived strictly from authoritative server referralCode (fail closed if unavailable)
   const dynamicReferralLink = useMemo(() => {
-    return referralService.generateReferralLink(referralCode);
+    return referralCode ? referralService.generateReferralLink(referralCode) : '';
   }, [referralCode]);
 
   const shareLinks = useMemo(() => {
-    return referralService.getShareLinks(dynamicReferralLink, referralCode);
+    return (dynamicReferralLink && referralCode)
+      ? referralService.getShareLinks(dynamicReferralLink, referralCode)
+      : null;
   }, [dynamicReferralLink, referralCode]);
 
   // Copy handlers
   const handleCopyLink = () => {
+    if (!dynamicReferralLink || !referralCode) return;
     navigator.clipboard.writeText(dynamicReferralLink);
     soundEngine.playClick(950);
     setCopiedLink(true);
@@ -146,6 +149,7 @@ export const AffiliateDashboard: React.FC<AffiliateDashboardProps> = ({
   };
 
   const handleCopyCode = () => {
+    if (!referralCode) return;
     navigator.clipboard.writeText(referralCode);
     soundEngine.playClick(950);
     setCopiedCode(true);
@@ -208,12 +212,12 @@ export const AffiliateDashboard: React.FC<AffiliateDashboardProps> = ({
 
       // Aggregate real settled/claimed commissions for this specific calendar date
       const matched = recentCommissions.filter((c) => {
-        const cDate = c.createdAt ? new Date(c.createdAt).toISOString().split('T')[0] : '';
+        const cDate = c.settledAt ? new Date(c.settledAt).toISOString().split('T')[0] : '';
         return cDate === dateKey;
       });
 
       const dayCommission = matched.reduce((acc, c) => acc + parseFloat(c.commissionAmount || '0'), 0);
-      const dayTurnover = matched.reduce((acc, c) => acc + parseFloat(c.betAmount || '0'), 0);
+      const dayTurnover = matched.reduce((acc, c) => acc + parseFloat(c.validBetAmount || '0'), 0);
 
       result.push({
         date: dayLabel,
@@ -286,21 +290,22 @@ export const AffiliateDashboard: React.FC<AffiliateDashboardProps> = ({
                   <span>আপনার অথেনটিকেটেড রেফারেল লিংক:</span>
                 </span>
                 <span className="text-emerald-300 text-[11px]">
-                  কোড: <strong className="text-amber-300">{referralCode}</strong>
+                  কোড: <strong className="text-amber-300">{referralCode || (loading ? 'লোড হচ্ছে...' : 'অনুপলব্ধ')}</strong>
                 </span>
               </div>
 
               <div className="bg-emerald-950/90 border-2 border-emerald-700/80 p-2.5 sm:p-3 rounded-2xl flex flex-col sm:flex-row items-center justify-between gap-2 text-xs font-mono shadow-lg shadow-emerald-950">
                 <div className="flex items-center space-x-2 text-emerald-200 truncate w-full min-w-0">
                   <span className="text-emerald-100 bg-emerald-900/60 px-3 py-2 rounded-xl border border-emerald-700 truncate flex-1 select-all text-xs text-left font-mono font-bold">
-                    {dynamicReferralLink}
+                    {dynamicReferralLink || (loading ? 'সার্ভার থেকে লোড হচ্ছে...' : 'রেফারেল লিংক অনুপলব্ধ')}
                   </span>
                 </div>
 
                 <div className="flex items-center space-x-2 w-full sm:w-auto shrink-0">
                   <button
                     onClick={handleCopyLink}
-                    className="flex-1 sm:flex-none min-h-[38px] px-4 py-2 rounded-xl bg-gradient-to-r from-amber-400 to-yellow-400 text-slate-950 font-black flex items-center justify-center space-x-1.5 shadow-md active:scale-95 transition-all cursor-pointer"
+                    disabled={!referralCode || loading}
+                    className="flex-1 sm:flex-none min-h-[38px] px-4 py-2 rounded-xl bg-gradient-to-r from-amber-400 to-yellow-400 text-slate-950 font-black flex items-center justify-center space-x-1.5 shadow-md active:scale-95 disabled:opacity-50 transition-all cursor-pointer"
                   >
                     {copiedLink ? <Check className="w-4 h-4 text-emerald-950 stroke-[3]" /> : <Copy className="w-4 h-4" />}
                     <span>{copiedLink ? 'কপি হয়েছে!' : 'লিংক কপি'}</span>
@@ -308,7 +313,8 @@ export const AffiliateDashboard: React.FC<AffiliateDashboardProps> = ({
 
                   <button
                     onClick={handleCopyCode}
-                    className="min-h-[38px] px-3 py-2 rounded-xl bg-emerald-900/80 hover:bg-emerald-800 border border-amber-400/40 text-amber-300 font-bold text-xs flex items-center justify-center space-x-1 transition-all cursor-pointer"
+                    disabled={!referralCode || loading}
+                    className="min-h-[38px] px-3 py-2 rounded-xl bg-emerald-900/80 hover:bg-emerald-800 border border-amber-400/40 text-amber-300 font-bold text-xs flex items-center justify-center space-x-1 disabled:opacity-50 transition-all cursor-pointer"
                     title="রেফারেল কোড কপি করুন"
                   >
                     {copiedCode ? <Check className="w-3.5 h-3.5 text-emerald-400" /> : <Award className="w-3.5 h-3.5 text-amber-400" />}
@@ -323,30 +329,36 @@ export const AffiliateDashboard: React.FC<AffiliateDashboardProps> = ({
               <div className="text-[11px] text-emerald-300 font-mono mb-2">বন্ধুদের সাথে শেয়ার করুন:</div>
               <div className="grid grid-cols-3 sm:grid-cols-4 gap-2">
                 <a
-                  href={shareLinks.whatsapp}
+                  href={shareLinks?.whatsapp || '#'}
                   target="_blank"
                   rel="noopener noreferrer"
-                  className="p-2.5 rounded-xl bg-emerald-800/40 hover:bg-emerald-800/60 border border-emerald-600 text-emerald-200 text-xs font-mono font-bold flex items-center justify-center space-x-1.5 transition-all shadow-sm group"
+                  className={`p-2.5 rounded-xl bg-emerald-800/40 hover:bg-emerald-800/60 border border-emerald-600 text-emerald-200 text-xs font-mono font-bold flex items-center justify-center space-x-1.5 transition-all shadow-sm group ${
+                    !shareLinks ? 'pointer-events-none opacity-50' : ''
+                  }`}
                 >
                   <MessageCircle className="w-4 h-4 text-emerald-400 group-hover:scale-110 transition-transform" />
                   <span>WhatsApp</span>
                 </a>
 
                 <a
-                  href={shareLinks.telegram}
+                  href={shareLinks?.telegram || '#'}
                   target="_blank"
                   rel="noopener noreferrer"
-                  className="p-2.5 rounded-xl bg-emerald-800/40 hover:bg-emerald-800/60 border border-emerald-600 text-emerald-200 text-xs font-mono font-bold flex items-center justify-center space-x-1.5 transition-all shadow-sm group"
+                  className={`p-2.5 rounded-xl bg-emerald-800/40 hover:bg-emerald-800/60 border border-emerald-600 text-emerald-200 text-xs font-mono font-bold flex items-center justify-center space-x-1.5 transition-all shadow-sm group ${
+                    !shareLinks ? 'pointer-events-none opacity-50' : ''
+                  }`}
                 >
                   <Send className="w-4 h-4 text-amber-400 group-hover:scale-110 transition-transform" />
                   <span>Telegram</span>
                 </a>
 
                 <a
-                  href={shareLinks.facebook}
+                  href={shareLinks?.facebook || '#'}
                   target="_blank"
                   rel="noopener noreferrer"
-                  className="p-2.5 rounded-xl bg-emerald-800/40 hover:bg-emerald-800/60 border border-emerald-600 text-emerald-200 text-xs font-mono font-bold flex items-center justify-center space-x-1.5 transition-all shadow-sm group"
+                  className={`p-2.5 rounded-xl bg-emerald-800/40 hover:bg-emerald-800/60 border border-emerald-600 text-emerald-200 text-xs font-mono font-bold flex items-center justify-center space-x-1.5 transition-all shadow-sm group ${
+                    !shareLinks ? 'pointer-events-none opacity-50' : ''
+                  }`}
                 >
                   <Facebook className="w-4 h-4 text-amber-300 group-hover:scale-110 transition-transform" />
                   <span>Facebook</span>
@@ -354,7 +366,8 @@ export const AffiliateDashboard: React.FC<AffiliateDashboardProps> = ({
 
                 <button
                   onClick={handleCopyLink}
-                  className="hidden sm:flex p-2.5 rounded-xl bg-emerald-950 hover:bg-emerald-900 border border-emerald-700 text-emerald-200 text-xs font-mono font-bold items-center justify-center space-x-1.5 transition-all cursor-pointer"
+                  disabled={!referralCode || loading}
+                  className="hidden sm:flex p-2.5 rounded-xl bg-emerald-950 hover:bg-emerald-900 border border-emerald-700 text-emerald-200 text-xs font-mono font-bold items-center justify-center space-x-1.5 transition-all cursor-pointer disabled:opacity-50"
                 >
                   <Copy className="w-4 h-4 text-amber-400" />
                   <span>অন্যান্য</span>
@@ -638,7 +651,7 @@ export const AffiliateDashboard: React.FC<AffiliateDashboardProps> = ({
               এখনও কোনো কমিশন রেকর্ড তৈরি হয়নি
             </div>
             <p className="text-xs text-slate-400 max-w-md mx-auto">
-              আপনার রেফারেল কোড <strong className="text-amber-300">{referralCode}</strong> শেয়ার করুন। আপনার রেফার করা বন্ধুদের প্রতিটি স্পিন থেকে স্বয়ংক্রিয় কমিশন যোগ হবে।
+              আপনার রেফারেল কোড <strong className="text-amber-300">{referralCode || 'অনুপলব্ধ'}</strong> শেয়ার করুন। আপনার রেফার করা বন্ধুদের প্রতিটি স্পিন থেকে স্বয়ংক্রিয় কমিশন যোগ হবে।
             </p>
           </div>
         ) : (
@@ -649,7 +662,7 @@ export const AffiliateDashboard: React.FC<AffiliateDashboardProps> = ({
                   <th className="p-3">ট্রানজেকশন ID</th>
                   <th className="p-3">টিয়ার</th>
                   <th className="p-3">তারিখ ও সময়</th>
-                  <th className="p-3">বেট অ্যামাউন্ট</th>
+                  <th className="p-3">টার্নওভার (Valid Bet)</th>
                   <th className="p-3">কমিশন রেট</th>
                   <th className="p-3">অর্জিত কমিশন</th>
                   <th className="p-3">স্ট্যাটাস</th>
@@ -667,10 +680,10 @@ export const AffiliateDashboard: React.FC<AffiliateDashboardProps> = ({
                       </span>
                     </td>
                     <td className="p-3 text-slate-400">
-                      {c.createdAt ? new Date(c.createdAt).toLocaleString() : 'N/A'}
+                      {c.settledAt ? new Date(c.settledAt).toLocaleString() : 'N/A'}
                     </td>
                     <td className="p-3 text-slate-200">
-                      {symbol}{parseFloat(c.betAmount || '0').toLocaleString()}
+                      {symbol}{parseFloat(c.validBetAmount || '0').toLocaleString()}
                     </td>
                     <td className="p-3 text-emerald-300">
                       {c.commissionRate === '0.0050' ? '0.50%' : c.commissionRate === '0.0020' ? '0.20%' : `${(parseFloat(c.commissionRate) * 100).toFixed(2)}%`}

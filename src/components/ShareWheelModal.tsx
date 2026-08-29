@@ -5,7 +5,7 @@
  * Uses real-time server referral link and 1-click social sharing.
  */
 
-import React, { useState, useMemo } from 'react';
+import React, { useState, useMemo, useEffect } from 'react';
 import {
   Sparkles,
   X,
@@ -21,6 +21,7 @@ import {
   Facebook
 } from 'lucide-react';
 import { useWalletGame } from '../contexts/WalletGameContext';
+import { useAuth } from '../contexts/AuthContext';
 import { soundEngine } from '../services/soundEngine';
 import { referralService } from '../services/referralService';
 
@@ -30,26 +31,59 @@ interface ShareWheelModalProps {
 }
 
 export const ShareWheelModal: React.FC<ShareWheelModalProps> = ({ isOpen, onClose }) => {
-  const { currentUser, showToast } = useWalletGame();
+  const { showToast } = useWalletGame();
+  const { user } = useAuth();
 
   const [spinning, setSpinning] = useState(false);
   const [rotation, setRotation] = useState(0);
   const [wonPrize, setWonPrize] = useState<string | null>(null);
   const [copiedLink, setCopiedLink] = useState(false);
+  const [referralCode, setReferralCode] = useState<string | null>(null);
+  const [loadingCode, setLoadingCode] = useState<boolean>(true);
 
-  // Dynamic real referral link
-  const referralCode = `PLAY369_${currentUser.id}`;
+  // Authoritative server referralCode fetch
+  useEffect(() => {
+    if (!isOpen || !user) {
+      setLoadingCode(false);
+      return;
+    }
+
+    let isMounted = true;
+    (async () => {
+      setLoadingCode(true);
+      try {
+        const token = await user.getIdToken();
+        const res = await referralService.fetchAffiliateSummary(token);
+        if (isMounted && res.success && res.data?.node?.referralCode) {
+          setReferralCode(res.data.node.referralCode);
+        }
+      } catch (e) {
+        console.error('Failed to load referral code for ShareWheelModal:', e);
+      } finally {
+        if (isMounted) setLoadingCode(false);
+      }
+    })();
+
+    return () => {
+      isMounted = false;
+    };
+  }, [isOpen, user]);
+
+  // Dynamic real referral link (derived strictly from authoritative server referralCode)
   const referralUrl = useMemo(() => {
-    return referralService.generateReferralLink(referralCode);
+    return referralCode ? referralService.generateReferralLink(referralCode) : '';
   }, [referralCode]);
 
   const shareLinks = useMemo(() => {
-    return referralService.getShareLinks(referralUrl, referralCode);
+    return (referralUrl && referralCode)
+      ? referralService.getShareLinks(referralUrl, referralCode)
+      : null;
   }, [referralUrl, referralCode]);
 
   if (!isOpen) return null;
 
   const handleCopy = () => {
+    if (!referralUrl || !referralCode) return;
     navigator.clipboard.writeText(referralUrl);
     setCopiedLink(true);
     soundEngine.playClick(1100);
@@ -77,14 +111,19 @@ export const ShareWheelModal: React.FC<ShareWheelModalProps> = ({ isOpen, onClos
 
     setTimeout(() => {
       setSpinning(false);
-      const badges = ['0.50% Tier 1 Boost', 'VIP Member Perk', '3-Level Network Pass', 'Double Commission Ticket'];
-      const prize = badges[Math.floor(Math.random() * badges.length)];
-      setWonPrize(`রেফারেল প্রমোশন: ${prize}!`);
+      // Purely decorative encouraging message; never claims fake tier boosts, VIP boosts, or server money
+      const greetings = ['ধন্যবাদ!', 'রেফারেল লিংক শেয়ারের জন্য প্রস্তুত!', 'বন্ধুদের আমন্ত্রণ জানান!', 'আজীবন ৩-লেভেল কমিশন নেটওয়ার্ক'];
+      const prize = greetings[Math.floor(Math.random() * greetings.length)];
+      setWonPrize(prize);
 
       soundEngine.playMegaWin();
-      showToast(`আপনার রেফারেল অ্যাক্টিভেশন প্রস্তুত!`);
+      showToast('রেফারেল লিংক বন্ধুদের সাথে শেয়ার করুন!');
     }, 3500);
   };
+
+  const displayReferralValue = loadingCode
+    ? 'সার্ভার থেকে লোড হচ্ছে...'
+    : (referralUrl || 'রেফারেল লিংক অনুপলব্ধ');
 
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/80 backdrop-blur-md animate-in fade-in">
@@ -122,7 +161,7 @@ export const ShareWheelModal: React.FC<ShareWheelModalProps> = ({ isOpen, onClos
             >
               <div className="absolute inset-2 rounded-full border border-amber-300/30 flex items-center justify-center">
                 <span className="text-xs font-mono font-black text-white text-center">
-                  🎁 VIP <br /> WHEEL
+                  ✨ SHARE <br /> WHEEL
                 </span>
               </div>
             </div>
@@ -130,7 +169,7 @@ export const ShareWheelModal: React.FC<ShareWheelModalProps> = ({ isOpen, onClos
 
           {wonPrize && (
             <div className="mt-3 p-2.5 rounded-2xl bg-emerald-500/20 border border-emerald-500/40 text-emerald-300 font-bold text-xs animate-bounce font-mono text-center">
-              🎉 {wonPrize}
+              {wonPrize}
             </div>
           )}
 
@@ -158,12 +197,13 @@ export const ShareWheelModal: React.FC<ShareWheelModalProps> = ({ isOpen, onClos
             <input
               type="text"
               readOnly
-              value={referralUrl}
+              value={displayReferralValue}
               className="flex-1 bg-slate-900 border border-slate-800 rounded-xl px-2.5 py-2 text-[11px] font-mono text-slate-200 truncate focus:outline-none"
             />
             <button
               onClick={handleCopy}
-              className="px-3.5 py-2 rounded-xl bg-amber-400 hover:bg-yellow-400 text-slate-950 font-bold text-xs active:scale-95 transition-all flex items-center space-x-1 cursor-pointer"
+              disabled={!referralCode || loadingCode}
+              className="px-3.5 py-2 rounded-xl bg-amber-400 hover:bg-yellow-400 disabled:opacity-50 text-slate-950 font-bold text-xs active:scale-95 transition-all flex items-center space-x-1 cursor-pointer"
             >
               {copiedLink ? <Check className="w-3.5 h-3.5 text-slate-950" /> : <Copy className="w-3.5 h-3.5 text-slate-950" />}
               <span>{copiedLink ? 'কপি!' : 'কপি'}</span>
@@ -173,28 +213,34 @@ export const ShareWheelModal: React.FC<ShareWheelModalProps> = ({ isOpen, onClos
           {/* Social Share Buttons */}
           <div className="grid grid-cols-3 gap-2 pt-1">
             <a
-              href={shareLinks.whatsapp}
+              href={shareLinks?.whatsapp || '#'}
               target="_blank"
               rel="noopener noreferrer"
-              className="p-2 rounded-xl bg-emerald-600/20 hover:bg-emerald-600/30 border border-emerald-500/40 text-emerald-300 text-[11px] font-mono font-bold flex items-center justify-center space-x-1"
+              className={`p-2 rounded-xl bg-emerald-600/20 hover:bg-emerald-600/30 border border-emerald-500/40 text-emerald-300 text-[11px] font-mono font-bold flex items-center justify-center space-x-1 ${
+                !shareLinks ? 'pointer-events-none opacity-50' : ''
+              }`}
             >
               <MessageCircle className="w-3.5 h-3.5" />
               <span>WhatsApp</span>
             </a>
             <a
-              href={shareLinks.telegram}
+              href={shareLinks?.telegram || '#'}
               target="_blank"
               rel="noopener noreferrer"
-              className="p-2 rounded-xl bg-cyan-600/20 hover:bg-cyan-600/30 border border-cyan-500/40 text-cyan-300 text-[11px] font-mono font-bold flex items-center justify-center space-x-1"
+              className={`p-2 rounded-xl bg-cyan-600/20 hover:bg-cyan-600/30 border border-cyan-500/40 text-cyan-300 text-[11px] font-mono font-bold flex items-center justify-center space-x-1 ${
+                !shareLinks ? 'pointer-events-none opacity-50' : ''
+              }`}
             >
               <Send className="w-3.5 h-3.5" />
               <span>Telegram</span>
             </a>
             <a
-              href={shareLinks.facebook}
+              href={shareLinks?.facebook || '#'}
               target="_blank"
               rel="noopener noreferrer"
-              className="p-2 rounded-xl bg-blue-600/20 hover:bg-blue-600/30 border border-blue-500/40 text-blue-300 text-[11px] font-mono font-bold flex items-center justify-center space-x-1"
+              className={`p-2 rounded-xl bg-blue-600/20 hover:bg-blue-600/30 border border-blue-500/40 text-blue-300 text-[11px] font-mono font-bold flex items-center justify-center space-x-1 ${
+                !shareLinks ? 'pointer-events-none opacity-50' : ''
+              }`}
             >
               <Facebook className="w-3.5 h-3.5" />
               <span>Facebook</span>
