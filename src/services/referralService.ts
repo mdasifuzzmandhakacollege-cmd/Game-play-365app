@@ -1,166 +1,98 @@
 /**
  * @file referralService.ts
- * @description Real-time Multi-Tier Referral & Affiliate Commission Service for Playall 365.
- * Handles dynamic URL parameter capture (?ref=username_or_id), persistent localStorage state,
- * live Firestore / local ledger synchronization, real-time instant commission payouts,
- * live click & conversion telemetry, and 1-click social sharing (WhatsApp, Telegram, Facebook, SMS).
+ * @description Server-Authoritative Multi-Tier Referral & Affiliate Commission Service for Playall 365.
+ * Strictly adheres to server authority:
+ * 1. GET /api/affiliate/summary for real-time node metrics and recent commission logs.
+ * 2. POST /api/affiliate/claim with verified Firebase Bearer token for server-side commission redemption.
+ * 3. POST /api/affiliate/bind with verified Firebase Bearer token for immutable referral bonding.
+ * 4. Captures URL parameter (?ref=code) into temporary localStorage only until registration bind.
+ * 5. Zero client-side financial mutations, zero synthetic simulators, zero fake data.
  */
 
-import { UserEntity, WalletEntity } from '../server/types/seamless';
-import { notificationService } from './notificationService';
-import { soundEngine } from './soundEngine';
-import { db } from '../lib/firebase';
-import { doc, setDoc, getDoc, collection, query, where, getDocs } from 'firebase/firestore';
-
-export interface ReferralRecord {
-  id: string;
-  referrerId: string;
-  referrerUsername: string;
-  referredUserId: string;
-  referredUsername: string;
-  referredEmail?: string;
-  joinedAt: string;
-  tier: 1 | 2 | 3;
-  totalTurnover: number;
-  commissionEarned: number;
-  commissionClaimed: boolean;
-  status: 'ACTIVE' | 'PENDING';
-}
-
-export interface AffiliateActivityEvent {
-  id: string;
-  type: 'CLICK' | 'SIGNUP' | 'COMMISSION' | 'TIER_UPGRADE';
-  timestamp: number;
-  source: 'WhatsApp' | 'Telegram' | 'Facebook' | 'Direct Link' | 'SMS' | 'Messenger';
-  location: string;
-  device: 'Mobile' | 'Desktop' | 'Tablet';
-  ipMasked?: string;
-  username?: string;
-  amount?: number;
-  currency?: 'BDT' | 'USD';
-  status: 'SUCCESS' | 'ACTIVE' | 'PENDING';
-  message: string;
-  details?: string;
-}
-
-export interface LiveAffiliateMetrics {
+export interface AffiliateNodeData {
+  userId: number;
+  parentAffiliateId?: number | null;
+  grandParentAffiliateId?: number | null;
   referralCode: string;
-  referralLink: string;
-  totalClicks: number;
-  todayClicks: number;
-  uniqueVisitors: number;
-  totalConversions: number;
-  conversionRate: number; // e.g. 14.8%
-  activeReferralsOnline: number;
-  totalCommission: number;
-  unclaimedCommission: number;
-  todayCommission: number;
-  totalTurnover: number;
+  totalDirectReferrals: number;
+  totalSubordinates: number;
+  totalTurnoverVolume: string;
+  totalCommissionEarned: string;
+  unclaimedCommission: string;
+  status?: string;
 }
 
-export interface AffiliateStats {
-  referralCode: string;
-  referralLink: string;
-  totalMembers: number;
-  tier1Count: number;
-  tier2Count: number;
-  tier3Count: number;
-  totalTurnover: number;
-  totalCommission: number;
-  unclaimedCommission: number;
-  referrals: ReferralRecord[];
+export interface AffiliateCommissionRecord {
+  id: number;
+  beneficiaryUserId: number;
+  sourceUserId: number;
+  sourceTransactionId: string;
+  tier: number;
+  commissionRate: string;
+  betAmount: string;
+  commissionAmount: string;
+  status: 'SETTLED' | 'CLAIMED' | 'CANCELLED';
+  createdAt: string;
+}
+
+export interface AffiliateSummaryResponse {
+  node: AffiliateNodeData;
+  recentCommissions: AffiliateCommissionRecord[];
+}
+
+export interface ClaimCommissionResult {
+  claimedAmount: string;
+  newRealBalance: string;
+  transactionId: string;
+  ledgerEntryId?: number;
+  isIdempotent?: boolean;
 }
 
 const REFERRAL_STORAGE_KEY = 'playall365_referral_code';
-const REFERRALS_LIST_KEY = 'playall365_referrals_store';
-const AFFILIATE_CLICKS_KEY = 'playall365_affiliate_clicks_count';
-const AFFILIATE_EVENTS_KEY = 'playall365_affiliate_events_feed';
-
-const BANGLADESH_CITIES = [
-  'Dhaka (Mirpur)',
-  'Dhaka (Uttara)',
-  'Chittagong (Agrabad)',
-  'Sylhet (Zindabazar)',
-  'Rajshahi (Shaheb Bazar)',
-  'Khulna (Shibbari)',
-  'Comilla (Kandirpar)',
-  'Gazipur (Joydebpur)',
-  'Narayanganj',
-  'Barisal (Sadar)',
-  'Dubai, UAE (Expat)',
-  'London, UK (Expat)'
-];
-
-const SOURCES: Array<AffiliateActivityEvent['source']> = [
-  'WhatsApp',
-  'Telegram',
-  'Facebook',
-  'Direct Link',
-  'Messenger',
-  'SMS'
-];
-
-const DEVICES: Array<AffiliateActivityEvent['device']> = [
-  'Mobile',
-  'Mobile',
-  'Mobile',
-  'Desktop',
-  'Tablet'
-];
 
 class ReferralService {
   private listeners: Array<() => void> = [];
 
-  constructor() {
-    // Clean initial constructor with no fake background generators
-  }
-
   /**
    * Automatically captures referral code from URL query parameters on initial page load
+   * Stores ONLY the temporary referral code string until consumption.
    */
   public captureReferralFromUrl(): string | null {
     if (typeof window === 'undefined') return null;
 
     try {
       const urlParams = new URLSearchParams(window.location.search);
-      let refCode = urlParams.get('ref') || urlParams.get('referral') || urlParams.get('aff') || urlParams.get('r');
+      let refCode =
+        urlParams.get('ref') ||
+        urlParams.get('referral') ||
+        urlParams.get('aff') ||
+        urlParams.get('r');
 
       // Also check hash routing if present (e.g. #/register?ref=xxx)
       if (!refCode && window.location.hash.includes('?')) {
         const hashQuery = window.location.hash.split('?')[1];
         const hashParams = new URLSearchParams(hashQuery);
-        refCode = hashParams.get('ref') || hashParams.get('referral') || hashParams.get('aff') || hashParams.get('r');
+        refCode =
+          hashParams.get('ref') ||
+          hashParams.get('referral') ||
+          hashParams.get('aff') ||
+          hashParams.get('r');
       }
 
       if (refCode && refCode.trim()) {
         const sanitized = refCode.trim();
         localStorage.setItem(REFERRAL_STORAGE_KEY, sanitized);
-        
-        // Record incoming real click
-        const referrer = this.resolveReferrer(sanitized);
-        if (referrer) {
-          this.recordClickEvent({
-            referrerId: referrer.id,
-            referrerUsername: referrer.username,
-            source: 'Direct Link',
-            location: 'Browser Visit (Live)',
-            device: window.innerWidth < 768 ? 'Mobile' : 'Desktop',
-            message: `ব্যবহারকারী আপনার শেয়ার করা লিংক থেকে ভিজিট করেছেন`
-          });
-        }
-
-        console.log(`[ReferralEngine] Captured active referral code: "${sanitized}"`);
         return sanitized;
       }
     } catch (e) {
-      console.warn('[ReferralEngine] Error capturing referral URL param:', e);
+      console.warn('[ReferralService] Error capturing referral URL param:', e);
     }
 
     return this.getStoredReferralCode();
   }
 
   /**
-   * Retrieves the currently stored referral code from localStorage
+   * Retrieves the currently stored temporary referral code from localStorage
    */
   public getStoredReferralCode(): string | null {
     if (typeof window === 'undefined') return null;
@@ -168,7 +100,7 @@ class ReferralService {
   }
 
   /**
-   * Clears stored referral code after successful registration
+   * Clears stored temporary referral code after successful registration/binding
    */
   public clearStoredReferralCode(): void {
     if (typeof window === 'undefined') return;
@@ -176,24 +108,25 @@ class ReferralService {
   }
 
   /**
-   * Generates the real, dynamic, and working referral link based on current domain origin
+   * Generates the authoritative referral share link based on domain origin and server-supplied referralCode
    */
-  public generateReferralLink(userIdentifier: string): string {
+  public generateReferralLink(referralCode: string): string {
     if (typeof window === 'undefined') {
-      return `https://playall365.vip/?ref=${encodeURIComponent(userIdentifier)}`;
+      return `https://playall365.vip/?ref=${encodeURIComponent(referralCode || '')}`;
     }
 
     const origin = window.location.origin;
-    const cleanId = (userIdentifier || 'playall365').toLowerCase().replace(/\s+/g, '_');
-    return `${origin}/?ref=${encodeURIComponent(cleanId)}`;
+    const cleanCode = (referralCode || '').trim();
+    return `${origin}/?ref=${encodeURIComponent(cleanCode)}`;
   }
 
   /**
-   * Helper to generate ready-to-share social media URLs
+   * Helper to generate ready-to-share social media URLs with server referral link
    */
-  public getShareLinks(referralLink: string, username: string) {
-    const promoText = `🔥 Playall 365 এ যোগ দিয়ে জিতে নিন ফ্রি ১০০% ওয়েলকাম বোনাস ও আনলিমিটেড ক্যাশব্যাক! আমার রেফারেল লিঙ্ক: ${referralLink}`;
-    
+  public getShareLinks(referralLink: string, referralCode?: string) {
+    const codeText = referralCode ? ` [কোড: ${referralCode}]` : '';
+    const promoText = `🔥 Playall 365 এ যোগ দিয়ে জিতে নিন আজীবন এফিলিয়েট কমিশন! আমার রেফারেল লিঙ্ক: ${referralLink}${codeText}`;
+
     return {
       whatsapp: `https://api.whatsapp.com/send?text=${encodeURIComponent(promoText)}`,
       telegram: `https://t.me/share/url?url=${encodeURIComponent(referralLink)}&text=${encodeURIComponent('Playall 365 লাইভ ক্যাসিনো ও আর্নিং হাব!')}`,
@@ -203,130 +136,81 @@ class ReferralService {
   }
 
   /**
-   * Resolves a referral code format for UI display
+   * Authoritatively fetches affiliate summary from PostgreSQL backend.
    */
-  public resolveReferrer(code: string): UserEntity | null {
-    if (!code || !code.trim()) return null;
-    const clean = code.trim();
-
-    return {
-      id: clean,
-      username: clean.startsWith('PLAY369_') ? clean.replace('PLAY369_', 'VIP_') : clean,
-      email: `${clean.toLowerCase()}@play369.com`,
-      operator_id: 'GAMEPLAY365_BD',
-      currency: 'BDT',
-      status: 'ACTIVE',
-      created_at: new Date().toISOString(),
-      updated_at: new Date().toISOString()
-    };
-  }
-
-  /**
-   * Process a new user registration with referral rewards in real-time
-   */
-  public async processReferralRegistration(params: {
-    newUserId: string;
-    newUsername: string;
-    newUserEmail?: string;
-    referralCode?: string;
-    currency: 'BDT' | 'USD';
-  }): Promise<{
-    hasReferrer: boolean;
-    referrer?: UserEntity;
-    bonusAmount: number;
-  }> {
-    const code = params.referralCode || this.getStoredReferralCode();
-    if (!code || !code.trim()) {
-      return { hasReferrer: false, bonusAmount: 0 };
-    }
-
-    const referrer = this.resolveReferrer(code);
-    if (!referrer || referrer.id === params.newUserId) {
-      return { hasReferrer: false, bonusAmount: 0 };
-    }
-
-    const bonusAmount = params.currency === 'BDT' ? 500 : 5.0;
-    const now = new Date().toISOString();
-
-    // 1. Create Referral Record
-    const record: ReferralRecord = {
-      id: `REF_REC_${Date.now()}_${Math.floor(1000 + Math.random() * 9000)}`,
-      referrerId: referrer.id,
-      referrerUsername: referrer.username,
-      referredUserId: params.newUserId,
-      referredUsername: params.newUsername,
-      referredEmail: params.newUserEmail,
-      joinedAt: now,
-      tier: 1,
-      totalTurnover: 0,
-      commissionEarned: bonusAmount,
-      commissionClaimed: false,
-      status: 'ACTIVE'
-    };
-
-    this.saveReferralRecord(record);
-
-    // 2. Record Conversion in Activity Stream
-    this.recordActivityEvent({
-      id: `EVT_CONV_${Date.now()}_${Math.floor(100 + Math.random() * 900)}`,
-      type: 'SIGNUP',
-      timestamp: Date.now(),
-      source: 'WhatsApp',
-      location: BANGLADESH_CITIES[Math.floor(Math.random() * BANGLADESH_CITIES.length)],
-      device: 'Mobile',
-      username: params.newUsername,
-      amount: 0,
-      currency: params.currency,
-      status: 'SUCCESS',
-      message: `🎯 নতুন সাইন-আপ: @${params.newUsername} আপনার রেফারেল লিংক ব্যবহার করে যোগ দিয়েছেন`,
-      details: `Authoritative PostgreSQL referral node linked successfully`
-    });
-
-    // 3. Send instant notification to Referrer
-    notificationService.pushNotification(referrer.id, {
-      userId: referrer.id,
-      title: '🎉 নতুন রেফারেল সফল হয়েছে!',
-      message: `@${params.newUsername} আপনার রেফারেল লিংকের মাধ্যমে জয়েন করেছেন।`,
-      type: 'AFFILIATE_COMMISSION',
-      amount: 0,
-      currency: params.currency,
-      isRead: false,
-      actionTab: 'affiliate'
-    });
-
-    // 4. Send notification to New User
-    notificationService.pushNotification(params.newUserId, {
-      userId: params.newUserId,
-      title: '🎁 রেফারেল সদস্যপদ সক্রিয়!',
-      message: `আপনি @${referrer.username} এর আমন্ত্রণে PLAY369 এ সফলভাবে জয়েন করেছেন!`,
-      type: 'BONUS_UNLOCKED',
-      amount: 0,
-      currency: params.currency,
-      isRead: false,
-      actionTab: 'promo'
-    });
-
-    // 5. Try syncing to Firebase Firestore if online
+  public async fetchAffiliateSummary(
+    authToken: string
+  ): Promise<{ success: boolean; data?: AffiliateSummaryResponse; error?: string }> {
     try {
-      const refDoc = doc(db, 'referrals', record.id);
-      await setDoc(refDoc, record);
-    } catch (e) {
-      console.warn('[ReferralEngine] Firestore referral doc sync note:', e);
+      const res = await fetch('/api/affiliate/summary', {
+        method: 'GET',
+        headers: {
+          'Content-Type': 'application/json',
+          Authorization: `Bearer ${authToken}`
+        }
+      });
+
+      const json = await res.json();
+      if (!res.ok || json.status === 'ERROR') {
+        return {
+          success: false,
+          error: json.message || 'Failed to fetch affiliate summary'
+        };
+      }
+
+      return {
+        success: true,
+        data: json.data
+      };
+    } catch (err: any) {
+      console.error('[ReferralService] fetchAffiliateSummary network error:', err);
+      return {
+        success: false,
+        error: err.message || 'Network error fetching affiliate data'
+      };
     }
-
-    // Clear stored ref code since it was consumed
-    this.clearStoredReferralCode();
-    this.notifyListeners();
-
-    return {
-      hasReferrer: true,
-      referrer,
-      bonusAmount: 0
-    };
   }
 
   /**
-   * Bind authenticated user to a sponsor authoritatively on the server via /api/affiliate/bind.
+   * Claims unclaimed affiliate commission authoritatively on the server via POST /api/affiliate/claim.
+   * Updates PostgreSQL wallet balance directly through ACID ledger transactions.
+   */
+  public async claimCommissionOnServer(
+    authToken: string
+  ): Promise<{ success: boolean; data?: ClaimCommissionResult; error?: string }> {
+    try {
+      const res = await fetch('/api/affiliate/claim', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          Authorization: `Bearer ${authToken}`
+        }
+      });
+
+      const json = await res.json();
+      if (!res.ok || json.status === 'ERROR') {
+        return {
+          success: false,
+          error: json.message || 'Commission claim failed'
+        };
+      }
+
+      this.notifyListeners();
+      return {
+        success: true,
+        data: json.data
+      };
+    } catch (err: any) {
+      console.error('[ReferralService] claimCommissionOnServer error:', err);
+      return {
+        success: false,
+        error: err.message || 'Network error claiming commission'
+      };
+    }
+  }
+
+  /**
+   * Bind authenticated user to a sponsor authoritatively on the server via POST /api/affiliate/bind.
    * Never mutates client balances directly.
    */
   public async bindReferralOnServer(
@@ -360,7 +244,7 @@ class ReferralService {
         isIdempotent: json.data?.isIdempotent || false
       };
     } catch (err: any) {
-      console.error('[ReferralEngine] bindReferralOnServer error:', err);
+      console.error('[ReferralService] bindReferralOnServer error:', err);
       return {
         success: false,
         error: err.message || 'Network error communicating with referral service'
@@ -368,301 +252,7 @@ class ReferralService {
     }
   }
 
-  /**
-   * Get all referrals for a user (calculating real registered referrals and commissions)
-   */
-  public getReferralsForUser(userId: string, username: string, currency: 'BDT' | 'USD'): AffiliateStats {
-    const stored = this.getAllStoredReferrals().filter(
-      (r) => r.referrerId === userId || r.referrerUsername.toLowerCase() === username.toLowerCase()
-    );
-
-    const tier1 = stored.filter((r) => r.tier === 1);
-    const tier2 = stored.filter((r) => r.tier === 2);
-    const tier3 = stored.filter((r) => r.tier === 3);
-
-    const totalTurnover = stored.reduce((sum, r) => sum + (r.totalTurnover || 0), 0);
-    const totalCommission = stored.reduce((sum, r) => sum + (r.commissionEarned || 0), 0);
-    const unclaimed = stored
-      .filter((r) => !r.commissionClaimed)
-      .reduce((sum, r) => sum + (r.commissionEarned || 0), 0);
-
-    const referralLink = this.generateReferralLink(username);
-
-    return {
-      referralCode: username.toLowerCase(),
-      referralLink,
-      totalMembers: stored.length,
-      tier1Count: tier1.length,
-      tier2Count: tier2.length,
-      tier3Count: tier3.length,
-      totalTurnover: Number(totalTurnover.toFixed(2)),
-      totalCommission: Number(totalCommission.toFixed(2)),
-      unclaimedCommission: Number(unclaimed.toFixed(2)),
-      referrals: stored
-    };
-  }
-
-  /**
-   * Get real-time live affiliate analytics & metrics for dashboard widget
-   */
-  public getLiveAffiliateMetrics(userId: string, username: string, currency: 'BDT' | 'USD'): LiveAffiliateMetrics {
-    const stats = this.getReferralsForUser(userId, username, currency);
-    const clickCount = this.getStoredClickCount();
-
-    const totalClicks = clickCount;
-    const todayClicks = clickCount;
-    const totalConversions = stats.totalMembers;
-    const conversionRate = totalClicks > 0 ? Number(((totalConversions / totalClicks) * 100).toFixed(1)) : 0;
-    const activeReferralsOnline = 0;
-    const todayCommission = 0;
-
-    return {
-      referralCode: username.toLowerCase(),
-      referralLink: stats.referralLink,
-      totalClicks,
-      todayClicks,
-      uniqueVisitors: totalClicks,
-      totalConversions,
-      conversionRate,
-      activeReferralsOnline,
-      totalCommission: stats.totalCommission,
-      unclaimedCommission: stats.unclaimedCommission,
-      todayCommission,
-      totalTurnover: stats.totalTurnover
-    };
-  }
-
-  /**
-   * Get live activity feed (clicks, registrations, commission ticks)
-   */
-  public getLiveActivityStream(limitCount: number = 15): AffiliateActivityEvent[] {
-    const stored = this.getAllStoredActivityEvents();
-    return stored.slice(0, limitCount);
-  }
-
-  /**
-   * Records a new incoming click event
-   */
-  public recordClickEvent(params: {
-    referrerId: string;
-    referrerUsername: string;
-    source: AffiliateActivityEvent['source'];
-    location?: string;
-    device?: AffiliateActivityEvent['device'];
-    message?: string;
-  }): AffiliateActivityEvent {
-    const clickCount = this.getStoredClickCount() + 1;
-    this.setStoredClickCount(clickCount);
-
-    const event: AffiliateActivityEvent = {
-      id: `EVT_CLK_${Date.now()}_${Math.floor(100 + Math.random() * 900)}`,
-      type: 'CLICK',
-      timestamp: Date.now(),
-      source: params.source,
-      location: params.location || BANGLADESH_CITIES[Math.floor(Math.random() * BANGLADESH_CITIES.length)],
-      device: params.device || 'Mobile',
-      status: 'ACTIVE',
-      message: params.message || `ভিজিটর ${params.source} এর মাধ্যমে আপনার রেফারেল লিংকে প্রবেশ করেছেন`
-    };
-
-    this.recordActivityEvent(event);
-    this.notifyListeners();
-    return event;
-  }
-
-  /**
-   * Interactive test click simulator to allow instant user verification
-   */
-  public simulateTestClick(userId: string, username: string): AffiliateActivityEvent {
-    const randomSource = SOURCES[Math.floor(Math.random() * SOURCES.length)];
-    const randomCity = BANGLADESH_CITIES[Math.floor(Math.random() * BANGLADESH_CITIES.length)];
-    const randomDevice = DEVICES[Math.floor(Math.random() * DEVICES.length)];
-
-    const event = this.recordClickEvent({
-      referrerId: userId,
-      referrerUsername: username,
-      source: randomSource,
-      location: randomCity,
-      device: randomDevice,
-      message: `টেস্ট লাইভ ভিজিট: ${randomCity} থেকে ${randomSource} লিংকে ক্লিক হয়েছে`
-    });
-
-    soundEngine.playClick(1050);
-    return event;
-  }
-
-  /**
-   * Interactive test conversion simulator
-   */
-  public async simulateTestConversion(userId: string, username: string, currency: 'BDT' | 'USD'): Promise<AffiliateActivityEvent> {
-    const testNames = ['Tanvir_Rider', 'Sakib_777', 'Mahmud_Dhaka', 'Nafis_Pro', 'Rafi_Win', 'Shuvo_Elite', 'Arif_Boss'];
-    const randomName = `${testNames[Math.floor(Math.random() * testNames.length)]}_${Math.floor(10 + Math.random() * 89)}`;
-    const randomEmail = `${randomName.toLowerCase()}@gmail.com`;
-
-    await this.processReferralRegistration({
-      newUserId: `USER_${Date.now()}`,
-      newUsername: randomName,
-      newUserEmail: randomEmail,
-      referralCode: username,
-      currency
-    });
-
-    soundEngine.playWalletCredit();
-
-    const stream = this.getLiveActivityStream(1);
-    return stream[0];
-  }
-
-  private generateRandomClick(userId: string, username: string, notify: boolean = true): void {
-    const randomSource = SOURCES[Math.floor(Math.random() * SOURCES.length)];
-    const randomCity = BANGLADESH_CITIES[Math.floor(Math.random() * BANGLADESH_CITIES.length)];
-    const randomDevice = DEVICES[Math.floor(Math.random() * DEVICES.length)];
-
-    this.recordClickEvent({
-      referrerId: userId,
-      referrerUsername: username,
-      source: randomSource,
-      location: randomCity,
-      device: randomDevice
-    });
-  }
-
-  private generateRandomCommission(userId: string, username: string): void {
-    const testNames = ['Sakib_Gamer', 'Tanvir_Pro', 'Rahim_Ctg', 'Nafis_777', 'Fahim_Win'];
-    const name = testNames[Math.floor(Math.random() * testNames.length)];
-    const betAmounts = [1500, 2500, 4000, 5000, 10000];
-    const bet = betAmounts[Math.floor(Math.random() * betAmounts.length)];
-    const comm = Math.round(bet * 0.005);
-
-    const event: AffiliateActivityEvent = {
-      id: `EVT_COMM_${Date.now()}_${Math.floor(100 + Math.random() * 900)}`,
-      type: 'COMMISSION',
-      timestamp: Date.now(),
-      source: 'Direct Link',
-      location: BANGLADESH_CITIES[Math.floor(Math.random() * BANGLADESH_CITIES.length)],
-      device: 'Mobile',
-      username: name,
-      amount: comm,
-      currency: 'BDT',
-      status: 'SUCCESS',
-      message: `💰 কমিশন আর্ন: @${name} এর গেমপ্লে টার্নওভার থেকে ৳${comm} কমিশন আপনার একাউন্টে যোগ হয়েছে`
-    };
-
-    this.recordActivityEvent(event);
-    this.notifyListeners();
-  }
-
-  /**
-   * Claim and transfer unclaimed affiliate commission directly to user's real balance
-   */
-  public claimCommission(
-    userId: string,
-    currency: 'BDT' | 'USD',
-    amount: number
-  ): { success: boolean; claimedAmount: number; newBalance: number } {
-    if (amount <= 0) {
-      return { success: false, claimedAmount: 0, newBalance: 0 };
-    }
-
-    // 1. Play win sound
-    soundEngine.playWalletCredit();
-
-    // 2. Mark stored referrals as claimed
-    const all = this.getAllStoredReferrals();
-    all.forEach((r) => {
-      if (r.referrerId === userId) {
-        r.commissionClaimed = true;
-      }
-    });
-    localStorage.setItem(REFERRALS_LIST_KEY, JSON.stringify(all));
-
-    // 3. Record claim activity event
-    this.recordActivityEvent({
-      id: `EVT_CLAIM_${Date.now()}`,
-      type: 'COMMISSION',
-      timestamp: Date.now(),
-      source: 'Direct Link',
-      location: 'Main Wallet Payout',
-      device: 'Mobile',
-      amount: amount,
-      currency: currency,
-      status: 'SUCCESS',
-      message: `💵 ইনস্ট্যান্ট ক্যাশআউট: ৳${amount.toLocaleString()} কমিশন সফলভাবে মেইন ওয়ালেটে স্থানান্তর করা হয়েছে`
-    });
-
-    // 5. Send notification
-    notificationService.pushNotification(userId, {
-      userId,
-      title: '💰 রেফারেল কমিশন উইথড্র সম্পন্ন!',
-      message: `আপনার রেফারেল নেটওয়ার্ক থেকে ${currency === 'BDT' ? '৳' : '$'}${amount.toLocaleString()} সরাসরি মেইন ওয়ালেটে যোগ করা হয়েছে!`,
-      type: 'AFFILIATE_COMMISSION',
-      amount: amount,
-      currency,
-      isRead: false,
-      actionTab: 'cashier'
-    });
-
-    this.notifyListeners();
-    return { success: true, claimedAmount: amount, newBalance: 0 };
-  }
-
-  // --- Local Storage Helpers ---
-  private getAllStoredReferrals(): ReferralRecord[] {
-    if (typeof window === 'undefined') return [];
-    try {
-      const data = localStorage.getItem(REFERRALS_LIST_KEY);
-      return data ? JSON.parse(data) : [];
-    } catch {
-      return [];
-    }
-  }
-
-  private saveReferralRecord(record: ReferralRecord): void {
-    if (typeof window === 'undefined') return;
-    try {
-      const all = this.getAllStoredReferrals();
-      all.unshift(record);
-      localStorage.setItem(REFERRALS_LIST_KEY, JSON.stringify(all));
-    } catch (e) {
-      console.warn('[ReferralEngine] Failed to save referral record:', e);
-    }
-  }
-
-  private getStoredClickCount(): number {
-    if (typeof window === 'undefined') return 0;
-    const val = localStorage.getItem(AFFILIATE_CLICKS_KEY);
-    return val ? parseInt(val, 10) || 0 : 0;
-  }
-
-  private setStoredClickCount(count: number): void {
-    if (typeof window === 'undefined') return;
-    localStorage.setItem(AFFILIATE_CLICKS_KEY, count.toString());
-  }
-
-  private getAllStoredActivityEvents(): AffiliateActivityEvent[] {
-    if (typeof window === 'undefined') return [];
-    try {
-      const data = localStorage.getItem(AFFILIATE_EVENTS_KEY);
-      return data ? JSON.parse(data) : [];
-    } catch {
-      return [];
-    }
-  }
-
-  private recordActivityEvent(event: AffiliateActivityEvent): void {
-    if (typeof window === 'undefined') return;
-    try {
-      const all = this.getAllStoredActivityEvents();
-      all.unshift(event);
-      // Keep last 50 events
-      const trimmed = all.slice(0, 50);
-      localStorage.setItem(AFFILIATE_EVENTS_KEY, JSON.stringify(trimmed));
-    } catch (e) {
-      console.warn('[ReferralEngine] Failed to store activity event:', e);
-    }
-  }
-
-  // --- Listeners for Real-time Reactive UI updates ---
+  // --- Subscriptions for reactive updates ---
   public subscribe(callback: () => void): () => void {
     this.listeners.push(callback);
     return () => {
@@ -670,8 +260,14 @@ class ReferralService {
     };
   }
 
-  private notifyListeners(): void {
-    this.listeners.forEach((cb) => cb());
+  public notifyListeners(): void {
+    this.listeners.forEach((cb) => {
+      try {
+        cb();
+      } catch (e) {
+        console.error('[ReferralService] listener error:', e);
+      }
+    });
   }
 }
 

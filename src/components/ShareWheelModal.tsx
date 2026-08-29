@@ -1,8 +1,8 @@
 /**
  * @file ShareWheelModal.tsx
- * @description Lucky Wheel Spin & Referral Reward Share Modal.
- * Matches the "পুরস্কার শেয়ার" icon in the mobile top status bar.
- * Uses real-time dynamic origin referral link and 1-click social sharing.
+ * @description Lucky Wheel & Referral Reward Share Modal.
+ * Matches the "পুরস্কার শেয়ার" action in the mobile top status bar.
+ * Uses real-time server referral link and 1-click social sharing.
  */
 
 import React, { useState, useMemo } from 'react';
@@ -30,7 +30,7 @@ interface ShareWheelModalProps {
 }
 
 export const ShareWheelModal: React.FC<ShareWheelModalProps> = ({ isOpen, onClose }) => {
-  const { currentUser, topUpWallet, showToast } = useWalletGame();
+  const { currentUser, showToast } = useWalletGame();
 
   const [spinning, setSpinning] = useState(false);
   const [rotation, setRotation] = useState(0);
@@ -38,13 +38,14 @@ export const ShareWheelModal: React.FC<ShareWheelModalProps> = ({ isOpen, onClos
   const [copiedLink, setCopiedLink] = useState(false);
 
   // Dynamic real referral link
+  const referralCode = `PLAY369_${currentUser.id}`;
   const referralUrl = useMemo(() => {
-    return referralService.generateReferralLink(currentUser.username);
-  }, [currentUser.username]);
+    return referralService.generateReferralLink(referralCode);
+  }, [referralCode]);
 
   const shareLinks = useMemo(() => {
-    return referralService.getShareLinks(referralUrl, currentUser.username);
-  }, [referralUrl, currentUser.username]);
+    return referralService.getShareLinks(referralUrl, referralCode);
+  }, [referralUrl, referralCode]);
 
   if (!isOpen) return null;
 
@@ -67,7 +68,6 @@ export const ShareWheelModal: React.FC<ShareWheelModalProps> = ({ isOpen, onClos
     const totalRotation = rotation + extraRounds * 360 + targetDegree;
     setRotation(totalRotation);
 
-    // Wheel tick interval
     let tickCount = 0;
     const tickInt = setInterval(() => {
       soundEngine.playWheelTick();
@@ -77,13 +77,12 @@ export const ShareWheelModal: React.FC<ShareWheelModalProps> = ({ isOpen, onClos
 
     setTimeout(() => {
       setSpinning(false);
-      const prizes = [500, 1000, 200, 2500, 50, 100];
-      const prize = prizes[Math.floor(Math.random() * prizes.length)];
-      setWonPrize(`৳${prize.toLocaleString()} ক্যাশ বোনাস!`);
+      const badges = ['0.50% Tier 1 Boost', 'VIP Member Perk', '3-Level Network Pass', 'Double Commission Ticket'];
+      const prize = badges[Math.floor(Math.random() * badges.length)];
+      setWonPrize(`রেফারেল প্রমোশন: ${prize}!`);
 
       soundEngine.playMegaWin();
-      topUpWallet(prize);
-      showToast(`অভিনন্দন! আপনি জিতেছেন ৳${prize}!`);
+      showToast(`আপনার রেফারেল অ্যাক্টিভেশন প্রস্তুত!`);
     }, 3500);
   };
 
@@ -96,7 +95,7 @@ export const ShareWheelModal: React.FC<ShareWheelModalProps> = ({ isOpen, onClos
             <div className="w-8 h-8 rounded-xl bg-amber-500/20 text-amber-400 flex items-center justify-center">
               <Gift className="w-4 h-4" />
             </div>
-            <h2 className="text-base font-black text-white">লাকি হুইল ও পুরস্কার শেয়ার</h2>
+            <h2 className="text-base font-black text-white">রেফারেল হুইল ও ইনভাইট হাব</h2>
           </div>
 
           <button
@@ -141,7 +140,7 @@ export const ShareWheelModal: React.FC<ShareWheelModalProps> = ({ isOpen, onClos
             className="mt-4 px-8 py-3 rounded-2xl bg-gradient-to-r from-amber-400 via-yellow-400 to-amber-500 text-slate-950 font-black text-sm shadow-xl shadow-amber-500/30 active:scale-95 disabled:opacity-50 transition-all flex items-center space-x-2 cursor-pointer"
           >
             <RotateCcw className={`w-4 h-4 ${spinning ? 'animate-spin' : ''}`} />
-            <span>{spinning ? 'ঘুরছে...' : 'ফ্রি স্পিন করুন'}</span>
+            <span>{spinning ? 'ঘুরছে...' : 'লাকি স্পিন করুন'}</span>
           </button>
         </div>
 
@@ -152,7 +151,7 @@ export const ShareWheelModal: React.FC<ShareWheelModalProps> = ({ isOpen, onClos
               <Share2 className="w-3.5 h-3.5 text-cyan-400" />
               <span>আপনার আসল রেফারেল লিংক:</span>
             </span>
-            <span className="text-amber-400 text-[10px] font-bold">+৳৫০০ বোনাস/ফ্রেন্ড</span>
+            <span className="text-amber-400 text-[10px] font-bold">আজীবন ০.৮০% কমিশন</span>
           </div>
 
           <div className="flex items-center space-x-1.5">

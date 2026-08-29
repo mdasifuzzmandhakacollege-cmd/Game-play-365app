@@ -603,7 +603,7 @@ export class AffiliateService {
 // ----------------------------------------------------------------------------
 export const getAffiliateSummaryHandler = async (req: Request, res: Response): Promise<void> => {
   try {
-    const { userId } = await resolveAuthUser(req, req.query.userId);
+    const { userId } = await resolveAuthUser(req);
 
     const [node] = await db
       .select()
@@ -639,7 +639,7 @@ export const getAffiliateSummaryHandler = async (req: Request, res: Response): P
 
 export const claimCommissionHandler = async (req: Request, res: Response): Promise<void> => {
   try {
-    const { userId } = await resolveAuthUser(req, req.body?.userId);
+    const { userId } = await resolveAuthUser(req);
     const result = await AffiliateService.claimAffiliateCommission(userId);
     res.json({ status: 'SUCCESS', data: result });
   } catch (err: any) {
@@ -651,7 +651,7 @@ export const claimCommissionHandler = async (req: Request, res: Response): Promi
 export const bindReferralHandler = async (req: Request, res: Response): Promise<void> => {
   try {
     // 1. Authoritatively resolve the authenticated user identity via verified Firebase token
-    const { userId } = await resolveAuthUser(req, req.body?.userId);
+    const { userId } = await resolveAuthUser(req);
 
     // 2. Extract ONLY referralCode from client payload (never trust client-supplied parent/referrer/role)
     const referralCode = req.body?.referralCode;
