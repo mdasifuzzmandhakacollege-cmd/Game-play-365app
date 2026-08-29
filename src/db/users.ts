@@ -6,17 +6,17 @@ export async function getOrCreateUser(uid: string, email: string, username?: str
   try {
     const defaultUsername = username || email.split('@')[0] || `player_${uid.slice(0, 6)}`;
     
-    // Upsert user
+    // Upsert user with PLAY369 production defaults
     const result = await db
       .insert(users)
       .values({
         uid,
         email,
         username: defaultUsername,
-        operatorId: 'CASINO_ROYAL_01',
-        currency: 'USD',
+        operatorId: 'GAMEPLAY365_BD',
+        currency: 'BDT',
         status: 'ACTIVE',
-        countryCode: 'US',
+        countryCode: 'BD',
       })
       .onConflictDoUpdate({
         target: users.uid,
@@ -29,7 +29,7 @@ export async function getOrCreateUser(uid: string, email: string, username?: str
 
     const user = result[0];
 
-    // Ensure user has a default USD wallet
+    // Ensure user has a default BDT wallet with exact zero balance
     const existingWallets = await db
       .select()
       .from(wallets)
@@ -38,11 +38,12 @@ export async function getOrCreateUser(uid: string, email: string, username?: str
     if (existingWallets.length === 0) {
       await db.insert(wallets).values({
         userId: user.id,
-        currency: 'USD',
-        realBalance: '1000.0000',
-        bonusBalance: '50.0000',
+        currency: user.currency || 'BDT',
+        realBalance: '0.0000',
+        bonusBalance: '0.0000',
         lockedBalance: '0.0000',
-        balanceMinor: '10000000',
+        commissionBalance: '0.0000',
+        balanceMinor: 0n,
         version: 1,
         status: 'ACTIVE',
       });

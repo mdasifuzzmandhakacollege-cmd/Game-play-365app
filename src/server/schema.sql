@@ -133,10 +133,10 @@ CREATE INDEX IF NOT EXISTS idx_idempotency_records_expires ON idempotency_record
 -- A game round typically starts with a BET, can have multiple BETs/WINs, and closes on settlement.
 -- ----------------------------------------------------------------------------
 CREATE TABLE IF NOT EXISTS game_rounds (
-    id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+    id SERIAL PRIMARY KEY,
     provider_id VARCHAR(64) NOT NULL REFERENCES game_providers(id),
     provider_round_id VARCHAR(128) NOT NULL,     -- Provider's unique round ID (e.g. 'RND_8892183')
-    user_id UUID NOT NULL REFERENCES users(id),
+    user_id INTEGER NOT NULL REFERENCES users(id),
     game_id VARCHAR(128) NOT NULL,               -- e.g. 'vs20olympgate', 'sweet_bonanza'
     currency VARCHAR(3) NOT NULL,
     status VARCHAR(32) NOT NULL DEFAULT 'OPEN',   -- 'OPEN', 'SETTLED', 'CANCELLED', 'REFUNDED'
@@ -158,7 +158,7 @@ CREATE INDEX IF NOT EXISTS idx_game_rounds_status ON game_rounds(status);
 -- Idempotency is enforced by the UNIQUE index on (provider_id, transaction_id).
 -- ----------------------------------------------------------------------------
 CREATE TABLE IF NOT EXISTS transactions (
-    id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+    id SERIAL PRIMARY KEY,
     provider_id VARCHAR(64) NOT NULL REFERENCES game_providers(id),
     
     -- Provider's external unique transaction identifier
@@ -167,9 +167,9 @@ CREATE TABLE IF NOT EXISTS transactions (
     -- Reference to parent transaction (e.g., /win or /refund referencing the original /bet)
     reference_transaction_id VARCHAR(128),
     
-    user_id UUID NOT NULL REFERENCES users(id),
-    wallet_id UUID NOT NULL REFERENCES wallets(id),
-    round_id UUID REFERENCES game_rounds(id),
+    user_id INTEGER NOT NULL REFERENCES users(id),
+    wallet_id INTEGER NOT NULL REFERENCES wallets(id),
+    round_id INTEGER REFERENCES game_rounds(id),
     provider_round_id VARCHAR(128),
     game_id VARCHAR(128) NOT NULL,
     
@@ -235,7 +235,7 @@ BEFORE UPDATE ON wallets
 FOR EACH ROW EXECUTE FUNCTION update_timestamp_column();
 
 -- ============================================================================
--- 8. Seed Initial Default Data (Demo Provider & Test Player)
+-- 8. Seed B2B Game Providers Catalog
 -- ============================================================================
 INSERT INTO game_providers (id, name, secret_key, webhook_timeout_ms)
 VALUES 
@@ -244,17 +244,3 @@ VALUES
     ('pgsoft', 'Pocket Games Soft', '', 4000),
     ('spribe', 'Spribe Turbo Games (Aviator)', '', 4000)
 ON CONFLICT (id) DO NOTHING;
-
-INSERT INTO users (id, username, operator_id, currency, status)
-VALUES 
-    (1, 'high_roller_alex', 'GAMEPLAY365_BD', 'BDT', 'ACTIVE'),
-    (2, 'slot_queen_maria', 'GAMEPLAY365_BD', 'BDT', 'ACTIVE'),
-    (3, 'suspended_user_dave', 'GAMEPLAY365_BD', 'BDT', 'SUSPENDED')
-ON CONFLICT (id) DO NOTHING;
-
-INSERT INTO wallets (id, user_id, currency, real_balance, bonus_balance, balance_minor)
-VALUES 
-    (1, 1, 'BDT', 500.0000, 0.0000, 5000000),
-    (2, 2, 'BDT', 500.0000, 0.0000, 5000000),
-    (3, 3, 'BDT', 0.0000, 0.0000, 0)
-ON CONFLICT (user_id, currency) DO NOTHING;

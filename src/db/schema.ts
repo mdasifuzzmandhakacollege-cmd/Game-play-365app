@@ -1,5 +1,6 @@
 import { relations } from 'drizzle-orm';
 import {
+  bigint,
   boolean,
   integer,
   jsonb,
@@ -58,7 +59,7 @@ export const wallets = pgTable('wallets', {
   bonusBalance: numeric('bonus_balance', { precision: 18, scale: 4 }).default('0.0000').notNull(),
   lockedBalance: numeric('locked_balance', { precision: 18, scale: 4 }).default('0.0000').notNull(),
   commissionBalance: numeric('commission_balance', { precision: 18, scale: 4 }).default('0.0000').notNull(),
-  balanceMinor: numeric('balance_minor', { precision: 20, scale: 0 }).default('0').notNull(),
+  balanceMinor: bigint('balance_minor', { mode: 'bigint' }).default(0n).notNull(),
   version: integer('version').default(1).notNull(),
   status: varchar('status', { length: 32 }).default('ACTIVE').notNull(),
   createdAt: timestamp('created_at', { withTimezone: true }).defaultNow().notNull(),
