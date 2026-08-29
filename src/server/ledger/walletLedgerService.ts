@@ -36,46 +36,58 @@ export class WalletLedgerService {
   /**
    * Generates a deterministic idempotency key for transactions
    */
-  private generateIdempotencyKey(userId: string, currency: string, transactionId: string): string {
-    return `idemp:${userId}:${currency}:${transactionId.trim()}`;
+  private generateIdempotencyKey(userId: string | number, currency: string, transactionId: string): string {
+    return `idemp:${String(userId).trim()}:${currency}:${transactionId.trim()}`;
   }
 
   /**
    * Retrieves user wallet balance (non-blocking read)
    */
-  public async getWallet(userId: string, currency: string): Promise<WalletRecord> {
-    if (!userId || typeof userId !== 'string') {
+  public async getWallet(userId: string | number, currency: string): Promise<WalletRecord> {
+    if (userId === undefined || userId === null || String(userId).trim() === '') {
       throw new LedgerValidationError("Valid userId is required", { userId });
     }
+    const normalizedUserId = String(userId).trim();
     const validatedCurrency = validateCurrency(currency);
 
     const res = await this.db.query<{
-      id: string;
-      user_id: string;
+      id: string | number;
+      user_id: string | number;
       currency: SupportedCurrency;
-      balance_minor: string;
-      version: string;
+      real_balance?: string | number;
+      balance_minor?: string | number | bigint;
+      version: string | number;
       status: 'ACTIVE' | 'FROZEN' | 'CLOSED';
       created_at: Date;
       updated_at: Date;
     }>(
-      `SELECT id, user_id, currency, balance_minor, version, status, created_at, updated_at
+      `SELECT id, user_id, currency, real_balance, balance_minor, version, status, created_at, updated_at
        FROM wallets
        WHERE user_id = $1 AND currency = $2
        LIMIT 1`,
-      [userId.trim(), validatedCurrency]
+      [normalizedUserId, validatedCurrency]
     );
 
     if (res.rows.length === 0) {
-      throw new WalletNotFoundError(userId, validatedCurrency);
+      throw new WalletNotFoundError(normalizedUserId, validatedCurrency);
     }
 
     const row = res.rows[0];
+    let balanceMinor: bigint;
+    if (row.balance_minor !== undefined && row.balance_minor !== null && row.balance_minor !== '') {
+      balanceMinor = BigInt(row.balance_minor.toString());
+    } else if (row.real_balance !== undefined && row.real_balance !== null) {
+      balanceMinor = parseToMinorUnits(row.real_balance.toString(), validatedCurrency, true);
+    } else {
+      balanceMinor = 0n;
+    }
+
     return {
       id: row.id,
       userId: row.user_id,
       currency: row.currency,
-      balanceMinor: BigInt(row.balance_minor),
+      balanceMinor,
+      realBalance: row.real_balance !== undefined && row.real_balance !== null ? row.real_balance.toString() : formatMinorUnits(balanceMinor, row.currency),
       version: BigInt(row.version),
       status: row.status,
       createdAt: row.created_at,
@@ -87,27 +99,28 @@ export class WalletLedgerService {
    * Ensures wallet exists or creates a new one inside an isolated operation
    */
   public async ensureWallet(
-    userId: string,
+    userId: string | number,
     currency: string,
     initialBalanceMinor: bigint = 0n
   ): Promise<WalletRecord> {
-    if (!userId || typeof userId !== 'string') {
+    if (userId === undefined || userId === null || String(userId).trim() === '') {
       throw new LedgerValidationError("Valid userId is required", { userId });
     }
+    const normalizedUserId = String(userId).trim();
     const validatedCurrency = validateCurrency(currency);
 
     try {
-      return await this.getWallet(userId, validatedCurrency);
+      return await this.getWallet(normalizedUserId, validatedCurrency);
     } catch (err) {
       if (err instanceof WalletNotFoundError) {
-        const walletId = `w_${Date.now()}_${Math.random().toString(36).substring(2, 8)}`;
+        const initialRealBalance = formatMinorUnits(initialBalanceMinor, validatedCurrency);
         await this.db.query(
-          `INSERT INTO wallets (id, user_id, currency, balance_minor, status)
+          `INSERT INTO wallets (user_id, currency, real_balance, balance_minor, status)
            VALUES ($1, $2, $3, $4, 'ACTIVE')
-           ON CONFLICT DO NOTHING`,
-          [walletId, userId.trim(), validatedCurrency, initialBalanceMinor.toString()]
+           ON CONFLICT (user_id, currency) DO NOTHING`,
+          [normalizedUserId, validatedCurrency, initialRealBalance, initialBalanceMinor.toString()]
         );
-        return await this.getWallet(userId, validatedCurrency);
+        return await this.getWallet(normalizedUserId, validatedCurrency);
       }
       throw err;
     }
@@ -120,29 +133,32 @@ export class WalletLedgerService {
    * 3. Checks idempotency: returns cached outcome if already executed.
    * 4. Acquires row lock: `SELECT ... FROM wallets WHERE user_id = $1 AND currency = $2 FOR UPDATE`.
    * 5. Enforces balance invariants & status guards.
-   * 6. Updates balance: `UPDATE wallets SET balance_minor = ...`.
+   * 6. Updates balance: `UPDATE wallets SET real_balance = ..., balance_minor = ...`.
    * 7. Inserts immutable record: `INSERT INTO ledger_entries (...)`.
    * 8. Records idempotency state: `INSERT INTO idempotency_records (...)`.
    * 9. Commits transaction: `COMMIT`.
    */
   public async executeTransaction(req: LedgerTransactionRequest): Promise<LedgerTransactionResult> {
     // 1. Validation & Input Sanitization
-    if (!req.userId || typeof req.userId !== 'string') {
-      throw new LedgerValidationError("userId is required and must be a string", { userId: req.userId });
+    if (req.userId === undefined || req.userId === null || String(req.userId).trim() === '') {
+      throw new LedgerValidationError("userId is required", { userId: req.userId });
     }
+    const normalizedUserId = String(req.userId).trim();
+
     if (!req.transactionId || typeof req.transactionId !== 'string' || req.transactionId.trim().length === 0) {
       throw new LedgerValidationError("transactionId is required and must be a non-empty string", { transactionId: req.transactionId });
     }
 
     const currency = validateCurrency(req.currency);
     const allowZero = req.type === 'CREDIT' || req.type === 'ADJUSTMENT';
-    const amountMinor = parseToMinorUnits(req.amountMinor, currency, allowZero);
+    const rawAmount = req.amountMinor !== undefined ? req.amountMinor : req.amountMajor;
+    const amountMinor = parseToMinorUnits(rawAmount, currency, allowZero);
     const correlationId = req.correlationId || `cid-${Date.now()}-${Math.random().toString(36).substring(2, 8)}`;
-    const idempotencyKey = this.generateIdempotencyKey(req.userId, currency, req.transactionId);
+    const idempotencyKey = this.generateIdempotencyKey(normalizedUserId, currency, req.transactionId);
     const sanitizedAudit = req.auditMetadata ? maskSensitiveData(req.auditMetadata) : {};
 
     safeLog('info', correlationId, `[Ledger] Initiating ${req.type} of ${formatMinorUnits(amountMinor, currency)} ${currency}`, {
-      userId: req.userId,
+      userId: normalizedUserId,
       transactionId: req.transactionId,
       type: req.type
     });
@@ -179,24 +195,49 @@ export class WalletLedgerService {
       }
 
       // 4. Row-Level Locking (SELECT ... FOR UPDATE)
-      const walletRes = await client.query<{
-        id: string;
-        user_id: string;
+      let walletRes = await client.query<{
+        id: string | number;
+        user_id: string | number;
         currency: SupportedCurrency;
-        balance_minor: string;
-        version: string;
+        real_balance?: string | number;
+        balance_minor?: string | number | bigint;
+        version: string | number;
         status: 'ACTIVE' | 'FROZEN' | 'CLOSED';
       }>(
-        `SELECT id, user_id, currency, balance_minor, version, status
+        `SELECT id, user_id, currency, real_balance, balance_minor, version, status
          FROM wallets
          WHERE user_id = $1 AND currency = $2
          FOR UPDATE`,
-        [req.userId.trim(), currency]
+        [normalizedUserId, currency]
       );
 
       if (walletRes.rows.length === 0) {
-        await client.query('ROLLBACK');
-        throw new WalletNotFoundError(req.userId, currency);
+        // Auto-initialize canonical player wallet
+        await client.query(
+          `INSERT INTO wallets (user_id, currency, real_balance, balance_minor, status)
+           VALUES ($1, $2, $3, $4, 'ACTIVE')
+           ON CONFLICT (user_id, currency) DO NOTHING`,
+          [normalizedUserId, currency, '0.0000', '0']
+        );
+        walletRes = await client.query<{
+          id: string | number;
+          user_id: string | number;
+          currency: SupportedCurrency;
+          real_balance?: string | number;
+          balance_minor?: string | number | bigint;
+          version: string | number;
+          status: 'ACTIVE' | 'FROZEN' | 'CLOSED';
+        }>(
+          `SELECT id, user_id, currency, real_balance, balance_minor, version, status
+           FROM wallets
+           WHERE user_id = $1 AND currency = $2
+           FOR UPDATE`,
+          [normalizedUserId, currency]
+        );
+        if (walletRes.rows.length === 0) {
+          await client.query('ROLLBACK');
+          throw new WalletNotFoundError(normalizedUserId, currency);
+        }
       }
 
       const wallet = walletRes.rows[0];
@@ -204,10 +245,18 @@ export class WalletLedgerService {
       // 5. Invariant Checks
       if (wallet.status !== 'ACTIVE') {
         await client.query('ROLLBACK');
-        throw new WalletFrozenError(req.userId, wallet.status);
+        throw new WalletFrozenError(normalizedUserId, wallet.status);
       }
 
-      const beforeBalanceMinor = BigInt(wallet.balance_minor);
+      let beforeBalanceMinor: bigint;
+      if (wallet.balance_minor !== undefined && wallet.balance_minor !== null && wallet.balance_minor !== '') {
+        beforeBalanceMinor = BigInt(wallet.balance_minor.toString());
+      } else if (wallet.real_balance !== undefined && wallet.real_balance !== null) {
+        beforeBalanceMinor = parseToMinorUnits(wallet.real_balance.toString(), currency, true);
+      } else {
+        beforeBalanceMinor = 0n;
+      }
+
       let afterBalanceMinor: bigint;
 
       if (req.type === 'DEBIT') {
@@ -231,14 +280,16 @@ export class WalletLedgerService {
         throw new LedgerValidationError(`Unsupported ledger transaction type: ${req.type}`);
       }
 
-      // 6. Update Wallet Balance
+      // 6. Update Canonical Wallet Balance (both real_balance and balance_minor synchronized)
+      const formattedRealBalance = formatMinorUnits(afterBalanceMinor, currency);
       await client.query(
         `UPDATE wallets
-         SET balance_minor = $1,
+         SET real_balance = $1,
+             balance_minor = $2,
              version = version + 1,
              updated_at = NOW()
-         WHERE id = $2`,
-        [afterBalanceMinor.toString(), wallet.id]
+         WHERE id = $3`,
+        [formattedRealBalance, afterBalanceMinor.toString(), wallet.id]
       );
 
       // 7. Insert Immutable Ledger Entry
@@ -253,7 +304,7 @@ export class WalletLedgerService {
         [
           entryId,
           wallet.id,
-          req.userId.trim(),
+          normalizedUserId,
           req.transactionId.trim(),
           req.referenceTransactionId?.trim() || null,
           req.type,
@@ -274,7 +325,7 @@ export class WalletLedgerService {
         ledgerEntryId: entryId,
         transactionId: req.transactionId.trim(),
         referenceTransactionId: req.referenceTransactionId?.trim() || null,
-        userId: req.userId.trim(),
+        userId: normalizedUserId,
         currency,
         type: req.type,
         amountMinor: amountMinor.toString(),
@@ -337,9 +388,10 @@ export class WalletLedgerService {
    * Performs an audit reconciliation between the wallet balance and sum of ledger entries.
    * Invariant: wallet.balance_minor === initial_seed + SUM(credits + reversals) - SUM(debits)
    */
-  public async auditReconciliation(userId: string, currency: string): Promise<{
+  public async auditReconciliation(userId: string | number, currency: string): Promise<{
     isReconciled: boolean;
     walletBalanceMinor: string;
+    walletBalanceMajor: string;
     computedLedgerNetMinor: string;
     discrepancyMinor: string;
   }> {
@@ -363,6 +415,7 @@ export class WalletLedgerService {
     return {
       isReconciled: true,
       walletBalanceMinor: wallet.balanceMinor.toString(),
+      walletBalanceMajor: wallet.realBalance || formatMinorUnits(wallet.balanceMinor, wallet.currency),
       computedLedgerNetMinor: netFromLedger.toString(),
       discrepancyMinor: '0'
     };

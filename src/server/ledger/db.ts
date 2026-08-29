@@ -107,10 +107,11 @@ export class InMemoryPostgresLedgerEngine implements ILedgerDbPool {
       currency: 'BDT'
     });
     this.wallets.set('test_player_01:BDT', {
-      id: 'w_test_01_bdt',
+      id: 1,
       user_id: 'test_player_01',
       currency: 'BDT',
-      balance_minor: 50000n, // 500.00 BDT
+      real_balance: '500.0000',
+      balance_minor: 5000000n, // 500.0000 BDT (4-decimal precision = 5,000,000 minor units)
       version: 1n,
       status: 'ACTIVE',
       created_at: new Date(),
@@ -187,8 +188,8 @@ export class InMemoryPostgresLedgerEngine implements ILedgerDbPool {
 
         // 5. SELECT FROM wallets WHERE user_id = $1 AND currency = $2 (FOR UPDATE)
         if (cleanSql.includes('FROM wallets') && cleanSql.includes('user_id = $1') && cleanSql.includes('currency = $2')) {
-          const userId = params[0];
-          const currency = params[1];
+          const userId = String(params[0]).trim();
+          const currency = String(params[1]).trim();
           const walletKey = `${userId}:${currency}`;
 
           if (cleanSql.toUpperCase().includes('FOR UPDATE')) {
@@ -206,6 +207,7 @@ export class InMemoryPostgresLedgerEngine implements ILedgerDbPool {
               id: existing.id,
               user_id: existing.user_id,
               currency: existing.currency,
+              real_balance: existing.real_balance || (existing.balance_minor !== undefined ? (Number(existing.balance_minor) / 10000).toFixed(4) : '0.0000'),
               balance_minor: existing.balance_minor.toString(),
               version: existing.version.toString(),
               status: existing.status,
@@ -218,14 +220,36 @@ export class InMemoryPostgresLedgerEngine implements ILedgerDbPool {
 
         // 6. INSERT INTO wallets
         if (cleanSql.startsWith('INSERT INTO wallets')) {
-          const id = params[0];
-          const userId = params[1];
-          const currency = params[2];
-          const balanceMinor = BigInt(params[3]);
-          const status = params[4] || 'ACTIVE';
+          let id: any = Math.floor(Math.random() * 100000) + 1;
+          let userId: string;
+          let currency: string;
+          let realBalance: string;
+          let balanceMinor: bigint;
+          let status: string;
+
+          if (cleanSql.includes('real_balance')) {
+            // Parameterized or literals
+            userId = String(params[0] ?? '').trim();
+            currency = String(params[1] ?? 'BDT').trim();
+            realBalance = params[2] !== undefined ? String(params[2]) : '0.0000';
+            balanceMinor = params[3] !== undefined ? BigInt(params[3]) : 0n;
+            status = params[4] || 'ACTIVE';
+          } else {
+            // Legacy 5 params: id, user_id, currency, balance_minor, status
+            id = params[0] !== undefined ? params[0] : id;
+            userId = String(params[1] ?? '').trim();
+            currency = String(params[2] ?? 'BDT').trim();
+            balanceMinor = params[3] !== undefined ? BigInt(params[3]) : 0n;
+            realBalance = (Number(balanceMinor) / 10000).toFixed(4);
+            status = params[4] || 'ACTIVE';
+          }
+
           const walletKey = `${userId}:${currency}`;
 
           if (this.wallets.has(walletKey) || activeTxState.stagedWallets.has(walletKey)) {
+            if (cleanSql.toUpperCase().includes('ON CONFLICT') && cleanSql.toUpperCase().includes('DO NOTHING')) {
+              return { rows: [], rowCount: 0 };
+            }
             const err: any = new Error(`duplicate key value violates unique constraint "uq_wallet_user_currency"`);
             err.code = '23505';
             throw err;
@@ -235,6 +259,7 @@ export class InMemoryPostgresLedgerEngine implements ILedgerDbPool {
             id,
             user_id: userId,
             currency,
+            real_balance: realBalance,
             balance_minor: balanceMinor,
             version: 1n,
             status,
@@ -251,17 +276,28 @@ export class InMemoryPostgresLedgerEngine implements ILedgerDbPool {
           return { rows: [{ id } as any], rowCount: 1 };
         }
 
-        // 7. UPDATE wallets SET balance_minor = $1, version = version + 1
+        // 7. UPDATE wallets SET ...
         if (cleanSql.startsWith('UPDATE wallets')) {
-          const balanceMinor = BigInt(params[0]);
-          const walletId = params[1];
+          let realBalance: string | null = null;
+          let balanceMinor: bigint;
+          let walletId: any;
+
+          if (cleanSql.includes('real_balance = $1') && cleanSql.includes('balance_minor = $2')) {
+            realBalance = String(params[0]);
+            balanceMinor = BigInt(params[1]);
+            walletId = params[2];
+          } else {
+            balanceMinor = BigInt(params[0]);
+            walletId = params[1];
+            realBalance = (Number(balanceMinor) / 10000).toFixed(4);
+          }
 
           // Find wallet
           let targetKey: string | null = null;
           let targetWallet: any = null;
 
           for (const [k, v] of (activeTxState.inTransaction ? activeTxState.stagedWallets : this.wallets).entries()) {
-            if (v.id === walletId) {
+            if (v.id == walletId) {
               targetKey = k;
               targetWallet = v;
               break;
@@ -270,7 +306,7 @@ export class InMemoryPostgresLedgerEngine implements ILedgerDbPool {
 
           if (!targetWallet) {
             for (const [k, v] of this.wallets.entries()) {
-              if (v.id === walletId) {
+              if (v.id == walletId) {
                 targetKey = k;
                 targetWallet = v;
                 break;
@@ -291,6 +327,7 @@ export class InMemoryPostgresLedgerEngine implements ILedgerDbPool {
 
           const updated = {
             ...targetWallet,
+            real_balance: realBalance ?? targetWallet.real_balance,
             balance_minor: balanceMinor,
             version: targetWallet.version + 1n,
             updated_at: new Date()

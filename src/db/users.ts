@@ -42,6 +42,7 @@ export async function getOrCreateUser(uid: string, email: string, username?: str
         realBalance: '1000.0000',
         bonusBalance: '50.0000',
         lockedBalance: '0.0000',
+        balanceMinor: '10000000',
         version: 1,
         status: 'ACTIVE',
       });

@@ -10,11 +10,13 @@
 
 import { LedgerValidationError, SupportedCurrency, SUPPORTED_CURRENCIES } from './types';
 
+export const LEDGER_DECIMALS = 4;
+
 const CURRENCY_DECIMALS: Record<SupportedCurrency, number> = {
-  BDT: 2,
-  USD: 2,
-  EUR: 2,
-  INR: 2
+  BDT: 4,
+  USD: 4,
+  EUR: 4,
+  INR: 4
 };
 
 /**
@@ -61,7 +63,7 @@ export function parseToMinorUnits(
       throw new LedgerValidationError("Transaction amount cannot be negative", { amount });
     }
     // Convert to string to avoid float precision issues during multiplication
-    const decimals = CURRENCY_DECIMALS[currency] || 2;
+    const decimals = CURRENCY_DECIMALS[currency] || LEDGER_DECIMALS;
     const str = amount.toFixed(decimals);
     const [intPart, fracPart = ''] = str.split('.');
     const paddedFrac = fracPart.padEnd(decimals, '0').slice(0, decimals);
@@ -71,7 +73,7 @@ export function parseToMinorUnits(
     if (!/^\d+(\.\d+)?$/.test(trimmed)) {
       throw new LedgerValidationError("Invalid numeric amount format", { amount });
     }
-    const decimals = CURRENCY_DECIMALS[currency] || 2;
+    const decimals = CURRENCY_DECIMALS[currency] || LEDGER_DECIMALS;
     const [intPart, fracPart = ''] = trimmed.split('.');
     const paddedFrac = fracPart.padEnd(decimals, '0').slice(0, decimals);
     minorBigInt = BigInt(intPart + paddedFrac);
@@ -91,10 +93,10 @@ export function parseToMinorUnits(
 }
 
 /**
- * Formats a bigint minor units value to standard decimal string (e.g. 10050n -> "100.50")
+ * Formats a bigint minor units value to standard decimal string (e.g. 516n -> "0.0516")
  */
 export function formatMinorUnits(minorUnits: bigint, currency: SupportedCurrency = 'BDT'): string {
-  const decimals = CURRENCY_DECIMALS[currency] || 2;
+  const decimals = CURRENCY_DECIMALS[currency] || LEDGER_DECIMALS;
   const isNegative = minorUnits < 0n;
   const absUnits = isNegative ? -minorUnits : minorUnits;
   const str = absUnits.toString().padStart(decimals + 1, '0');

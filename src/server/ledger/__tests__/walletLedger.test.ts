@@ -43,26 +43,26 @@ async function runTests() {
   const currency = 'BDT';
 
   // 1. Initial State Check
-  await assert('1. Retrieve initial player wallet balance (500.00 BDT / 50000 minor)', async () => {
+  await assert('1. Retrieve initial player wallet balance (500.0000 BDT / 5000000 minor)', async () => {
     const wallet = await ledgerService.getWallet(userId, currency);
-    if (wallet.balanceMinor !== 50000n) {
-      throw new Error(`Expected balance 50000n, got ${wallet.balanceMinor}`);
+    if (wallet.balanceMinor !== 5000000n) {
+      throw new Error(`Expected balance 5000000n, got ${wallet.balanceMinor}`);
     }
   });
 
   // 2. Sequential Debit
-  await assert('2. Process atomic DEBIT of 150.00 BDT (15000 minor)', async () => {
+  await assert('2. Process atomic DEBIT of 150.0000 BDT (1500000 minor)', async () => {
     const result = await ledgerService.executeTransaction({
       userId,
       currency,
       transactionId: 'tx_debit_001',
       type: 'DEBIT',
-      amountMinor: 15000n,
+      amountMinor: 1500000n,
       auditMetadata: { reason: 'Test wager' }
     });
 
-    if (result.afterBalanceMinor !== '35000' || result.afterBalanceMajor !== '350.00') {
-      throw new Error(`Expected after balance 350.00, got ${result.afterBalanceMajor}`);
+    if (result.afterBalanceMinor !== '3500000' || result.afterBalanceMajor !== '350.0000') {
+      throw new Error(`Expected after balance 350.0000, got ${result.afterBalanceMajor}`);
     }
     if (result.isIdempotent) {
       throw new Error('First execution should not be marked idempotent');
@@ -78,15 +78,15 @@ async function runTests() {
       currency,
       transactionId: 'tx_debit_001',
       type: 'DEBIT',
-      amountMinor: 15000n,
+      amountMinor: 1500000n,
       auditMetadata: { reason: 'Test wager retry' }
     });
 
     if (!dupResult.isIdempotent) {
       throw new Error('Duplicate transaction must be flagged as idempotent');
     }
-    if (dupResult.afterBalanceMinor !== '35000') {
-      throw new Error(`Expected cached balance 35000, got ${dupResult.afterBalanceMinor}`);
+    if (dupResult.afterBalanceMinor !== '3500000') {
+      throw new Error(`Expected cached balance 3500000, got ${dupResult.afterBalanceMinor}`);
     }
 
     const currentWallet = await ledgerService.getWallet(userId, currency);
@@ -96,35 +96,35 @@ async function runTests() {
   });
 
   // 4. Sequential Credit
-  await assert('4. Process atomic CREDIT of 200.00 BDT (20000 minor)', async () => {
+  await assert('4. Process atomic CREDIT of 200.0000 BDT (2000000 minor)', async () => {
     const result = await ledgerService.executeTransaction({
       userId,
       currency,
       transactionId: 'tx_credit_001',
       type: 'CREDIT',
-      amountMinor: 20000n,
+      amountMinor: 2000000n,
       auditMetadata: { reason: 'Test payout' }
     });
 
-    if (result.afterBalanceMinor !== '55000' || result.afterBalanceMajor !== '550.00') {
-      throw new Error(`Expected after balance 550.00, got ${result.afterBalanceMajor}`);
+    if (result.afterBalanceMinor !== '5500000' || result.afterBalanceMajor !== '550.0000') {
+      throw new Error(`Expected after balance 550.0000, got ${result.afterBalanceMajor}`);
     }
   });
 
   // 5. Reversal / Refund
-  await assert('5. Process REVERSAL of 150.00 BDT referencing tx_debit_001', async () => {
+  await assert('5. Process REVERSAL of 150.0000 BDT referencing tx_debit_001', async () => {
     const result = await ledgerService.executeTransaction({
       userId,
       currency,
       transactionId: 'tx_reversal_001',
       referenceTransactionId: 'tx_debit_001',
       type: 'REVERSAL',
-      amountMinor: 15000n,
+      amountMinor: 1500000n,
       auditMetadata: { reason: 'Cancelled round refund' }
     });
 
-    if (result.afterBalanceMinor !== '70000' || result.afterBalanceMajor !== '700.00') {
-      throw new Error(`Expected after balance 700.00, got ${result.afterBalanceMajor}`);
+    if (result.afterBalanceMinor !== '7000000' || result.afterBalanceMajor !== '700.0000') {
+      throw new Error(`Expected after balance 700.0000, got ${result.afterBalanceMajor}`);
     }
   });
 
@@ -136,7 +136,7 @@ async function runTests() {
         currency,
         transactionId: 'tx_overdraft_fail',
         type: 'DEBIT',
-        amountMinor: 999999n // Far exceeding 700.00 BDT
+        amountMinor: 99999999n // Far exceeding 700.0000 BDT
       });
       throw new Error('Should have thrown InsufficientFundsError');
     } catch (err: any) {
@@ -187,9 +187,9 @@ async function runTests() {
     const initialWallet = await ledgerService.getWallet(userId, currency);
     const initialBalance = initialWallet.balanceMinor; // e.g. 70000n
 
-    // 10 concurrent debits of 10.00 BDT (1000 minor) = -10000 minor
-    // 10 concurrent credits of 15.00 BDT (1500 minor) = +15000 minor
-    // Expected net change = +5000 minor (50.00 BDT)
+    // 10 concurrent debits of 10.0000 BDT (100000 minor) = -1000000 minor
+    // 10 concurrent credits of 15.0000 BDT (150000 minor) = +1500000 minor
+    // Expected net change = +500000 minor (50.0000 BDT)
     const promises: Promise<any>[] = [];
 
     for (let i = 0; i < 10; i++) {
@@ -199,7 +199,7 @@ async function runTests() {
           currency,
           transactionId: `concurrent_debit_${i}_${Date.now()}`,
           type: 'DEBIT',
-          amountMinor: 1000n,
+          amountMinor: 100000n,
           auditMetadata: { index: i }
         })
       );
@@ -209,7 +209,7 @@ async function runTests() {
           currency,
           transactionId: `concurrent_credit_${i}_${Date.now()}`,
           type: 'CREDIT',
-          amountMinor: 1500n,
+          amountMinor: 150000n,
           auditMetadata: { index: i }
         })
       );
@@ -221,7 +221,7 @@ async function runTests() {
     }
 
     const finalWallet = await ledgerService.getWallet(userId, currency);
-    const expectedFinalBalance = initialBalance + 5000n; // 75000n (750.00 BDT)
+    const expectedFinalBalance = initialBalance + 500000n; // (750.0000 BDT)
 
     if (finalWallet.balanceMinor !== expectedFinalBalance) {
       throw new Error(`Concurrency race condition detected! Expected ${expectedFinalBalance}, got ${finalWallet.balanceMinor}`);
@@ -239,7 +239,7 @@ async function runTests() {
         currency,
         transactionId: sharedTxId,
         type: 'DEBIT',
-        amountMinor: 2000n // 20.00 BDT
+        amountMinor: 200000n // 20.0000 BDT
       })
     );
 
@@ -255,8 +255,8 @@ async function runTests() {
     }
 
     const endWallet = await ledgerService.getWallet(userId, currency);
-    if (endWallet.balanceMinor !== startWallet.balanceMinor - 2000n) {
-      throw new Error(`Balance deducted multiple times in duplicate storm! Expected ${startWallet.balanceMinor - 2000n}, got ${endWallet.balanceMinor}`);
+    if (endWallet.balanceMinor !== startWallet.balanceMinor - 200000n) {
+      throw new Error(`Balance deducted multiple times in duplicate storm! Expected ${startWallet.balanceMinor - 200000n}, got ${endWallet.balanceMinor}`);
     }
   });
 
@@ -303,15 +303,15 @@ async function runTests() {
          VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, 'COMMITTED', $11, $12)`,
         [
           'test_entry_dup_1',
-          'w_test_01_bdt',
+          1,
           userId,
           'tx_debit_001', // Already exists in ledger
           null,
           'DEBIT',
-          '100',
+          '1000',
           currency,
-          '50000',
-          '49900',
+          '5000000',
+          '4999000',
           'cid_test',
           '{}'
         ]

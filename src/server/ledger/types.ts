@@ -28,10 +28,11 @@ export type LedgerTransactionStatus =
   | 'ROLLED_BACK';
 
 export interface WalletRecord {
-  id: string;
-  userId: string;
+  id: string | number;
+  userId: string | number;
   currency: SupportedCurrency;
-  balanceMinor: bigint; // Stored as integer minor units (e.g. 100.50 BDT = 10050n minor units)
+  balanceMinor: bigint; // Stored as integer minor units (e.g. 100.5000 BDT = 1005000n minor units)
+  realBalance?: string; // Canonical 4-decimal numeric balance (e.g. "100.5000")
   version: bigint;      // Optimistic locking / mutation sequence counter
   status: 'ACTIVE' | 'FROZEN' | 'CLOSED';
   createdAt: Date;
@@ -40,8 +41,8 @@ export interface WalletRecord {
 
 export interface LedgerEntryRecord {
   id: string;
-  walletId: string;
-  userId: string;
+  walletId: string | number;
+  userId: string | number;
   transactionId: string;
   referenceTransactionId?: string | null;
   type: LedgerTransactionType;
@@ -65,12 +66,13 @@ export interface IdempotencyRecord {
 }
 
 export interface LedgerTransactionRequest {
-  userId: string;
+  userId: string | number;
   currency: string;
   transactionId: string;
   referenceTransactionId?: string;
   type: LedgerTransactionType;
-  amountMinor: bigint | number | string;
+  amountMinor?: bigint | number | string;
+  amountMajor?: string | number;
   correlationId?: string;
   auditMetadata?: Record<string, any>;
 }
@@ -85,7 +87,7 @@ export interface LedgerTransactionResult {
   currency: SupportedCurrency;
   type: LedgerTransactionType;
   amountMinor: string;          // Stringified bigint for safe JSON serialization
-  amountMajor: string;          // Human-readable formatted string (e.g. "100.50")
+  amountMajor: string;          // Human-readable formatted string with 4-decimal precision (e.g. "100.5000", "0.0516")
   beforeBalanceMinor: string;
   afterBalanceMinor: string;
   afterBalanceMajor: string;

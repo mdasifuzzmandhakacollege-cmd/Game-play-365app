@@ -34,12 +34,14 @@ CREATE TABLE IF NOT EXISTS game_providers (
 -- 2. Users Table (Platform players registered under the primary operator)
 -- ----------------------------------------------------------------------------
 CREATE TABLE IF NOT EXISTS users (
-    id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+    id SERIAL PRIMARY KEY,
+    uid TEXT UNIQUE,                               -- Firebase Auth UID (if integrated)
+    email VARCHAR(255),
     username VARCHAR(64) NOT NULL UNIQUE,
-    operator_id VARCHAR(64) NOT NULL DEFAULT 'DEFAULT_OPERATOR',
-    currency VARCHAR(3) NOT NULL DEFAULT 'USD',    -- ISO-4217 Currency Code (e.g., 'USD', 'EUR', 'BRL')
+    operator_id VARCHAR(64) NOT NULL DEFAULT 'GAMEPLAY365_BD',
+    currency VARCHAR(3) NOT NULL DEFAULT 'BDT',    -- ISO-4217 Currency Code (e.g., 'BDT', 'USD')
     status VARCHAR(32) NOT NULL DEFAULT 'ACTIVE', -- 'ACTIVE', 'SUSPENDED', 'SELF_EXCLUDED', 'LOCKED'
-    country_code VARCHAR(2) DEFAULT 'US',
+    country_code VARCHAR(2) DEFAULT 'BD',
     created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
     updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
 );
@@ -52,17 +54,18 @@ CREATE INDEX IF NOT EXISTS idx_users_status ON users(status);
 -- Row-level locking (SELECT ... FOR UPDATE) is executed on this table during transactions.
 -- ----------------------------------------------------------------------------
 CREATE TABLE IF NOT EXISTS wallets (
-    id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
-    user_id UUID NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+    id SERIAL PRIMARY KEY,
+    user_id INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
     currency VARCHAR(3) NOT NULL,
     
-    -- Integer minor units (e.g. 10050 = 100.50 BDT/USD) for exact zero-drift arithmetic
+    -- Integer minor units (e.g. 516 = 0.0516 BDT, scale 4) for exact zero-drift arithmetic
     balance_minor BIGINT NOT NULL DEFAULT 0,
     
     -- Balances stored with 4 decimal places for micro-cent precision in casino games
     real_balance NUMERIC(18, 4) NOT NULL DEFAULT 0.0000,
     bonus_balance NUMERIC(18, 4) NOT NULL DEFAULT 0.0000,
     locked_balance NUMERIC(18, 4) NOT NULL DEFAULT 0.0000,
+    commission_balance NUMERIC(18, 4) NOT NULL DEFAULT 0.0000,
     
     -- Optimistic locking version integer (backup guard)
     version BIGINT NOT NULL DEFAULT 1,
@@ -88,12 +91,12 @@ CREATE INDEX IF NOT EXISTS idx_wallets_user_currency ON wallets(user_id, currenc
 -- ----------------------------------------------------------------------------
 CREATE TABLE IF NOT EXISTS ledger_entries (
     id VARCHAR(64) PRIMARY KEY,
-    wallet_id UUID NOT NULL REFERENCES wallets(id),
-    user_id UUID NOT NULL REFERENCES users(id),
+    wallet_id INTEGER NOT NULL REFERENCES wallets(id),
+    user_id INTEGER NOT NULL REFERENCES users(id),
     transaction_id VARCHAR(128) NOT NULL,
     reference_transaction_id VARCHAR(128),
     type VARCHAR(32) NOT NULL,                    -- 'DEBIT', 'CREDIT', 'REVERSAL', 'ADJUSTMENT'
-    amount_minor BIGINT NOT NULL,                 -- Exact integer minor units
+    amount_minor BIGINT NOT NULL,                 -- Exact integer minor units (scale 4)
     currency VARCHAR(3) NOT NULL,
     before_balance_minor BIGINT NOT NULL,
     after_balance_minor BIGINT NOT NULL,
@@ -102,7 +105,7 @@ CREATE TABLE IF NOT EXISTS ledger_entries (
     audit_metadata JSONB DEFAULT '{}'::jsonb,     -- Masked audit trail (no secrets)
     created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
 
-    CONSTRAINT chk_ledger_amount_minor_positive CHECK (amount_minor > 0),
+    CONSTRAINT chk_ledger_amount_minor_positive CHECK (amount_minor >= 0),
     CONSTRAINT chk_ledger_balances_non_negative CHECK (before_balance_minor >= 0 AND after_balance_minor >= 0),
     CONSTRAINT uq_ledger_user_transaction UNIQUE (user_id, transaction_id)
 );
@@ -244,14 +247,14 @@ ON CONFLICT (id) DO NOTHING;
 
 INSERT INTO users (id, username, operator_id, currency, status)
 VALUES 
-    ('a0000000-0000-0000-0000-000000000001', 'high_roller_alex', 'CASINO_ROYAL_01', 'USD', 'ACTIVE'),
-    ('a0000000-0000-0000-0000-000000000002', 'slot_queen_maria', 'CASINO_ROYAL_01', 'USD', 'ACTIVE'),
-    ('a0000000-0000-0000-0000-000000000003', 'suspended_user_dave', 'CASINO_ROYAL_01', 'USD', 'SUSPENDED')
+    (1, 'high_roller_alex', 'GAMEPLAY365_BD', 'BDT', 'ACTIVE'),
+    (2, 'slot_queen_maria', 'GAMEPLAY365_BD', 'BDT', 'ACTIVE'),
+    (3, 'suspended_user_dave', 'GAMEPLAY365_BD', 'BDT', 'SUSPENDED')
 ON CONFLICT (id) DO NOTHING;
 
-INSERT INTO wallets (id, user_id, currency, real_balance, bonus_balance)
+INSERT INTO wallets (id, user_id, currency, real_balance, bonus_balance, balance_minor)
 VALUES 
-    ('b0000000-0000-0000-0000-000000000001', 'a0000000-0000-0000-0000-000000000001', 'USD', 0.0000, 0.0000),
-    ('b0000000-0000-0000-0000-000000000002', 'a0000000-0000-0000-0000-000000000002', 'USD', 0.0000, 0.0000),
-    ('b0000000-0000-0000-0000-000000000003', 'a0000000-0000-0000-0000-000000000003', 'USD', 0.0000, 0.0000)
+    (1, 1, 'BDT', 500.0000, 0.0000, 5000000),
+    (2, 2, 'BDT', 500.0000, 0.0000, 5000000),
+    (3, 3, 'BDT', 0.0000, 0.0000, 0)
 ON CONFLICT (user_id, currency) DO NOTHING;

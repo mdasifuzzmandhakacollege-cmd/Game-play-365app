@@ -90,7 +90,7 @@ export class SeamlessWalletController {
       const response: BalanceResponse = {
         code: SeamlessErrorCode.SUCCESS,
         message: 'Balance retrieved successfully',
-        user_id: wallet.userId,
+        user_id: String(wallet.userId),
         currency: wallet.currency,
         balance: balanceMajor,
         bonus_balance: 0,

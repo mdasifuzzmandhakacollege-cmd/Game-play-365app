@@ -208,11 +208,12 @@ var InMemoryPostgresLedgerEngine = class {
       currency: "BDT"
     });
     this.wallets.set("test_player_01:BDT", {
-      id: "w_test_01_bdt",
+      id: 1,
       user_id: "test_player_01",
       currency: "BDT",
-      balance_minor: 50000n,
-      // 500.00 BDT
+      real_balance: "500.0000",
+      balance_minor: 5000000n,
+      // 500.0000 BDT (4-decimal precision = 5,000,000 minor units)
       version: 1n,
       status: "ACTIVE",
       created_at: /* @__PURE__ */ new Date(),
@@ -276,8 +277,8 @@ var InMemoryPostgresLedgerEngine = class {
           return { rows: [], rowCount: 0 };
         }
         if (cleanSql.includes("FROM wallets") && cleanSql.includes("user_id = $1") && cleanSql.includes("currency = $2")) {
-          const userId = params[0];
-          const currency = params[1];
+          const userId = String(params[0]).trim();
+          const currency = String(params[1]).trim();
           const walletKey = `${userId}:${currency}`;
           if (cleanSql.toUpperCase().includes("FOR UPDATE")) {
             await this.acquireRowLock(walletKey, activeTxState);
@@ -291,6 +292,7 @@ var InMemoryPostgresLedgerEngine = class {
               id: existing.id,
               user_id: existing.user_id,
               currency: existing.currency,
+              real_balance: existing.real_balance || (existing.balance_minor !== void 0 ? (Number(existing.balance_minor) / 1e4).toFixed(4) : "0.0000"),
               balance_minor: existing.balance_minor.toString(),
               version: existing.version.toString(),
               status: existing.status,
@@ -301,13 +303,31 @@ var InMemoryPostgresLedgerEngine = class {
           };
         }
         if (cleanSql.startsWith("INSERT INTO wallets")) {
-          const id = params[0];
-          const userId = params[1];
-          const currency = params[2];
-          const balanceMinor = BigInt(params[3]);
-          const status = params[4] || "ACTIVE";
+          let id = Math.floor(Math.random() * 1e5) + 1;
+          let userId;
+          let currency;
+          let realBalance;
+          let balanceMinor;
+          let status;
+          if (cleanSql.includes("real_balance")) {
+            userId = String(params[0] ?? "").trim();
+            currency = String(params[1] ?? "BDT").trim();
+            realBalance = params[2] !== void 0 ? String(params[2]) : "0.0000";
+            balanceMinor = params[3] !== void 0 ? BigInt(params[3]) : 0n;
+            status = params[4] || "ACTIVE";
+          } else {
+            id = params[0] !== void 0 ? params[0] : id;
+            userId = String(params[1] ?? "").trim();
+            currency = String(params[2] ?? "BDT").trim();
+            balanceMinor = params[3] !== void 0 ? BigInt(params[3]) : 0n;
+            realBalance = (Number(balanceMinor) / 1e4).toFixed(4);
+            status = params[4] || "ACTIVE";
+          }
           const walletKey = `${userId}:${currency}`;
           if (this.wallets.has(walletKey) || activeTxState.stagedWallets.has(walletKey)) {
+            if (cleanSql.toUpperCase().includes("ON CONFLICT") && cleanSql.toUpperCase().includes("DO NOTHING")) {
+              return { rows: [], rowCount: 0 };
+            }
             const err = new Error(`duplicate key value violates unique constraint "uq_wallet_user_currency"`);
             err.code = "23505";
             throw err;
@@ -316,6 +336,7 @@ var InMemoryPostgresLedgerEngine = class {
             id,
             user_id: userId,
             currency,
+            real_balance: realBalance,
             balance_minor: balanceMinor,
             version: 1n,
             status,
@@ -330,12 +351,22 @@ var InMemoryPostgresLedgerEngine = class {
           return { rows: [{ id }], rowCount: 1 };
         }
         if (cleanSql.startsWith("UPDATE wallets")) {
-          const balanceMinor = BigInt(params[0]);
-          const walletId = params[1];
+          let realBalance = null;
+          let balanceMinor;
+          let walletId;
+          if (cleanSql.includes("real_balance = $1") && cleanSql.includes("balance_minor = $2")) {
+            realBalance = String(params[0]);
+            balanceMinor = BigInt(params[1]);
+            walletId = params[2];
+          } else {
+            balanceMinor = BigInt(params[0]);
+            walletId = params[1];
+            realBalance = (Number(balanceMinor) / 1e4).toFixed(4);
+          }
           let targetKey = null;
           let targetWallet = null;
           for (const [k, v] of (activeTxState.inTransaction ? activeTxState.stagedWallets : this.wallets).entries()) {
-            if (v.id === walletId) {
+            if (v.id == walletId) {
               targetKey = k;
               targetWallet = v;
               break;
@@ -343,7 +374,7 @@ var InMemoryPostgresLedgerEngine = class {
           }
           if (!targetWallet) {
             for (const [k, v] of this.wallets.entries()) {
-              if (v.id === walletId) {
+              if (v.id == walletId) {
                 targetKey = k;
                 targetWallet = v;
                 break;
@@ -360,6 +391,7 @@ var InMemoryPostgresLedgerEngine = class {
           }
           const updated = {
             ...targetWallet,
+            real_balance: realBalance ?? targetWallet.real_balance,
             balance_minor: balanceMinor,
             version: targetWallet.version + 1n,
             updated_at: /* @__PURE__ */ new Date()
@@ -574,11 +606,12 @@ var WalletNotFoundError = class extends Error {
 };
 
 // src/server/ledger/money.ts
+var LEDGER_DECIMALS = 4;
 var CURRENCY_DECIMALS = {
-  BDT: 2,
-  USD: 2,
-  EUR: 2,
-  INR: 2
+  BDT: 4,
+  USD: 4,
+  EUR: 4,
+  INR: 4
 };
 function validateCurrency(currency) {
   if (!currency || typeof currency !== "string") {
@@ -607,7 +640,7 @@ function parseToMinorUnits(amount, currency, allowZero = false) {
     if (amount < 0) {
       throw new LedgerValidationError("Transaction amount cannot be negative", { amount });
     }
-    const decimals = CURRENCY_DECIMALS[currency] || 2;
+    const decimals = CURRENCY_DECIMALS[currency] || LEDGER_DECIMALS;
     const str = amount.toFixed(decimals);
     const [intPart, fracPart = ""] = str.split(".");
     const paddedFrac = fracPart.padEnd(decimals, "0").slice(0, decimals);
@@ -617,7 +650,7 @@ function parseToMinorUnits(amount, currency, allowZero = false) {
     if (!/^\d+(\.\d+)?$/.test(trimmed)) {
       throw new LedgerValidationError("Invalid numeric amount format", { amount });
     }
-    const decimals = CURRENCY_DECIMALS[currency] || 2;
+    const decimals = CURRENCY_DECIMALS[currency] || LEDGER_DECIMALS;
     const [intPart, fracPart = ""] = trimmed.split(".");
     const paddedFrac = fracPart.padEnd(decimals, "0").slice(0, decimals);
     minorBigInt = BigInt(intPart + paddedFrac);
@@ -633,7 +666,7 @@ function parseToMinorUnits(amount, currency, allowZero = false) {
   return minorBigInt;
 }
 function formatMinorUnits(minorUnits, currency = "BDT") {
-  const decimals = CURRENCY_DECIMALS[currency] || 2;
+  const decimals = CURRENCY_DECIMALS[currency] || LEDGER_DECIMALS;
   const isNegative = minorUnits < 0n;
   const absUnits = isNegative ? -minorUnits : minorUnits;
   const str = absUnits.toString().padStart(decimals + 1, "0");
@@ -713,32 +746,42 @@ var WalletLedgerService = class {
    * Generates a deterministic idempotency key for transactions
    */
   generateIdempotencyKey(userId, currency, transactionId) {
-    return `idemp:${userId}:${currency}:${transactionId.trim()}`;
+    return `idemp:${String(userId).trim()}:${currency}:${transactionId.trim()}`;
   }
   /**
    * Retrieves user wallet balance (non-blocking read)
    */
   async getWallet(userId, currency) {
-    if (!userId || typeof userId !== "string") {
+    if (userId === void 0 || userId === null || String(userId).trim() === "") {
       throw new LedgerValidationError("Valid userId is required", { userId });
     }
+    const normalizedUserId = String(userId).trim();
     const validatedCurrency = validateCurrency(currency);
     const res = await this.db.query(
-      `SELECT id, user_id, currency, balance_minor, version, status, created_at, updated_at
+      `SELECT id, user_id, currency, real_balance, balance_minor, version, status, created_at, updated_at
        FROM wallets
        WHERE user_id = $1 AND currency = $2
        LIMIT 1`,
-      [userId.trim(), validatedCurrency]
+      [normalizedUserId, validatedCurrency]
     );
     if (res.rows.length === 0) {
-      throw new WalletNotFoundError(userId, validatedCurrency);
+      throw new WalletNotFoundError(normalizedUserId, validatedCurrency);
     }
     const row = res.rows[0];
+    let balanceMinor;
+    if (row.balance_minor !== void 0 && row.balance_minor !== null && row.balance_minor !== "") {
+      balanceMinor = BigInt(row.balance_minor.toString());
+    } else if (row.real_balance !== void 0 && row.real_balance !== null) {
+      balanceMinor = parseToMinorUnits(row.real_balance.toString(), validatedCurrency, true);
+    } else {
+      balanceMinor = 0n;
+    }
     return {
       id: row.id,
       userId: row.user_id,
       currency: row.currency,
-      balanceMinor: BigInt(row.balance_minor),
+      balanceMinor,
+      realBalance: row.real_balance !== void 0 && row.real_balance !== null ? row.real_balance.toString() : formatMinorUnits(balanceMinor, row.currency),
       version: BigInt(row.version),
       status: row.status,
       createdAt: row.created_at,
@@ -749,22 +792,23 @@ var WalletLedgerService = class {
    * Ensures wallet exists or creates a new one inside an isolated operation
    */
   async ensureWallet(userId, currency, initialBalanceMinor = 0n) {
-    if (!userId || typeof userId !== "string") {
+    if (userId === void 0 || userId === null || String(userId).trim() === "") {
       throw new LedgerValidationError("Valid userId is required", { userId });
     }
+    const normalizedUserId = String(userId).trim();
     const validatedCurrency = validateCurrency(currency);
     try {
-      return await this.getWallet(userId, validatedCurrency);
+      return await this.getWallet(normalizedUserId, validatedCurrency);
     } catch (err) {
       if (err instanceof WalletNotFoundError) {
-        const walletId = `w_${Date.now()}_${Math.random().toString(36).substring(2, 8)}`;
+        const initialRealBalance = formatMinorUnits(initialBalanceMinor, validatedCurrency);
         await this.db.query(
-          `INSERT INTO wallets (id, user_id, currency, balance_minor, status)
+          `INSERT INTO wallets (user_id, currency, real_balance, balance_minor, status)
            VALUES ($1, $2, $3, $4, 'ACTIVE')
-           ON CONFLICT DO NOTHING`,
-          [walletId, userId.trim(), validatedCurrency, initialBalanceMinor.toString()]
+           ON CONFLICT (user_id, currency) DO NOTHING`,
+          [normalizedUserId, validatedCurrency, initialRealBalance, initialBalanceMinor.toString()]
         );
-        return await this.getWallet(userId, validatedCurrency);
+        return await this.getWallet(normalizedUserId, validatedCurrency);
       }
       throw err;
     }
@@ -776,26 +820,28 @@ var WalletLedgerService = class {
    * 3. Checks idempotency: returns cached outcome if already executed.
    * 4. Acquires row lock: `SELECT ... FROM wallets WHERE user_id = $1 AND currency = $2 FOR UPDATE`.
    * 5. Enforces balance invariants & status guards.
-   * 6. Updates balance: `UPDATE wallets SET balance_minor = ...`.
+   * 6. Updates balance: `UPDATE wallets SET real_balance = ..., balance_minor = ...`.
    * 7. Inserts immutable record: `INSERT INTO ledger_entries (...)`.
    * 8. Records idempotency state: `INSERT INTO idempotency_records (...)`.
    * 9. Commits transaction: `COMMIT`.
    */
   async executeTransaction(req) {
-    if (!req.userId || typeof req.userId !== "string") {
-      throw new LedgerValidationError("userId is required and must be a string", { userId: req.userId });
+    if (req.userId === void 0 || req.userId === null || String(req.userId).trim() === "") {
+      throw new LedgerValidationError("userId is required", { userId: req.userId });
     }
+    const normalizedUserId = String(req.userId).trim();
     if (!req.transactionId || typeof req.transactionId !== "string" || req.transactionId.trim().length === 0) {
       throw new LedgerValidationError("transactionId is required and must be a non-empty string", { transactionId: req.transactionId });
     }
     const currency = validateCurrency(req.currency);
     const allowZero = req.type === "CREDIT" || req.type === "ADJUSTMENT";
-    const amountMinor = parseToMinorUnits(req.amountMinor, currency, allowZero);
+    const rawAmount = req.amountMinor !== void 0 ? req.amountMinor : req.amountMajor;
+    const amountMinor = parseToMinorUnits(rawAmount, currency, allowZero);
     const correlationId = req.correlationId || `cid-${Date.now()}-${Math.random().toString(36).substring(2, 8)}`;
-    const idempotencyKey = this.generateIdempotencyKey(req.userId, currency, req.transactionId);
+    const idempotencyKey = this.generateIdempotencyKey(normalizedUserId, currency, req.transactionId);
     const sanitizedAudit = req.auditMetadata ? maskSensitiveData(req.auditMetadata) : {};
     safeLog("info", correlationId, `[Ledger] Initiating ${req.type} of ${formatMinorUnits(amountMinor, currency)} ${currency}`, {
-      userId: req.userId,
+      userId: normalizedUserId,
       transactionId: req.transactionId,
       type: req.type
     });
@@ -819,23 +865,45 @@ var WalletLedgerService = class {
           isIdempotent: true
         };
       }
-      const walletRes = await client.query(
-        `SELECT id, user_id, currency, balance_minor, version, status
+      let walletRes = await client.query(
+        `SELECT id, user_id, currency, real_balance, balance_minor, version, status
          FROM wallets
          WHERE user_id = $1 AND currency = $2
          FOR UPDATE`,
-        [req.userId.trim(), currency]
+        [normalizedUserId, currency]
       );
       if (walletRes.rows.length === 0) {
-        await client.query("ROLLBACK");
-        throw new WalletNotFoundError(req.userId, currency);
+        await client.query(
+          `INSERT INTO wallets (user_id, currency, real_balance, balance_minor, status)
+           VALUES ($1, $2, $3, $4, 'ACTIVE')
+           ON CONFLICT (user_id, currency) DO NOTHING`,
+          [normalizedUserId, currency, "0.0000", "0"]
+        );
+        walletRes = await client.query(
+          `SELECT id, user_id, currency, real_balance, balance_minor, version, status
+           FROM wallets
+           WHERE user_id = $1 AND currency = $2
+           FOR UPDATE`,
+          [normalizedUserId, currency]
+        );
+        if (walletRes.rows.length === 0) {
+          await client.query("ROLLBACK");
+          throw new WalletNotFoundError(normalizedUserId, currency);
+        }
       }
       const wallet = walletRes.rows[0];
       if (wallet.status !== "ACTIVE") {
         await client.query("ROLLBACK");
-        throw new WalletFrozenError(req.userId, wallet.status);
+        throw new WalletFrozenError(normalizedUserId, wallet.status);
       }
-      const beforeBalanceMinor = BigInt(wallet.balance_minor);
+      let beforeBalanceMinor;
+      if (wallet.balance_minor !== void 0 && wallet.balance_minor !== null && wallet.balance_minor !== "") {
+        beforeBalanceMinor = BigInt(wallet.balance_minor.toString());
+      } else if (wallet.real_balance !== void 0 && wallet.real_balance !== null) {
+        beforeBalanceMinor = parseToMinorUnits(wallet.real_balance.toString(), currency, true);
+      } else {
+        beforeBalanceMinor = 0n;
+      }
       let afterBalanceMinor;
       if (req.type === "DEBIT") {
         if (beforeBalanceMinor < amountMinor) {
@@ -856,13 +924,15 @@ var WalletLedgerService = class {
         await client.query("ROLLBACK");
         throw new LedgerValidationError(`Unsupported ledger transaction type: ${req.type}`);
       }
+      const formattedRealBalance = formatMinorUnits(afterBalanceMinor, currency);
       await client.query(
         `UPDATE wallets
-         SET balance_minor = $1,
+         SET real_balance = $1,
+             balance_minor = $2,
              version = version + 1,
              updated_at = NOW()
-         WHERE id = $2`,
-        [afterBalanceMinor.toString(), wallet.id]
+         WHERE id = $3`,
+        [formattedRealBalance, afterBalanceMinor.toString(), wallet.id]
       );
       const entryId = `ledg_${Date.now()}_${Math.random().toString(36).substring(2, 9)}`;
       await client.query(
@@ -875,7 +945,7 @@ var WalletLedgerService = class {
         [
           entryId,
           wallet.id,
-          req.userId.trim(),
+          normalizedUserId,
           req.transactionId.trim(),
           req.referenceTransactionId?.trim() || null,
           req.type,
@@ -894,7 +964,7 @@ var WalletLedgerService = class {
         ledgerEntryId: entryId,
         transactionId: req.transactionId.trim(),
         referenceTransactionId: req.referenceTransactionId?.trim() || null,
-        userId: req.userId.trim(),
+        userId: normalizedUserId,
         currency,
         type: req.type,
         amountMinor: amountMinor.toString(),
@@ -963,6 +1033,7 @@ var WalletLedgerService = class {
     return {
       isReconciled: true,
       walletBalanceMinor: wallet.balanceMinor.toString(),
+      walletBalanceMajor: wallet.realBalance || formatMinorUnits(wallet.balanceMinor, wallet.currency),
       computedLedgerNetMinor: netFromLedger.toString(),
       discrepancyMinor: "0"
     };
@@ -1016,7 +1087,7 @@ var SeamlessWalletController = class {
         const response = {
           code: "SUCCESS" /* SUCCESS */,
           message: "Balance retrieved successfully",
-          user_id: wallet.userId,
+          user_id: String(wallet.userId),
           currency: wallet.currency,
           balance: balanceMajor,
           bonus_balance: 0,
@@ -1302,6 +1373,7 @@ import {
   serial,
   text,
   timestamp,
+  uniqueIndex,
   varchar
 } from "drizzle-orm/pg-core";
 var users = pgTable("users", {
@@ -1338,11 +1410,14 @@ var wallets = pgTable("wallets", {
   bonusBalance: numeric("bonus_balance", { precision: 18, scale: 4 }).default("0.0000").notNull(),
   lockedBalance: numeric("locked_balance", { precision: 18, scale: 4 }).default("0.0000").notNull(),
   commissionBalance: numeric("commission_balance", { precision: 18, scale: 4 }).default("0.0000").notNull(),
+  balanceMinor: numeric("balance_minor", { precision: 20, scale: 0 }).default("0").notNull(),
   version: integer("version").default(1).notNull(),
   status: varchar("status", { length: 32 }).default("ACTIVE").notNull(),
   createdAt: timestamp("created_at", { withTimezone: true }).defaultNow().notNull(),
   updatedAt: timestamp("updated_at", { withTimezone: true }).defaultNow().notNull()
-});
+}, (table) => ({
+  userCurrencyIdx: uniqueIndex("wallets_user_currency_idx").on(table.userId, table.currency)
+}));
 var gameRounds = pgTable("game_rounds", {
   id: serial("id").primaryKey(),
   providerId: varchar("provider_id", { length: 64 }).references(() => gameProviders.id).notNull(),
@@ -1441,6 +1516,14 @@ var affiliateCommissions = pgTable("affiliate_commissions", {
   status: varchar("status", { length: 32 }).default("SETTLED").notNull(),
   // 'PENDING', 'SETTLED', 'CLAIMED'
   settledAt: timestamp("settled_at", { withTimezone: true }).defaultNow().notNull()
+}, (table) => {
+  return {
+    uniqueTxBeneficiaryTierIdx: uniqueIndex("affiliate_commissions_tx_beneficiary_tier_idx").on(
+      table.sourceTransactionId,
+      table.beneficiaryUserId,
+      table.tier
+    )
+  };
 });
 var vipLevels = pgTable("vip_levels", {
   level: integer("level").primaryKey(),
@@ -3267,8 +3350,8 @@ var SimulatedSeamlessEngine = class {
       id: "b0000000-0000-0000-0000-000000000001",
       user_id: u1.id,
       currency: "USD",
-      real_balance: 2500,
-      bonus_balance: 250,
+      real_balance: 0,
+      bonus_balance: 0,
       locked_balance: 0,
       turnover_ratio: 10,
       version: 1,
@@ -3280,8 +3363,8 @@ var SimulatedSeamlessEngine = class {
       id: "b0000000-0000-0000-0000-000000000002",
       user_id: u2.id,
       currency: "USD",
-      real_balance: 650,
-      bonus_balance: 100,
+      real_balance: 0,
+      bonus_balance: 0,
       locked_balance: 0,
       turnover_ratio: 10,
       version: 1,
@@ -3293,7 +3376,7 @@ var SimulatedSeamlessEngine = class {
       id: "b0000000-0000-0000-0000-000000000003",
       user_id: u3.id,
       currency: "USD",
-      real_balance: 50,
+      real_balance: 0,
       bonus_balance: 0,
       locked_balance: 0,
       turnover_ratio: 10,
@@ -3306,8 +3389,8 @@ var SimulatedSeamlessEngine = class {
       id: "b0000000-0000-0000-0000-000000000004",
       user_id: u4.id,
       currency: "BDT",
-      real_balance: 75e3,
-      bonus_balance: 1e4,
+      real_balance: 0,
+      bonus_balance: 0,
       locked_balance: 0,
       turnover_ratio: 10,
       version: 1,
@@ -3319,71 +3402,8 @@ var SimulatedSeamlessEngine = class {
     this.wallets.set(`${u2.id}:USD`, w2);
     this.wallets.set(`${u3.id}:USD`, w3);
     this.wallets.set(`${u4.id}:BDT`, w4);
-    this.paymentRequests.push(
-      {
-        id: "PAY_REQ_881920",
-        user_id: u4.id,
-        wallet_id: w4.id,
-        type: "DEPOSIT",
-        method: "BKASH",
-        amount: 25e3,
-        currency: "BDT",
-        sender_number: "01712-349911",
-        receiver_number: "01900-112233",
-        trx_id: "BK9A88712K",
-        status: "APPROVED",
-        admin_note: "Verified against bKash merchant gateway",
-        metadata: { channel: "bKash Merchant Send Money", bonusApplied: true },
-        created_at: new Date(Date.now() - 36e5 * 4).toISOString(),
-        updated_at: new Date(Date.now() - 36e5 * 4).toISOString()
-      },
-      {
-        id: "PAY_REQ_881921",
-        user_id: u4.id,
-        wallet_id: w4.id,
-        type: "DEPOSIT",
-        method: "NAGAD",
-        amount: 5e4,
-        currency: "BDT",
-        sender_number: "01844-992200",
-        receiver_number: "01900-112233",
-        trx_id: "NG7719204A",
-        status: "APPROVED",
-        admin_note: "Instant VIP Auto-credit",
-        metadata: { channel: "Nagad Cash-in Agent", bonusApplied: false },
-        created_at: new Date(Date.now() - 36e5 * 2).toISOString(),
-        updated_at: new Date(Date.now() - 36e5 * 2).toISOString()
-      }
-    );
-    this.wageringRequirements.push(
-      {
-        id: "WAGER_REQ_1001",
-        user_id: u4.id,
-        promo_name: "200% Welcome Mega Bonus",
-        bonus_amount_granted: 1e4,
-        required_multiplier: 10,
-        // 10x turnover requirement
-        target_turnover_amount: 1e5,
-        completed_turnover_amount: 68500,
-        status: "ACTIVE",
-        expires_at: new Date(Date.now() + 7 * 864e5).toISOString(),
-        created_at: new Date(Date.now() - 864e5).toISOString(),
-        completed_at: null
-      },
-      {
-        id: "WAGER_REQ_1002",
-        user_id: u1.id,
-        promo_name: "VIP High Roller Match Bonus",
-        bonus_amount_granted: 100,
-        required_multiplier: 10,
-        target_turnover_amount: 1e3,
-        completed_turnover_amount: 1e3,
-        status: "ACTIVE",
-        expires_at: new Date(Date.now() + 7 * 864e5).toISOString(),
-        created_at: new Date(Date.now() - 864e5).toISOString(),
-        completed_at: null
-      }
-    );
+    this.paymentRequests = [];
+    this.wageringRequirements = [];
     this.latencyHistory = [];
     const endpoints = ["balance", "bet", "win", "balance", "bet", "win", "refund"];
     const providers = ["pragmatic_play", "evolution", "pgsoft", "spribe"];
@@ -7915,158 +7935,11 @@ var PaymentGatewayController = class {
 var paymentGatewayController = new PaymentGatewayController();
 
 // src/server/controllers/affiliateController.ts
-import { eq as eq2, sql } from "drizzle-orm";
-var AffiliateService = class {
-  /**
-   * Distribute multi-tier commissions when a player places a valid bet
-   * Tier 1 (Direct Parent): 0.50%
-   * Tier 2 (Grandparent): 0.20%
-   * Tier 3 (Great-Grandparent): 0.10%
-   */
-  static async processValidBetCommission(params) {
-    if (params.betAmount <= 0) return;
-    const [userNode] = await db.select().from(affiliateNodes).where(eq2(affiliateNodes.userId, params.userId));
-    if (!userNode || !userNode.parentAffiliateId) {
-      return;
-    }
-    const parentId = userNode.parentAffiliateId;
-    const grandParentId = userNode.grandParentAffiliateId;
-    const tier1Rate = 5e-3;
-    const tier1Amount = Number((params.betAmount * tier1Rate).toFixed(4));
-    if (tier1Amount > 0) {
-      await db.transaction(async (tx) => {
-        await tx.update(affiliateNodes).set({
-          totalCommissionEarned: sql`${affiliateNodes.totalCommissionEarned} + ${tier1Amount}`,
-          unclaimedCommission: sql`${affiliateNodes.unclaimedCommission} + ${tier1Amount}`,
-          totalTurnoverVolume: sql`${affiliateNodes.totalTurnoverVolume} + ${params.betAmount}`,
-          updatedAt: /* @__PURE__ */ new Date()
-        }).where(eq2(affiliateNodes.userId, parentId));
-        await tx.insert(affiliateCommissions).values({
-          beneficiaryUserId: parentId,
-          sourceUserId: params.userId,
-          sourceTransactionId: params.sourceTransactionId,
-          tier: 1,
-          validBetAmount: params.betAmount.toString(),
-          commissionRate: tier1Rate.toString(),
-          commissionAmount: tier1Amount.toString(),
-          currency: params.currency,
-          status: "SETTLED",
-          settledAt: /* @__PURE__ */ new Date()
-        });
-      });
-    }
-    if (grandParentId) {
-      const tier2Rate = 2e-3;
-      const tier2Amount = Number((params.betAmount * tier2Rate).toFixed(4));
-      if (tier2Amount > 0) {
-        await db.transaction(async (tx) => {
-          await tx.update(affiliateNodes).set({
-            totalCommissionEarned: sql`${affiliateNodes.totalCommissionEarned} + ${tier2Amount}`,
-            unclaimedCommission: sql`${affiliateNodes.unclaimedCommission} + ${tier2Amount}`,
-            totalTurnoverVolume: sql`${affiliateNodes.totalTurnoverVolume} + ${params.betAmount}`,
-            updatedAt: /* @__PURE__ */ new Date()
-          }).where(eq2(affiliateNodes.userId, grandParentId));
-          await tx.insert(affiliateCommissions).values({
-            beneficiaryUserId: grandParentId,
-            sourceUserId: params.userId,
-            sourceTransactionId: params.sourceTransactionId,
-            tier: 2,
-            validBetAmount: params.betAmount.toString(),
-            commissionRate: tier2Rate.toString(),
-            commissionAmount: tier2Amount.toString(),
-            currency: params.currency,
-            status: "SETTLED",
-            settledAt: /* @__PURE__ */ new Date()
-          });
-        });
-      }
-    }
-  }
-  /**
-   * Claim accumulated affiliate commissions into withdrawable real wallet balance
-   */
-  static async claimAffiliateCommission(userId) {
-    return await db.transaction(async (tx) => {
-      const [node] = await tx.select().from(affiliateNodes).where(eq2(affiliateNodes.userId, userId));
-      if (!node) throw new Error("Affiliate profile not found");
-      const unclaimed = Number(node.unclaimedCommission);
-      if (unclaimed <= 0) throw new Error("No unclaimed commissions available");
-      const [wallet] = await tx.select().from(wallets).where(eq2(wallets.userId, userId));
-      if (!wallet) throw new Error("Player wallet not found");
-      const beforeBalance = Number(wallet.realBalance);
-      const afterBalance = Number((beforeBalance + unclaimed).toFixed(4));
-      await tx.update(wallets).set({
-        realBalance: afterBalance.toString(),
-        version: sql`${wallets.version} + 1`,
-        updatedAt: /* @__PURE__ */ new Date()
-      }).where(eq2(wallets.id, wallet.id));
-      await tx.update(affiliateNodes).set({
-        unclaimedCommission: "0.0000",
-        updatedAt: /* @__PURE__ */ new Date()
-      }).where(eq2(affiliateNodes.userId, userId));
-      await tx.update(affiliateCommissions).set({ status: "CLAIMED" }).where(eq2(affiliateCommissions.beneficiaryUserId, userId));
-      const txId = `COMM_CLAIM_${Date.now()}`;
-      await tx.insert(transactions).values({
-        providerId: "GAMEPLAY365_CORE",
-        transactionId: txId,
-        userId,
-        walletId: wallet.id,
-        gameId: "AFFILIATE_COMMISSION_CLAIM",
-        type: "COMMISSION",
-        amount: unclaimed.toString(),
-        currency: wallet.currency,
-        beforeBalance: beforeBalance.toString(),
-        afterBalance: afterBalance.toString(),
-        status: "COMPLETED",
-        metadata: {
-          claimedAmount: unclaimed,
-          timestamp: Date.now()
-        },
-        createdAt: /* @__PURE__ */ new Date()
-      });
-      return {
-        claimedAmount: unclaimed,
-        newRealBalance: afterBalance,
-        transactionId: txId
-      };
-    });
-  }
-};
-var getAffiliateSummaryHandler = async (req, res) => {
-  try {
-    const userId = Number(req.query.userId || 1);
-    const [node] = await db.select().from(affiliateNodes).where(eq2(affiliateNodes.userId, userId));
-    const commissions = await db.select().from(affiliateCommissions).where(eq2(affiliateCommissions.beneficiaryUserId, userId)).limit(50);
-    res.json({
-      status: "SUCCESS",
-      data: {
-        node: node || {
-          referralCode: `GP365_${userId}`,
-          totalDirectReferrals: 14,
-          totalSubordinates: 68,
-          totalTurnoverVolume: "2480000.0000",
-          totalCommissionEarned: "12400.0000",
-          unclaimedCommission: "3450.0000"
-        },
-        recentCommissions: commissions
-      }
-    });
-  } catch (err) {
-    res.status(500).json({ status: "ERROR", message: err.message });
-  }
-};
-var claimCommissionHandler = async (req, res) => {
-  try {
-    const userId = Number(req.body.userId);
-    const result = await AffiliateService.claimAffiliateCommission(userId);
-    res.json({ status: "SUCCESS", data: result });
-  } catch (err) {
-    res.status(400).json({ status: "ERROR", message: err.message });
-  }
-};
+import crypto3 from "crypto";
+import { eq as eq3, sql as sql2, inArray, and } from "drizzle-orm";
 
-// src/server/controllers/vipController.ts
-import { eq as eq3, sql as sql2 } from "drizzle-orm";
+// src/server/controllers/promotionController.ts
+import { eq as eq2, sql } from "drizzle-orm";
 
 // src/shared/gameplayConfig.ts
 var VIP_TIER_CONFIG = [
@@ -8101,14 +7974,515 @@ var WHEEL_PRIZES = [
   { id: 8, label: "\u09F3250 Bonus", type: "BONUS_CASH", value: 250, weight: 20, color: "#6366f1" }
 ];
 
+// src/server/controllers/promotionController.ts
+var toScale4 = (val) => {
+  const s = typeof val === "number" ? val.toFixed(4) : String(val).trim();
+  const [intPart = "0", fracPart = ""] = s.split(".");
+  const paddedFrac = fracPart.padEnd(4, "0").slice(0, 4);
+  const isNeg = intPart.startsWith("-");
+  const cleanInt = isNeg ? intPart.slice(1) : intPart;
+  const combined = BigInt((cleanInt || "0") + paddedFrac);
+  return isNeg ? -combined : combined;
+};
+var fromScale4 = (val) => {
+  const isNeg = val < 0n;
+  const abs = isNeg ? -val : val;
+  const str = abs.toString().padStart(5, "0");
+  const intPart = str.slice(0, -4) || "0";
+  const fracPart = str.slice(-4);
+  return `${isNeg ? "-" : ""}${intPart}.${fracPart}`;
+};
+var resolveAuthUser = async (req, clientUserId) => {
+  const authUid = req.user?.uid;
+  if (!authUid) {
+    const error = new Error("Unauthorized: Authentication required");
+    error.statusCode = 401;
+    throw error;
+  }
+  const [foundUser] = await db.select({ id: users.id, uid: users.uid }).from(users).where(eq2(users.uid, authUid)).limit(1);
+  if (!foundUser) {
+    const error = new Error(`User account not found for UID: ${authUid}`);
+    error.statusCode = 404;
+    throw error;
+  }
+  if (clientUserId !== void 0 && clientUserId !== null && String(clientUserId).trim() !== "") {
+    const strClientUserId = String(clientUserId).trim();
+    const isMatchingUid = strClientUserId === foundUser.uid;
+    const isMatchingId = /^\d+$/.test(strClientUserId) && parseInt(strClientUserId, 10) === foundUser.id;
+    if (!isMatchingUid && !isMatchingId) {
+      const error = new Error("Forbidden: Cannot access or claim rewards for another user");
+      error.statusCode = 403;
+      throw error;
+    }
+  }
+  return {
+    userId: foundUser.id,
+    uid: foundUser.uid
+  };
+};
+var PromotionService = class {
+  /**
+   * Process 7-day Daily Check-In with ACID Row-Level Locking & Scale-4 BigInt Math
+   */
+  static async claimDailyCheckIn(userId) {
+    return await db.transaction(async (tx) => {
+      const walletRows = await tx.select().from(wallets).where(eq2(wallets.userId, userId)).for("update");
+      const wallet = walletRows[0];
+      if (!wallet) {
+        throw new Error("Player wallet not found");
+      }
+      const [lastCheckIn] = await tx.select().from(dailyCheckIns).where(eq2(dailyCheckIns.userId, userId)).orderBy(sql`${dailyCheckIns.createdAt} DESC`).limit(1);
+      let nextStreakDay = 1;
+      const now = /* @__PURE__ */ new Date();
+      if (lastCheckIn) {
+        const lastDate = new Date(lastCheckIn.createdAt);
+        const diffHours = (now.getTime() - lastDate.getTime()) / (1e3 * 3600);
+        if (diffHours < 24) {
+          throw new Error("You have already claimed today\u2019s check-in bonus. Come back tomorrow!");
+        } else if (diffHours <= 48) {
+          nextStreakDay = lastCheckIn.streakDay % 7 + 1;
+        } else {
+          nextStreakDay = 1;
+        }
+      }
+      const rewardConfig = DAILY_CHECKIN_REWARDS.find((r) => r.day === nextStreakDay) || DAILY_CHECKIN_REWARDS[0];
+      const rewardAmount = rewardConfig.reward;
+      const rewardAmountStr = rewardAmount.toFixed(4);
+      const currentBonusBigInt = toScale4(wallet.bonusBalance);
+      const rewardBigInt = toScale4(rewardAmountStr);
+      const newBonusBigInt = currentBonusBigInt + rewardBigInt;
+      const newBonusBalanceStr = fromScale4(newBonusBigInt);
+      await tx.update(wallets).set({
+        bonusBalance: newBonusBalanceStr,
+        version: sql`${wallets.version} + 1`,
+        updatedAt: now
+      }).where(eq2(wallets.id, wallet.id));
+      await tx.insert(dailyCheckIns).values({
+        userId,
+        checkInDate: now,
+        streakDay: nextStreakDay,
+        rewardAmount: rewardAmountStr,
+        rewardType: "BONUS_CREDIT",
+        createdAt: now
+      });
+      const targetTurnoverBigInt = rewardBigInt * 10n;
+      await tx.insert(wageringRequirements).values({
+        userId,
+        promoName: `Daily Check-In Day ${nextStreakDay}`,
+        bonusAmountGranted: rewardAmountStr,
+        requiredMultiplier: 10,
+        targetTurnoverAmount: fromScale4(targetTurnoverBigInt),
+        completedTurnoverAmount: "0.0000",
+        status: "ACTIVE",
+        expiresAt: new Date(Date.now() + 7 * 24 * 3600 * 1e3),
+        createdAt: now
+      });
+      return {
+        streakDay: nextStreakDay,
+        rewardAmount,
+        label: rewardConfig.label,
+        newBonusBalance: parseFloat(newBonusBalanceStr)
+      };
+    });
+  }
+  /**
+   * Provably fair Lucky Spin-the-Wheel with ACID Row-Level Locking, Daily Limits & Scale-4 Math
+   */
+  static async executeWheelSpin(userId) {
+    return await db.transaction(async (tx) => {
+      const walletRows = await tx.select().from(wallets).where(eq2(wallets.userId, userId)).for("update");
+      const wallet = walletRows[0];
+      if (!wallet) {
+        throw new Error("Player wallet not found");
+      }
+      const todayStart = /* @__PURE__ */ new Date();
+      todayStart.setHours(0, 0, 0, 0);
+      const spinsToday = await tx.select({ id: wheelSpins.id }).from(wheelSpins).where(
+        sql`${wheelSpins.userId} = ${userId} AND ${wheelSpins.createdAt} >= ${todayStart}`
+      );
+      if (spinsToday.length >= 1) {
+        throw new Error("You have already used your daily free wheel spin for today. Come back tomorrow!");
+      }
+      const totalWeight = WHEEL_PRIZES.reduce((acc, p) => acc + p.weight, 0);
+      let randomWeight = Math.random() * totalWeight;
+      let winningPrize = WHEEL_PRIZES[0];
+      for (const prize of WHEEL_PRIZES) {
+        if (randomWeight < prize.weight) {
+          winningPrize = prize;
+          break;
+        }
+        randomWeight -= prize.weight;
+      }
+      const now = /* @__PURE__ */ new Date();
+      const prizeValueStr = winningPrize.value.toFixed(4);
+      const prizeBigInt = toScale4(prizeValueStr);
+      if (winningPrize.type === "REAL_CASH" && prizeBigInt > 0n) {
+        const currentRealBigInt = toScale4(wallet.realBalance);
+        const newRealBigInt = currentRealBigInt + prizeBigInt;
+        const newRealBalanceStr = fromScale4(newRealBigInt);
+        await tx.update(wallets).set({
+          realBalance: newRealBalanceStr,
+          version: sql`${wallets.version} + 1`,
+          updatedAt: now
+        }).where(eq2(wallets.id, wallet.id));
+      } else if (winningPrize.type === "BONUS_CASH" && prizeBigInt > 0n) {
+        const currentBonusBigInt = toScale4(wallet.bonusBalance);
+        const newBonusBigInt = currentBonusBigInt + prizeBigInt;
+        const newBonusBalanceStr = fromScale4(newBonusBigInt);
+        await tx.update(wallets).set({
+          bonusBalance: newBonusBalanceStr,
+          version: sql`${wallets.version} + 1`,
+          updatedAt: now
+        }).where(eq2(wallets.id, wallet.id));
+      }
+      await tx.insert(wheelSpins).values({
+        userId,
+        prizeType: winningPrize.type,
+        prizeLabel: winningPrize.label,
+        prizeValue: prizeValueStr,
+        currency: wallet.currency,
+        isClaimed: true,
+        createdAt: now
+      });
+      return {
+        prize: winningPrize,
+        timestamp: now.getTime()
+      };
+    });
+  }
+};
+var getPromotionDetailsHandler = async (req, res) => {
+  try {
+    const { userId } = await resolveAuthUser(req, req.query.userId);
+    const [lastCheckIn] = await db.select().from(dailyCheckIns).where(eq2(dailyCheckIns.userId, userId)).orderBy(sql`${dailyCheckIns.createdAt} DESC`).limit(1);
+    const activeWagering = await db.select().from(wageringRequirements).where(eq2(wageringRequirements.userId, userId)).limit(10);
+    const todayStart = /* @__PURE__ */ new Date();
+    todayStart.setHours(0, 0, 0, 0);
+    const spinsToday = await db.select().from(wheelSpins).where(
+      sql`${wheelSpins.userId} = ${userId} AND ${wheelSpins.createdAt} >= ${todayStart}`
+    );
+    let streak = 0;
+    let canCheckInToday = true;
+    if (lastCheckIn) {
+      const now = /* @__PURE__ */ new Date();
+      const lastDate = new Date(lastCheckIn.createdAt);
+      const diffHours = (now.getTime() - lastDate.getTime()) / (1e3 * 3600);
+      if (diffHours < 24) {
+        canCheckInToday = false;
+        streak = lastCheckIn.streakDay || 0;
+      } else if (diffHours <= 48) {
+        canCheckInToday = true;
+        streak = lastCheckIn.streakDay || 0;
+      } else {
+        canCheckInToday = true;
+        streak = 0;
+      }
+    }
+    const availableSpins = Math.max(0, 1 - spinsToday.length);
+    res.json({
+      status: "SUCCESS",
+      data: {
+        checkInStreak: streak,
+        canCheckInToday,
+        availableSpins,
+        dailyRewards: DAILY_CHECKIN_REWARDS,
+        wheelPrizes: WHEEL_PRIZES,
+        activeWageringRequirements: activeWagering || []
+      }
+    });
+  } catch (err) {
+    const statusCode = err.statusCode || (err.message?.includes("not found") ? 404 : 400);
+    res.status(statusCode).json({ status: "ERROR", message: err.message });
+  }
+};
+var claimCheckInHandler = async (req, res) => {
+  try {
+    const { userId } = await resolveAuthUser(req, req.body?.userId);
+    const result = await PromotionService.claimDailyCheckIn(userId);
+    res.json({ status: "SUCCESS", data: result });
+  } catch (err) {
+    const statusCode = err.statusCode || (err.message?.includes("not found") ? 404 : 400);
+    res.status(statusCode).json({ status: "ERROR", message: err.message });
+  }
+};
+var spinWheelHandler = async (req, res) => {
+  try {
+    const { userId } = await resolveAuthUser(req, req.body?.userId);
+    const result = await PromotionService.executeWheelSpin(userId);
+    res.json({ status: "SUCCESS", data: result });
+  } catch (err) {
+    const statusCode = err.statusCode || (err.message?.includes("not found") ? 404 : 400);
+    res.status(statusCode).json({ status: "ERROR", message: err.message });
+  }
+};
+
+// src/server/controllers/affiliateController.ts
+var COMMISSION_TIER_BPS = {
+  1: 50n,
+  // 0.0050 * 10000 = 50 bps
+  2: 20n,
+  // 0.0020 * 10000 = 20 bps
+  3: 10n
+  // 0.0010 * 10000 = 10 bps
+};
+var AffiliateService = class _AffiliateService {
+  /**
+   * Distribute multi-tier commissions when a player places a valid bet.
+   * Enforces:
+   * 1. Exact Scale-4 BigInt Math (Zero float drift).
+   * 2. Transaction status validation (COMMITTED/COMPLETED/SETTLED).
+   * 3. Strict Idempotency via sourceTransactionId + beneficiaryUserId + tier.
+   * 4. Single ACID transaction with SELECT ... FOR UPDATE row-level locking on all affected affiliate nodes.
+   * 5. Immutable commission ledger entries.
+   */
+  static async processValidBetCommission(params) {
+    if (!params.sourceTransactionId || typeof params.sourceTransactionId !== "string" || params.sourceTransactionId.trim() === "") {
+      throw new Error("sourceTransactionId is required for commission distribution");
+    }
+    const [sourceTx] = await db.select().from(transactions).where(eq3(transactions.transactionId, params.sourceTransactionId)).limit(1);
+    if (!sourceTx) {
+      return { success: false, reason: "SOURCE_TRANSACTION_NOT_FOUND", distributedCount: 0 };
+    }
+    if (sourceTx.type !== "BET") {
+      return { success: false, reason: "INVALID_TRANSACTION_TYPE", distributedCount: 0 };
+    }
+    const isCommittedStatus = sourceTx.status === "COMPLETED" || sourceTx.status === "SETTLED";
+    if (!isCommittedStatus) {
+      return { success: false, reason: "TRANSACTION_NOT_SETTLED", distributedCount: 0 };
+    }
+    if (sourceTx.userId !== params.userId) {
+      return { success: false, reason: "TRANSACTION_USER_MISMATCH", distributedCount: 0 };
+    }
+    const authoritativeBetScale4 = toScale4(sourceTx.amount);
+    if (authoritativeBetScale4 <= 0n) {
+      return { success: false, reason: "INVALID_BET_AMOUNT", distributedCount: 0 };
+    }
+    const authoritativeCurrency = sourceTx.currency || "BDT";
+    if (params.betAmount !== void 0 && params.betAmount !== null) {
+      const callerBetScale4 = typeof params.betAmount === "bigint" ? params.betAmount : toScale4(params.betAmount);
+      if (callerBetScale4 !== authoritativeBetScale4) {
+        return { success: false, reason: "BET_AMOUNT_MISMATCH", distributedCount: 0 };
+      }
+    }
+    if (params.currency && typeof params.currency === "string" && params.currency.trim() !== "") {
+      if (params.currency.trim().toUpperCase() !== authoritativeCurrency.trim().toUpperCase()) {
+        return { success: false, reason: "CURRENCY_MISMATCH", distributedCount: 0 };
+      }
+    }
+    const betScale4 = authoritativeBetScale4;
+    const resolvedCurrency = authoritativeCurrency;
+    const [userNode] = await db.select().from(affiliateNodes).where(eq3(affiliateNodes.userId, sourceTx.userId)).limit(1);
+    if (!userNode || !userNode.parentAffiliateId) {
+      return { success: true, reason: "NO_UPLINE_BENEFICIARY", distributedCount: 0 };
+    }
+    const beneficiaries = [];
+    if (userNode.parentAffiliateId) {
+      beneficiaries.push({
+        userId: userNode.parentAffiliateId,
+        tier: 1,
+        bps: COMMISSION_TIER_BPS[1],
+        rateStr: "0.0050"
+      });
+    }
+    if (userNode.grandParentAffiliateId) {
+      beneficiaries.push({
+        userId: userNode.grandParentAffiliateId,
+        tier: 2,
+        bps: COMMISSION_TIER_BPS[2],
+        rateStr: "0.0020"
+      });
+    }
+    if (beneficiaries.length === 0) {
+      return { success: true, reason: "NO_UPLINE_BENEFICIARY", distributedCount: 0 };
+    }
+    return await db.transaction(async (tx) => {
+      const existingCommissions = await tx.select().from(affiliateCommissions).where(eq3(affiliateCommissions.sourceTransactionId, params.sourceTransactionId));
+      const existingTierMap = new Set(
+        existingCommissions.map((c) => `${c.beneficiaryUserId}_${c.tier}`)
+      );
+      const pendingBeneficiaries = beneficiaries.filter(
+        (b) => !existingTierMap.has(`${b.userId}_${b.tier}`)
+      );
+      if (pendingBeneficiaries.length === 0) {
+        return { success: true, reason: "ALREADY_PROCESSED", distributedCount: 0 };
+      }
+      const distinctBeneficiaryIds = Array.from(
+        new Set(pendingBeneficiaries.map((b) => b.userId))
+      ).sort((a, b) => a - b);
+      for (const bUserId of distinctBeneficiaryIds) {
+        await tx.execute(
+          sql2`SELECT * FROM affiliate_nodes WHERE user_id = ${bUserId} FOR UPDATE`
+        );
+      }
+      let distributedCount = 0;
+      for (const beneficiary of pendingBeneficiaries) {
+        const commissionScale4 = betScale4 * beneficiary.bps / 10000n;
+        if (commissionScale4 <= 0n) {
+          continue;
+        }
+        const commissionAmountStr = fromScale4(commissionScale4);
+        const betAmountStr = fromScale4(betScale4);
+        await tx.update(affiliateNodes).set({
+          totalCommissionEarned: sql2`(${affiliateNodes.totalCommissionEarned}::numeric + ${commissionAmountStr}::numeric)::text`,
+          unclaimedCommission: sql2`(${affiliateNodes.unclaimedCommission}::numeric + ${commissionAmountStr}::numeric)::text`,
+          totalTurnoverVolume: sql2`(${affiliateNodes.totalTurnoverVolume}::numeric + ${betAmountStr}::numeric)::text`,
+          updatedAt: /* @__PURE__ */ new Date()
+        }).where(eq3(affiliateNodes.userId, beneficiary.userId));
+        await tx.insert(affiliateCommissions).values({
+          beneficiaryUserId: beneficiary.userId,
+          sourceUserId: sourceTx.userId,
+          sourceTransactionId: params.sourceTransactionId,
+          tier: beneficiary.tier,
+          validBetAmount: betAmountStr,
+          commissionRate: beneficiary.rateStr,
+          commissionAmount: commissionAmountStr,
+          currency: resolvedCurrency,
+          status: "SETTLED",
+          settledAt: /* @__PURE__ */ new Date()
+        });
+        distributedCount++;
+      }
+      return {
+        success: true,
+        distributedCount,
+        sourceTransactionId: params.sourceTransactionId
+      };
+    });
+  }
+  static {
+    this.ledgerService = null;
+  }
+  static setLedgerService(service) {
+    _AffiliateService.ledgerService = service;
+  }
+  static getLedgerService() {
+    return _AffiliateService.ledgerService;
+  }
+  /**
+   * Claim accumulated affiliate commissions into withdrawable real wallet balance.
+   * Enforces:
+   * 1. Authoritative Production Wallet Ledger: Fails closed if production ledger service is not configured (ZERO in-memory fallback).
+   * 2. Deterministic Server Idempotency: Server-derived claim ID generated from exact SETTLED commission entry IDs (never Date.now(), client transactionId ignored).
+   * 3. Strict Settlement Check: Only exact SETTLED commission entries are claimed; zero fallback credit from aggregate counters.
+   * 4. Crash-Safe & Exactly-Once Execution:
+   *    - Row-level lock (SELECT ... FOR UPDATE) on affiliate_nodes and affiliateCommissions.
+   *    - Deterministic transaction ID derived from exact SETTLED entry IDs ensures ledger credit idempotency.
+   *    - Authoritative wallet ledger credit executed with atomic recovery.
+   *    - Synchronous transition of commission entries to CLAIMED and deduction of unclaimedCommission.
+   * 5. Exact Scale-4 BigInt Math (zero float drift, strict minor-unit representation).
+   * 6. Zero direct wallets.realBalance mutation.
+   */
+  static async claimAffiliateCommission(userId, customLedgerService) {
+    if (!userId || typeof userId !== "number") {
+      throw new Error("Valid userId is required to claim commissions");
+    }
+    const effectiveLedger = customLedgerService || _AffiliateService.ledgerService;
+    if (!effectiveLedger) {
+      throw new Error("FATAL_LEDGER_UNAVAILABLE: Production WalletLedgerService is not configured. Affiliate commission claim failed closed.");
+    }
+    return await db.transaction(async (tx) => {
+      const [node] = await tx.select().from(affiliateNodes).where(eq3(affiliateNodes.userId, userId)).for("update");
+      if (!node) {
+        throw new Error("Affiliate profile not found");
+      }
+      const settledCommissions = await tx.select().from(affiliateCommissions).where(
+        and(
+          eq3(affiliateCommissions.beneficiaryUserId, userId),
+          eq3(affiliateCommissions.status, "SETTLED")
+        )
+      ).for("update");
+      if (settledCommissions.length === 0) {
+        throw new Error("No unclaimed commissions available");
+      }
+      const sortedIds = settledCommissions.map((c) => c.id).sort((a, b) => a - b);
+      const entriesFingerprint = sortedIds.join(",");
+      const entriesHash = crypto3.createHash("sha256").update(entriesFingerprint).digest("hex").slice(0, 24);
+      const deterministicClaimTxId = `AFF_CLAIM_U${userId}_${entriesHash}`;
+      let totalClaimableScale4 = 0n;
+      for (const entry of settledCommissions) {
+        totalClaimableScale4 += toScale4(entry.commissionAmount);
+      }
+      if (totalClaimableScale4 <= 0n) {
+        throw new Error("No unclaimed commissions available");
+      }
+      const claimedAmountStr = fromScale4(totalClaimableScale4);
+      const ledgerResult = await effectiveLedger.executeTransaction({
+        userId: String(userId),
+        currency: "BDT",
+        type: "CREDIT",
+        amountMinor: claimedAmountStr,
+        transactionId: deterministicClaimTxId,
+        auditMetadata: {
+          providerId: "GAMEPLAY365_CORE",
+          type: "AFFILIATE_COMMISSION_CLAIM",
+          beneficiaryUserId: userId,
+          claimedEntryIds: sortedIds,
+          claimedAmount: claimedAmountStr
+        }
+      });
+      const nodeUnclaimedScale4 = toScale4(node.unclaimedCommission);
+      const remainingUnclaimedScale4 = nodeUnclaimedScale4 > totalClaimableScale4 ? nodeUnclaimedScale4 - totalClaimableScale4 : 0n;
+      const remainingUnclaimedStr = fromScale4(remainingUnclaimedScale4);
+      await tx.update(affiliateNodes).set({
+        unclaimedCommission: remainingUnclaimedStr,
+        updatedAt: /* @__PURE__ */ new Date()
+      }).where(eq3(affiliateNodes.userId, userId));
+      await tx.update(affiliateCommissions).set({ status: "CLAIMED" }).where(inArray(affiliateCommissions.id, sortedIds));
+      return {
+        claimedAmount: claimedAmountStr,
+        newRealBalance: ledgerResult.afterBalanceMajor || fromScale4(toScale4(ledgerResult.afterBalanceMinor)),
+        transactionId: deterministicClaimTxId,
+        ledgerEntryId: ledgerResult.ledgerEntryId,
+        isIdempotent: ledgerResult.isIdempotent || false
+      };
+    });
+  }
+};
+var getAffiliateSummaryHandler = async (req, res) => {
+  try {
+    const { userId } = await resolveAuthUser(req, req.query.userId);
+    const [node] = await db.select().from(affiliateNodes).where(eq3(affiliateNodes.userId, userId));
+    const commissions = await db.select().from(affiliateCommissions).where(eq3(affiliateCommissions.beneficiaryUserId, userId)).limit(50);
+    res.json({
+      status: "SUCCESS",
+      data: {
+        node: node || {
+          userId,
+          referralCode: `PLAY369_${userId}`,
+          totalDirectReferrals: 0,
+          totalSubordinates: 0,
+          totalTurnoverVolume: "0.0000",
+          totalCommissionEarned: "0.0000",
+          unclaimedCommission: "0.0000"
+        },
+        recentCommissions: commissions || []
+      }
+    });
+  } catch (err) {
+    const statusCode = err.statusCode || (err.message?.includes("not found") ? 404 : 500);
+    res.status(statusCode).json({ status: "ERROR", message: err.message });
+  }
+};
+var claimCommissionHandler = async (req, res) => {
+  try {
+    const { userId } = await resolveAuthUser(req, req.body?.userId);
+    const result = await AffiliateService.claimAffiliateCommission(userId);
+    res.json({ status: "SUCCESS", data: result });
+  } catch (err) {
+    const statusCode = err.statusCode || (err.message?.includes("not found") ? 404 : err.message?.includes("frozen") || err.message?.includes("inactive") ? 403 : 400);
+    res.status(statusCode).json({ status: "ERROR", message: err.message });
+  }
+};
+
 // src/server/controllers/vipController.ts
+import { eq as eq4, sql as sql3 } from "drizzle-orm";
 var VipService = class {
   /**
    * Cron / Background Evaluator: Check cumulative deposits and bets to trigger tier upgrades
    */
   static async evaluateVipUpgrade(userId) {
     return await db.transaction(async (tx) => {
-      const [progress] = await tx.select().from(userVipProgress).where(eq3(userVipProgress.userId, userId));
+      const [progress] = await tx.select().from(userVipProgress).where(eq4(userVipProgress.userId, userId));
       if (!progress) return null;
       const currentLvl = progress.currentLevel;
       const deposit = Number(progress.cumulativeDeposit);
@@ -8125,12 +8499,12 @@ var VipService = class {
           currentLevel: qualifiedLevel,
           lastUpgradedAt: /* @__PURE__ */ new Date(),
           updatedAt: /* @__PURE__ */ new Date()
-        }).where(eq3(userVipProgress.userId, userId));
+        }).where(eq4(userVipProgress.userId, userId));
         await tx.update(users).set({
           vipLevel: qualifiedLevel,
           vipTier: upgradedTier.name.toUpperCase().replace(" ", "_"),
           updatedAt: /* @__PURE__ */ new Date()
-        }).where(eq3(users.id, userId));
+        }).where(eq4(users.id, userId));
         return {
           upgraded: true,
           oldLevel: currentLvl,
@@ -8147,7 +8521,7 @@ var VipService = class {
    */
   static async claimLevelUpBonus(userId, levelToClaim) {
     return await db.transaction(async (tx) => {
-      const [progress] = await tx.select().from(userVipProgress).where(eq3(userVipProgress.userId, userId));
+      const [progress] = await tx.select().from(userVipProgress).where(eq4(userVipProgress.userId, userId));
       if (!progress) throw new Error("VIP progress profile not found");
       if (progress.currentLevel < levelToClaim) {
         throw new Error(`You have not reached VIP Level ${levelToClaim} yet`);
@@ -8160,20 +8534,20 @@ var VipService = class {
       if (!tierConfig || tierConfig.bonus <= 0) {
         throw new Error("No bonus configured for this level");
       }
-      const [wallet] = await tx.select().from(wallets).where(eq3(wallets.userId, userId));
+      const [wallet] = await tx.select().from(wallets).where(eq4(wallets.userId, userId));
       if (!wallet) throw new Error("Player wallet not found");
       const beforeBalance = Number(wallet.realBalance);
       const afterBalance = Number((beforeBalance + tierConfig.bonus).toFixed(4));
       await tx.update(wallets).set({
         realBalance: afterBalance.toString(),
-        version: sql2`${wallets.version} + 1`,
+        version: sql3`${wallets.version} + 1`,
         updatedAt: /* @__PURE__ */ new Date()
-      }).where(eq3(wallets.id, wallet.id));
+      }).where(eq4(wallets.id, wallet.id));
       claimed.push(levelToClaim);
       await tx.update(userVipProgress).set({
         levelUpBonusClaimed: claimed,
         updatedAt: /* @__PURE__ */ new Date()
-      }).where(eq3(userVipProgress.userId, userId));
+      }).where(eq4(userVipProgress.userId, userId));
       const txId = `VIP_BONUS_${Date.now()}`;
       await tx.insert(transactions).values({
         providerId: "GAMEPLAY365_VIP",
@@ -8204,18 +8578,23 @@ var VipService = class {
 };
 var getVipDetailsHandler = async (req, res) => {
   try {
-    const userId = Number(req.query.userId || 1);
-    const [progress] = await db.select().from(userVipProgress).where(eq3(userVipProgress.userId, userId));
+    const rawUserId = req.query.userId;
+    if (!rawUserId || isNaN(Number(rawUserId))) {
+      res.status(400).json({ status: "ERROR", message: "Valid userId query parameter is required" });
+      return;
+    }
+    const userId = Number(rawUserId);
+    const [progress] = await db.select().from(userVipProgress).where(eq4(userVipProgress.userId, userId));
     res.json({
       status: "SUCCESS",
       data: {
         tiers: VIP_TIER_CONFIG,
         userProgress: progress || {
-          currentLevel: 4,
-          cumulativeDeposit: "150000.0000",
-          cumulativeBet: "650000.0000",
-          levelUpBonusClaimed: [1, 2, 3],
-          totalCashbackClaimed: "4200.0000"
+          currentLevel: 1,
+          cumulativeDeposit: "0.0000",
+          cumulativeBet: "0.0000",
+          levelUpBonusClaimed: [],
+          totalCashbackClaimed: "0.0000"
         }
       }
     });
@@ -8227,144 +8606,6 @@ var claimVipBonusHandler = async (req, res) => {
   try {
     const { userId, level } = req.body;
     const result = await VipService.claimLevelUpBonus(Number(userId), Number(level));
-    res.json({ status: "SUCCESS", data: result });
-  } catch (err) {
-    res.status(400).json({ status: "ERROR", message: err.message });
-  }
-};
-
-// src/server/controllers/promotionController.ts
-import { eq as eq4, sql as sql3 } from "drizzle-orm";
-var PromotionService = class {
-  /**
-   * Process 7-day Daily Check-In
-   */
-  static async claimDailyCheckIn(userId) {
-    return await db.transaction(async (tx) => {
-      const [lastCheckIn] = await tx.select().from(dailyCheckIns).where(eq4(dailyCheckIns.userId, userId)).orderBy(sql3`${dailyCheckIns.createdAt} DESC`).limit(1);
-      let nextStreakDay = 1;
-      const now = /* @__PURE__ */ new Date();
-      if (lastCheckIn) {
-        const lastDate = new Date(lastCheckIn.createdAt);
-        const diffHours = (now.getTime() - lastDate.getTime()) / (1e3 * 3600);
-        if (diffHours < 24) {
-          throw new Error("You have already claimed today\u2019s check-in bonus. Come back tomorrow!");
-        } else if (diffHours <= 48) {
-          nextStreakDay = lastCheckIn.streakDay % 7 + 1;
-        } else {
-          nextStreakDay = 1;
-        }
-      }
-      const rewardConfig = DAILY_CHECKIN_REWARDS.find((r) => r.day === nextStreakDay) || DAILY_CHECKIN_REWARDS[0];
-      const rewardAmount = rewardConfig.reward;
-      const [wallet] = await tx.select().from(wallets).where(eq4(wallets.userId, userId));
-      if (!wallet) throw new Error("Player wallet not found");
-      const beforeBonus = Number(wallet.bonusBalance);
-      const afterBonus = Number((beforeBonus + rewardAmount).toFixed(4));
-      await tx.update(wallets).set({
-        bonusBalance: afterBonus.toString(),
-        version: sql3`${wallets.version} + 1`,
-        updatedAt: now
-      }).where(eq4(wallets.id, wallet.id));
-      await tx.insert(dailyCheckIns).values({
-        userId,
-        checkInDate: now,
-        streakDay: nextStreakDay,
-        rewardAmount: rewardAmount.toString(),
-        rewardType: "BONUS_CREDIT",
-        createdAt: now
-      });
-      await tx.insert(wageringRequirements).values({
-        userId,
-        promoName: `Daily Check-In Day ${nextStreakDay}`,
-        bonusAmountGranted: rewardAmount.toString(),
-        requiredMultiplier: 10,
-        targetTurnoverAmount: (rewardAmount * 10).toString(),
-        completedTurnoverAmount: "0.0000",
-        status: "ACTIVE",
-        expiresAt: new Date(Date.now() + 7 * 24 * 3600 * 1e3),
-        createdAt: now
-      });
-      return {
-        streakDay: nextStreakDay,
-        rewardAmount,
-        label: rewardConfig.label,
-        newBonusBalance: afterBonus
-      };
-    });
-  }
-  /**
-   * Provably fair Lucky Spin-the-Wheel RNG algorithm
-   */
-  static async executeWheelSpin(userId) {
-    return await db.transaction(async (tx) => {
-      const totalWeight = WHEEL_PRIZES.reduce((acc, p) => acc + p.weight, 0);
-      let randomWeight = Math.random() * totalWeight;
-      let winningPrize = WHEEL_PRIZES[0];
-      for (const prize of WHEEL_PRIZES) {
-        if (randomWeight < prize.weight) {
-          winningPrize = prize;
-          break;
-        }
-        randomWeight -= prize.weight;
-      }
-      const [wallet] = await tx.select().from(wallets).where(eq4(wallets.userId, userId));
-      if (!wallet) throw new Error("Player wallet not found");
-      if (winningPrize.type === "REAL_CASH") {
-        const after = Number((Number(wallet.realBalance) + winningPrize.value).toFixed(4));
-        await tx.update(wallets).set({ realBalance: after.toString(), updatedAt: /* @__PURE__ */ new Date() }).where(eq4(wallets.id, wallet.id));
-      } else if (winningPrize.type === "BONUS_CASH") {
-        const after = Number((Number(wallet.bonusBalance) + winningPrize.value).toFixed(4));
-        await tx.update(wallets).set({ bonusBalance: after.toString(), updatedAt: /* @__PURE__ */ new Date() }).where(eq4(wallets.id, wallet.id));
-      }
-      await tx.insert(wheelSpins).values({
-        userId,
-        prizeType: winningPrize.type,
-        prizeLabel: winningPrize.label,
-        prizeValue: winningPrize.value.toString(),
-        currency: wallet.currency,
-        isClaimed: true,
-        createdAt: /* @__PURE__ */ new Date()
-      });
-      return {
-        prize: winningPrize,
-        timestamp: Date.now()
-      };
-    });
-  }
-};
-var getPromotionDetailsHandler = async (req, res) => {
-  try {
-    const userId = Number(req.query.userId || 1);
-    const [lastCheckIn] = await db.select().from(dailyCheckIns).where(eq4(dailyCheckIns.userId, userId)).orderBy(sql3`${dailyCheckIns.createdAt} DESC`).limit(1);
-    const activeWagering = await db.select().from(wageringRequirements).where(eq4(wageringRequirements.userId, userId)).limit(10);
-    res.json({
-      status: "SUCCESS",
-      data: {
-        checkInStreak: lastCheckIn?.streakDay || 3,
-        canCheckInToday: true,
-        dailyRewards: DAILY_CHECKIN_REWARDS,
-        wheelPrizes: WHEEL_PRIZES,
-        activeWageringRequirements: activeWagering
-      }
-    });
-  } catch (err) {
-    res.status(500).json({ status: "ERROR", message: err.message });
-  }
-};
-var claimCheckInHandler = async (req, res) => {
-  try {
-    const { userId } = req.body;
-    const result = await PromotionService.claimDailyCheckIn(Number(userId));
-    res.json({ status: "SUCCESS", data: result });
-  } catch (err) {
-    res.status(400).json({ status: "ERROR", message: err.message });
-  }
-};
-var spinWheelHandler = async (req, res) => {
-  try {
-    const { userId } = req.body;
-    const result = await PromotionService.executeWheelSpin(Number(userId));
     res.json({ status: "SUCCESS", data: result });
   } catch (err) {
     res.status(400).json({ status: "ERROR", message: err.message });
@@ -10245,6 +10486,36 @@ function createProviderGatewayRouter() {
   return router;
 }
 
+// src/lib/firebase-admin.ts
+import { initializeApp as initializeApp2, getApps } from "firebase-admin/app";
+import { getAuth as getAuth2 } from "firebase-admin/auth";
+if (!getApps().length) {
+  initializeApp2({
+    projectId: firebase_applet_config_default.projectId
+  });
+}
+var adminAuth = getAuth2();
+
+// src/middleware/auth.ts
+var requireAuth = async (req, res, next) => {
+  const authHeader = req.headers.authorization;
+  if (!authHeader || !authHeader.startsWith("Bearer ")) {
+    return res.status(401).json({ status: "ERROR", error: "Unauthorized: Missing token", message: "Unauthorized: Missing token" });
+  }
+  const token = authHeader.split("Bearer ")[1]?.trim();
+  if (!token) {
+    return res.status(401).json({ status: "ERROR", error: "Unauthorized: Missing token", message: "Unauthorized: Missing token" });
+  }
+  try {
+    const decodedToken = await adminAuth.verifyIdToken(token);
+    req.user = decodedToken;
+    next();
+  } catch (error) {
+    console.error("Error verifying Firebase ID token:", error?.message || error);
+    return res.status(401).json({ status: "ERROR", error: "Unauthorized: Invalid token", message: "Unauthorized: Invalid token" });
+  }
+};
+
 // src/server/index.ts
 dotenv.config();
 var __filename = fileURLToPath(import.meta.url);
@@ -10262,6 +10533,7 @@ app2.use(
 var postgresLedgerPool = new PostgresLedgerPool(process.env.DATABASE_URL);
 var walletLedgerService2 = new WalletLedgerService(postgresLedgerPool);
 var walletController = new SeamlessWalletController(walletLedgerService2);
+AffiliateService.setLedgerService(walletLedgerService2);
 var seamlessRouter = express.Router();
 seamlessRouter.use(validateHmacSignature);
 seamlessRouter.post("/balance", walletController.getBalance);
@@ -10283,6 +10555,7 @@ paymentV2Router.get("/destination-pool", (req, res) => paymentGatewayController.
 paymentV2Router.get("/stats", (req, res) => paymentGatewayController.getStats(req, res));
 app2.use("/api/v2/payment", paymentV2Router);
 var affiliateRouter = express.Router();
+affiliateRouter.use(requireAuth);
 affiliateRouter.get("/summary", getAffiliateSummaryHandler);
 affiliateRouter.post("/claim", claimCommissionHandler);
 app2.use("/api/affiliate", affiliateRouter);
@@ -10291,6 +10564,7 @@ vipRouter.get("/details", getVipDetailsHandler);
 vipRouter.post("/claim-bonus", claimVipBonusHandler);
 app2.use("/api/vip", vipRouter);
 var promoRouter = express.Router();
+promoRouter.use(requireAuth);
 promoRouter.get("/details", getPromotionDetailsHandler);
 promoRouter.post("/checkin", claimCheckInHandler);
 promoRouter.post("/spin", spinWheelHandler);
