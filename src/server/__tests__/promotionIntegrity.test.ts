@@ -10,7 +10,7 @@
  * 5. Frontend zero-credit fallback safety check.
  */
 
-import { toScale4, fromScale4 } from '../controllers/promotionController.js';
+import { toScale4, fromScale4, getUtcDaysDifference, getUtcDateString } from '../controllers/promotionController.js';
 import { DAILY_CHECKIN_REWARDS, WHEEL_PRIZES } from '../../shared/gameplayConfig.js';
 import fs from 'fs';
 import path from 'path';
@@ -61,27 +61,27 @@ async function runPromotionIntegrityTests() {
   });
 
   // --------------------------------------------------------------------------
-  // TEST 2: Daily Check-In Streak & 24h Duplicate Prevention Rules
+  // TEST 2: Daily Check-In Streak & UTC Day Boundary Rules
   // --------------------------------------------------------------------------
-  await assert('Streak calculation rejects duplicate check-in < 24h', () => {
-    const lastCheckIn = new Date();
-    const now = new Date(lastCheckIn.getTime() + 10 * 3600 * 1000); // 10 hours later
-    const diffHours = (now.getTime() - lastCheckIn.getTime()) / (1000 * 3600);
+  await assert('Streak calculation rejects duplicate check-in on same UTC day (0 day diff)', () => {
+    const claimDateUtc = '2026-08-29';
+    const nowUtc = '2026-08-29';
+    const diffDays = getUtcDaysDifference(claimDateUtc, nowUtc);
 
-    const isDuplicate = diffHours < 24;
+    const isDuplicate = diffDays <= 0;
     if (!isDuplicate) {
-      throw new Error('Expected claim within 10 hours to be flagged as duplicate');
+      throw new Error('Expected claim on same UTC day to be flagged as duplicate');
     }
   });
 
-  await assert('Streak increments on consecutive day (24-48h window)', () => {
-    const lastCheckIn = new Date();
-    const now = new Date(lastCheckIn.getTime() + 26 * 3600 * 1000); // 26 hours later
-    const diffHours = (now.getTime() - lastCheckIn.getTime()) / (1000 * 3600);
+  await assert('Streak increments on consecutive UTC day (diffDays === 1)', () => {
+    const lastDateUtc = '2026-08-28';
+    const nowUtc = '2026-08-29';
+    const diffDays = getUtcDaysDifference(lastDateUtc, nowUtc);
 
     let streakDay = 1;
     let nextStreakDay = streakDay;
-    if (diffHours >= 24 && diffHours <= 48) {
+    if (diffDays === 1) {
       nextStreakDay = (streakDay % 7) + 1;
     }
 
@@ -90,14 +90,14 @@ async function runPromotionIntegrityTests() {
     }
   });
 
-  await assert('Streak resets to 1 after broken streak (> 48h)', () => {
-    const lastCheckIn = new Date();
-    const now = new Date(lastCheckIn.getTime() + 50 * 3600 * 1000); // 50 hours later
-    const diffHours = (now.getTime() - lastCheckIn.getTime()) / (1000 * 3600);
+  await assert('Streak resets to 1 after broken streak (> 1 UTC day gap)', () => {
+    const lastDateUtc = '2026-08-27';
+    const nowUtc = '2026-08-29';
+    const diffDays = getUtcDaysDifference(lastDateUtc, nowUtc);
 
     let streakDay = 4;
     let nextStreakDay = streakDay;
-    if (diffHours > 48) {
+    if (diffDays > 1) {
       nextStreakDay = 1;
     }
 

@@ -251,24 +251,30 @@ export const dailyCheckIns = pgTable('daily_check_ins', {
     .references(() => users.id, { onDelete: 'cascade' })
     .notNull(),
   checkInDate: timestamp('check_in_date', { withTimezone: true }).notNull(),
+  claimDateUtc: varchar('claim_date_utc', { length: 10 }).notNull(), // Authoritative 'YYYY-MM-DD' UTC calendar date
   streakDay: integer('streak_day').notNull(), // 1 to 7
   rewardAmount: numeric('reward_amount', { precision: 18, scale: 4 }).notNull(),
   rewardType: varchar('reward_type', { length: 32 }).default('BONUS_CREDIT').notNull(),
   createdAt: timestamp('created_at', { withTimezone: true }).defaultNow().notNull(),
-});
+}, (table) => ({
+  userClaimDateUtcIdx: uniqueIndex('daily_check_ins_user_claim_date_utc_idx').on(table.userId, table.claimDateUtc),
+}));
 
 export const wheelSpins = pgTable('wheel_spins', {
   id: serial('id').primaryKey(),
   userId: integer('user_id')
     .references(() => users.id, { onDelete: 'cascade' })
     .notNull(),
+  spinDateUtc: varchar('spin_date_utc', { length: 10 }).notNull(), // Authoritative 'YYYY-MM-DD' UTC calendar date
   prizeType: varchar('prize_type', { length: 32 }).notNull(), // 'REAL_CASH', 'BONUS_CASH', 'FREE_SPINS', 'JACKPOT_TICKET'
   prizeLabel: varchar('prize_label', { length: 64 }).notNull(),
   prizeValue: numeric('prize_value', { precision: 18, scale: 4 }).notNull(),
   currency: varchar('currency', { length: 3 }).notNull(),
   isClaimed: boolean('is_claimed').default(true).notNull(),
   createdAt: timestamp('created_at', { withTimezone: true }).defaultNow().notNull(),
-});
+}, (table) => ({
+  userSpinDateUtcIdx: uniqueIndex('wheel_spins_user_spin_date_utc_idx').on(table.userId, table.spinDateUtc),
+}));
 
 export const wageringRequirements = pgTable('wagering_requirements', {
   id: serial('id').primaryKey(),
