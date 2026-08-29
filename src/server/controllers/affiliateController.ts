@@ -13,10 +13,10 @@ import { resolveAuthUser, toScale4, fromScale4 } from './promotionController.js'
 
 export interface DistributeCommissionParams {
   userId: number;
-  betAmount: number | string | bigint;
-  currency: string;
+  betAmount?: number | string | bigint;
+  currency?: string;
   sourceTransactionId: string;
-  gameId: string;
+  gameId?: string;
 }
 
 /**
@@ -47,32 +47,63 @@ export class AffiliateService {
       throw new Error('sourceTransactionId is required for commission distribution');
     }
 
-    // 1. Convert bet amount to Scale-4 BigInt and reject zero/negative amounts
-    const betScale4 = typeof params.betAmount === 'bigint' ? params.betAmount : toScale4(params.betAmount);
-    if (betScale4 <= 0n) {
-      return { success: false, reason: 'INVALID_BET_AMOUNT', distributedCount: 0 };
-    }
-
-    // 2. Lookup source bet transaction to verify it is a valid COMMITTED/COMPLETED bet
+    // 1. Authoritatively lookup source bet transaction from database
     const [sourceTx] = await db
       .select()
       .from(transactions)
       .where(eq(transactions.transactionId, params.sourceTransactionId))
       .limit(1);
 
-    if (sourceTx) {
-      const isValidType = sourceTx.type === 'BET';
-      const isCommittedStatus = sourceTx.status === 'COMPLETED' || sourceTx.status === 'SETTLED';
-      if (!isValidType || !isCommittedStatus) {
-        return { success: false, reason: 'TRANSACTION_NOT_SETTLED_BET', distributedCount: 0 };
+    // Reject if source transaction does not exist
+    if (!sourceTx) {
+      return { success: false, reason: 'SOURCE_TRANSACTION_NOT_FOUND', distributedCount: 0 };
+    }
+
+    // Validate type = BET
+    if (sourceTx.type !== 'BET') {
+      return { success: false, reason: 'INVALID_TRANSACTION_TYPE', distributedCount: 0 };
+    }
+
+    // Validate status = COMPLETED or SETTLED
+    const isCommittedStatus = sourceTx.status === 'COMPLETED' || sourceTx.status === 'SETTLED';
+    if (!isCommittedStatus) {
+      return { success: false, reason: 'TRANSACTION_NOT_SETTLED', distributedCount: 0 };
+    }
+
+    // Validate ownership: source transaction must belong to the caller/source user
+    if (sourceTx.userId !== params.userId) {
+      return { success: false, reason: 'TRANSACTION_USER_MISMATCH', distributedCount: 0 };
+    }
+
+    // 2. Read authoritative bet amount and currency directly from verified database record
+    const authoritativeBetScale4 = toScale4(sourceTx.amount);
+    if (authoritativeBetScale4 <= 0n) {
+      return { success: false, reason: 'INVALID_BET_AMOUNT', distributedCount: 0 };
+    }
+    const authoritativeCurrency = sourceTx.currency || 'BDT';
+
+    // 3. Reject any mismatch between caller-supplied context and authoritative source transaction
+    if (params.betAmount !== undefined && params.betAmount !== null) {
+      const callerBetScale4 = typeof params.betAmount === 'bigint' ? params.betAmount : toScale4(params.betAmount);
+      if (callerBetScale4 !== authoritativeBetScale4) {
+        return { success: false, reason: 'BET_AMOUNT_MISMATCH', distributedCount: 0 };
       }
     }
 
-    // 3. Lookup user's affiliate node to resolve upline beneficiaries
+    if (params.currency && typeof params.currency === 'string' && params.currency.trim() !== '') {
+      if (params.currency.trim().toUpperCase() !== authoritativeCurrency.trim().toUpperCase()) {
+        return { success: false, reason: 'CURRENCY_MISMATCH', distributedCount: 0 };
+      }
+    }
+
+    const betScale4 = authoritativeBetScale4;
+    const resolvedCurrency = authoritativeCurrency;
+
+    // 4. Lookup user's affiliate node to resolve upline beneficiaries
     const [userNode] = await db
       .select()
       .from(affiliateNodes)
-      .where(eq(affiliateNodes.userId, params.userId))
+      .where(eq(affiliateNodes.userId, sourceTx.userId))
       .limit(1);
 
     if (!userNode || !userNode.parentAffiliateId) {
@@ -105,7 +136,7 @@ export class AffiliateService {
 
     // Execute within a single ACID transaction
     return await db.transaction(async (tx) => {
-      // 4. Check existing commission records for strict idempotency
+      // 5. Check existing commission records for strict idempotency
       const existingCommissions = await tx
         .select()
         .from(affiliateCommissions)
@@ -129,7 +160,7 @@ export class AffiliateService {
         new Set(pendingBeneficiaries.map((b) => b.userId))
       ).sort((a, b) => a - b);
 
-      // 5. Row-level locking on affiliate_nodes using SELECT ... FOR UPDATE
+      // 6. Row-level locking on affiliate_nodes using SELECT ... FOR UPDATE
       for (const bUserId of distinctBeneficiaryIds) {
         await tx.execute(
           sql`SELECT * FROM affiliate_nodes WHERE user_id = ${bUserId} FOR UPDATE`
@@ -162,13 +193,13 @@ export class AffiliateService {
         // Insert immutable commission ledger entry
         await tx.insert(affiliateCommissions).values({
           beneficiaryUserId: beneficiary.userId,
-          sourceUserId: params.userId,
+          sourceUserId: sourceTx.userId,
           sourceTransactionId: params.sourceTransactionId,
           tier: beneficiary.tier,
           validBetAmount: betAmountStr,
           commissionRate: beneficiary.rateStr,
           commissionAmount: commissionAmountStr,
-          currency: params.currency || 'BDT',
+          currency: resolvedCurrency,
           status: 'SETTLED',
           settledAt: new Date()
         });
