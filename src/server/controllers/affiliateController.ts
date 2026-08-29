@@ -6,10 +6,12 @@
  */
 
 import { Request, Response } from 'express';
+import crypto from 'crypto';
 import { db } from '../../db/index.js';
-import { affiliateNodes, affiliateCommissions, users, wallets, transactions } from '../../db/schema.js';
+import { affiliateNodes, affiliateCommissions, users, transactions } from '../../db/schema.js';
 import { eq, sql, inArray, and } from 'drizzle-orm';
 import { resolveAuthUser, toScale4, fromScale4 } from './promotionController.js';
+import { WalletLedgerService, walletLedgerService } from '../ledger/walletLedgerService.js';
 
 export interface DistributeCommissionParams {
   userId: number;
@@ -215,49 +217,31 @@ export class AffiliateService {
     });
   }
 
+  private static ledgerService: WalletLedgerService = walletLedgerService;
+
+  public static setLedgerService(service: WalletLedgerService) {
+    AffiliateService.ledgerService = service;
+  }
+
   /**
    * Claim accumulated affiliate commissions into withdrawable real wallet balance.
    * Enforces:
-   * 1. Exact Scale-4 BigInt Math (zero float drift, strict minor-unit representation).
-   * 2. ACID transaction with row-level locks on affiliate_nodes (SELECT ... FOR UPDATE) and wallets (SELECT ... FOR UPDATE).
-   * 3. Idempotency guard via deterministic/supplied claim transaction ID.
-   * 4. Validation of wallet existence and ACTIVE status (fails safe on FROZEN/INACTIVE with zero mutation).
-   * 5. Filter for SETTLED and unclaimed commission ledger entries only (never re-claims CLAIMED entries).
-   * 6. Atomic balance update and double-entry transaction record.
-   * 7. Exact commission records marked as CLAIMED and unclaimedCommission updated consistently.
+   * 1. Authoritative Wallet Ledger: Credits wallet exclusively via WalletLedgerService (NO direct wallets.realBalance mutation).
+   * 2. Deterministic Server Idempotency: Server-derived claim ID generated from exact SETTLED commission entry IDs (never Date.now(), client transactionId ignored).
+   * 3. Strict Settlement Check: Only exact SETTLED commission entries are claimed; zero fallback credit from aggregate counters.
+   * 4. Exact Scale-4 BigInt Math (zero float drift, strict minor-unit representation).
+   * 5. ACID Transaction & Row Locks: Locks affiliate_nodes and affiliateCommissions with SELECT ... FOR UPDATE.
+   * 6. Exact status transition: Marks claimed entries as CLAIMED and resets/deducts unclaimedCommission synchronously.
    */
-  public static async claimAffiliateCommission(userId: number, claimTxId?: string) {
+  public static async claimAffiliateCommission(userId: number, customLedgerService?: WalletLedgerService) {
     if (!userId || typeof userId !== 'number') {
       throw new Error('Valid userId is required to claim commissions');
     }
 
-    const deterministicTxId = claimTxId && typeof claimTxId === 'string' && claimTxId.trim() !== ''
-      ? claimTxId.trim()
-      : `COMM_CLAIM_${userId}_${Date.now()}`;
+    const effectiveLedger = customLedgerService || AffiliateService.ledgerService || walletLedgerService;
 
     return await db.transaction(async (tx) => {
-      // 1. Idempotency Check: if this exact claim transaction was already completed, return committed outcome
-      const [existingTx] = await tx
-        .select()
-        .from(transactions)
-        .where(
-          and(
-            eq(transactions.transactionId, deterministicTxId),
-            eq(transactions.userId, userId)
-          )
-        )
-        .limit(1);
-
-      if (existingTx && (existingTx.status === 'COMPLETED' || existingTx.status === 'SETTLED')) {
-        return {
-          claimedAmount: existingTx.amount,
-          newRealBalance: existingTx.afterBalance,
-          transactionId: existingTx.transactionId,
-          isIdempotent: true
-        };
-      }
-
-      // 2. Lock affiliate node row with SELECT ... FOR UPDATE
+      // 1. Lock affiliate node row with SELECT ... FOR UPDATE
       const [node] = await tx
         .select()
         .from(affiliateNodes)
@@ -268,22 +252,7 @@ export class AffiliateService {
         throw new Error('Affiliate profile not found');
       }
 
-      // 3. Lock wallet row with SELECT ... FOR UPDATE
-      const [wallet] = await tx
-        .select()
-        .from(wallets)
-        .where(eq(wallets.userId, userId))
-        .for('update');
-
-      if (!wallet) {
-        throw new Error('Player wallet not found');
-      }
-
-      if (wallet.status && wallet.status !== 'ACTIVE') {
-        throw new Error(`Player wallet is ${wallet.status.toLowerCase()}`);
-      }
-
-      // 4. Fetch all SETTLED (unclaimed) commission entries for this beneficiary with row lock
+      // 2. Fetch all SETTLED (unclaimed) commission entries for this beneficiary with row lock
       const settledCommissions = await tx
         .select()
         .from(affiliateCommissions)
@@ -295,16 +264,21 @@ export class AffiliateService {
         )
         .for('update');
 
-      // Calculate total claimable commission using exact Scale-4 BigInt math
+      // Strict enforcement: Only exact SETTLED affiliateCommissions entries may be claimed. Zero fallback credit.
+      if (settledCommissions.length === 0) {
+        throw new Error('No unclaimed commissions available');
+      }
+
+      // 3. Derive server-deterministic claim ID from exact SETTLED entries
+      const sortedIds = settledCommissions.map((c) => c.id).sort((a, b) => a - b);
+      const entriesFingerprint = sortedIds.join(',');
+      const entriesHash = crypto.createHash('sha256').update(entriesFingerprint).digest('hex').slice(0, 24);
+      const deterministicClaimTxId = `AFF_CLAIM_U${userId}_${entriesHash}`;
+
+      // 4. Calculate total claimable commission using exact Scale-4 BigInt math
       let totalClaimableScale4 = 0n;
       for (const entry of settledCommissions) {
         totalClaimableScale4 += toScale4(entry.commissionAmount);
-      }
-
-      // If no SETTLED entries, check node.unclaimedCommission as fallback for accrued amounts
-      const nodeUnclaimedScale4 = toScale4(node.unclaimedCommission);
-      if (totalClaimableScale4 === 0n && nodeUnclaimedScale4 > 0n) {
-        totalClaimableScale4 = nodeUnclaimedScale4;
       }
 
       if (totalClaimableScale4 <= 0n) {
@@ -313,23 +287,24 @@ export class AffiliateService {
 
       const claimedAmountStr = fromScale4(totalClaimableScale4);
 
-      // 5. Calculate new real wallet balance with exact Scale-4 BigInt math
-      const beforeBalanceScale4 = toScale4(wallet.realBalance);
-      const afterBalanceScale4 = beforeBalanceScale4 + totalClaimableScale4;
-      const beforeBalanceStr = fromScale4(beforeBalanceScale4);
-      const afterBalanceStr = fromScale4(afterBalanceScale4);
+      // 5. Authoritatively credit user wallet via WalletLedgerService (NO direct wallets.realBalance mutation)
+      const ledgerResult = await effectiveLedger.executeTransaction({
+        userId: String(userId),
+        currency: 'BDT',
+        type: 'CREDIT',
+        amountMinor: claimedAmountStr,
+        transactionId: deterministicClaimTxId,
+        auditMetadata: {
+          providerId: 'GAMEPLAY365_CORE',
+          type: 'AFFILIATE_COMMISSION_CLAIM',
+          beneficiaryUserId: userId,
+          claimedEntryIds: sortedIds,
+          claimedAmount: claimedAmountStr
+        }
+      });
 
-      // 6. Credit wallet real balance with atomic version increment
-      await tx
-        .update(wallets)
-        .set({
-          realBalance: afterBalanceStr,
-          version: sql`${wallets.version} + 1`,
-          updatedAt: new Date()
-        })
-        .where(eq(wallets.id, wallet.id));
-
-      // 7. Update unclaimed commission on affiliate node
+      // 6. Update unclaimed commission on affiliate node
+      const nodeUnclaimedScale4 = toScale4(node.unclaimedCommission);
       const remainingUnclaimedScale4 = nodeUnclaimedScale4 > totalClaimableScale4
         ? nodeUnclaimedScale4 - totalClaimableScale4
         : 0n;
@@ -343,40 +318,18 @@ export class AffiliateService {
         })
         .where(eq(affiliateNodes.userId, userId));
 
-      // 8. Mark exact SETTLED commission entries as CLAIMED
-      if (settledCommissions.length > 0) {
-        const settledIds = settledCommissions.map((c) => c.id);
-        await tx
-          .update(affiliateCommissions)
-          .set({ status: 'CLAIMED' })
-          .where(inArray(affiliateCommissions.id, settledIds));
-      }
-
-      // 9. Insert double-entry ledger transaction
-      await tx.insert(transactions).values({
-        providerId: 'GAMEPLAY365_CORE',
-        transactionId: deterministicTxId,
-        userId: userId,
-        walletId: wallet.id,
-        gameId: 'AFFILIATE_COMMISSION_CLAIM',
-        type: 'COMMISSION',
-        amount: claimedAmountStr,
-        currency: wallet.currency || 'BDT',
-        beforeBalance: beforeBalanceStr,
-        afterBalance: afterBalanceStr,
-        status: 'COMPLETED',
-        metadata: {
-          claimedAmount: claimedAmountStr,
-          claimedEntriesCount: settledCommissions.length,
-          timestamp: Date.now()
-        },
-        createdAt: new Date()
-      });
+      // 7. Mark exact SETTLED commission entries as CLAIMED
+      await tx
+        .update(affiliateCommissions)
+        .set({ status: 'CLAIMED' })
+        .where(inArray(affiliateCommissions.id, sortedIds));
 
       return {
         claimedAmount: claimedAmountStr,
-        newRealBalance: afterBalanceStr,
-        transactionId: deterministicTxId
+        newRealBalance: ledgerResult.afterBalanceMajor || fromScale4(toScale4(ledgerResult.afterBalanceMinor)),
+        transactionId: deterministicClaimTxId,
+        ledgerEntryId: ledgerResult.ledgerEntryId,
+        isIdempotent: ledgerResult.isIdempotent || false
       };
     });
   }
@@ -424,8 +377,7 @@ export const getAffiliateSummaryHandler = async (req: Request, res: Response): P
 export const claimCommissionHandler = async (req: Request, res: Response): Promise<void> => {
   try {
     const { userId } = await resolveAuthUser(req, req.body?.userId);
-    const claimTxId = req.body?.claimTxId || req.body?.transactionId;
-    const result = await AffiliateService.claimAffiliateCommission(userId, claimTxId);
+    const result = await AffiliateService.claimAffiliateCommission(userId);
     res.json({ status: 'SUCCESS', data: result });
   } catch (err: any) {
     const statusCode = err.statusCode || (err.message?.includes('not found') ? 404 : (err.message?.includes('frozen') || err.message?.includes('inactive') ? 403 : 400));
