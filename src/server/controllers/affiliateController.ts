@@ -11,7 +11,7 @@ import { db } from '../../db/index.js';
 import { affiliateNodes, affiliateCommissions, users, transactions } from '../../db/schema.js';
 import { eq, sql, inArray, and } from 'drizzle-orm';
 import { resolveAuthUser, toScale4, fromScale4 } from './promotionController.js';
-import { WalletLedgerService, walletLedgerService } from '../ledger/walletLedgerService.js';
+import { WalletLedgerService } from '../ledger/walletLedgerService.js';
 
 export interface DistributeCommissionParams {
   userId: number;
@@ -217,28 +217,39 @@ export class AffiliateService {
     });
   }
 
-  private static ledgerService: WalletLedgerService = walletLedgerService;
+  private static ledgerService: WalletLedgerService | null = null;
 
   public static setLedgerService(service: WalletLedgerService) {
     AffiliateService.ledgerService = service;
   }
 
+  public static getLedgerService(): WalletLedgerService | null {
+    return AffiliateService.ledgerService;
+  }
+
   /**
    * Claim accumulated affiliate commissions into withdrawable real wallet balance.
    * Enforces:
-   * 1. Authoritative Wallet Ledger: Credits wallet exclusively via WalletLedgerService (NO direct wallets.realBalance mutation).
+   * 1. Authoritative Production Wallet Ledger: Fails closed if production ledger service is not configured (ZERO in-memory fallback).
    * 2. Deterministic Server Idempotency: Server-derived claim ID generated from exact SETTLED commission entry IDs (never Date.now(), client transactionId ignored).
    * 3. Strict Settlement Check: Only exact SETTLED commission entries are claimed; zero fallback credit from aggregate counters.
-   * 4. Exact Scale-4 BigInt Math (zero float drift, strict minor-unit representation).
-   * 5. ACID Transaction & Row Locks: Locks affiliate_nodes and affiliateCommissions with SELECT ... FOR UPDATE.
-   * 6. Exact status transition: Marks claimed entries as CLAIMED and resets/deducts unclaimedCommission synchronously.
+   * 4. Crash-Safe & Exactly-Once Execution:
+   *    - Row-level lock (SELECT ... FOR UPDATE) on affiliate_nodes and affiliateCommissions.
+   *    - Deterministic transaction ID derived from exact SETTLED entry IDs ensures ledger credit idempotency.
+   *    - Authoritative wallet ledger credit executed with atomic recovery.
+   *    - Synchronous transition of commission entries to CLAIMED and deduction of unclaimedCommission.
+   * 5. Exact Scale-4 BigInt Math (zero float drift, strict minor-unit representation).
+   * 6. Zero direct wallets.realBalance mutation.
    */
   public static async claimAffiliateCommission(userId: number, customLedgerService?: WalletLedgerService) {
     if (!userId || typeof userId !== 'number') {
       throw new Error('Valid userId is required to claim commissions');
     }
 
-    const effectiveLedger = customLedgerService || AffiliateService.ledgerService || walletLedgerService;
+    const effectiveLedger = customLedgerService || AffiliateService.ledgerService;
+    if (!effectiveLedger) {
+      throw new Error('FATAL_LEDGER_UNAVAILABLE: Production WalletLedgerService is not configured. Affiliate commission claim failed closed.');
+    }
 
     return await db.transaction(async (tx) => {
       // 1. Lock affiliate node row with SELECT ... FOR UPDATE
@@ -287,7 +298,7 @@ export class AffiliateService {
 
       const claimedAmountStr = fromScale4(totalClaimableScale4);
 
-      // 5. Authoritatively credit user wallet via WalletLedgerService (NO direct wallets.realBalance mutation)
+      // 5. Authoritatively credit user wallet via production WalletLedgerService (NO direct wallets.realBalance mutation)
       const ledgerResult = await effectiveLedger.executeTransaction({
         userId: String(userId),
         currency: 'BDT',

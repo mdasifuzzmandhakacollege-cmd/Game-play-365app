@@ -510,7 +510,7 @@ async function runAffiliateCommissionClaimAuthorityTests() {
     const controllerPath = path.join(process.cwd(), 'src/server/controllers/affiliateController.ts');
     const content = fs.readFileSync(controllerPath, 'utf8');
 
-    if (!content.includes("import { WalletLedgerService, walletLedgerService } from '../ledger/walletLedgerService.js'")) {
+    if (!content.includes("import { WalletLedgerService } from '../ledger/walletLedgerService.js'")) {
       throw new Error('Missing import of WalletLedgerService in affiliateController.ts');
     }
 
