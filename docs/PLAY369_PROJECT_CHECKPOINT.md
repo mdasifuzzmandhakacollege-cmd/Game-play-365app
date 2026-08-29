@@ -2,7 +2,7 @@
 
 Last updated: 2026-08-30
 Branch: `main`
-Latest verified implementation checkpoint before this roadmap update: `d740b20d70defe679ee7797f275f087dd787d271`
+Latest verified implementation checkpoint before this roadmap update: `9639ad89c3c7191fc6935fc194bbae33e6bacf4c`
 
 ## Purpose
 This file is the persistent source-of-truth checkpoint for PLAY369. Before assigning any new implementation task, verify the latest GitHub `main` state and continue from this checkpoint instead of restarting or repeating completed work.
@@ -30,6 +30,7 @@ This file is the persistent source-of-truth checkpoint for PLAY369. Before assig
 - Affiliate authentication/identity binding completed.
 - Affiliate commission accrual hardened with authoritative source transaction validation, scale-4 math, row locking and idempotency.
 - Affiliate commission claim hardened around exact SETTLED entries, deterministic claim identity and production WalletLedgerService wiring.
+- Task 2.4 backend referral binding implemented: authenticated server bind endpoint, immutable parent relationship, self-referral/cycle/reassignment rejection, ACID row locking and idempotent same-parent retry.
 
 ### Important verified commits
 - `99e6b8dd999a0c8debd870dcbc7234843a016561` — promotion integrity / BigInt work.
@@ -39,37 +40,32 @@ This file is the persistent source-of-truth checkpoint for PLAY369. Before assig
 - `2d59c0227a625a18ebe6dd1657cfbd7c6587a186` — authoritative server-side RBAC.
 - `e59507903eee1cfc7aedf111fee24534187e429f` — canonical schema / zero-balance production defaults.
 - `d740b20d70defe679ee7797f275f087dd787d271` — final wallet migration compatibility / BIGINT versioning.
+- `9639ad89c3c7191fc6935fc194bbae33e6bacf4c` — immutable server-side referral binding.
 
 # CURRENT ACTIVE TASK
 
-## Task 2.4 — Immutable Referral Relationship
+## Gate 1 — Affiliate Final Cleanup / Production UI Authority
 Status: **ACTIVE / NEXT IMPLEMENTATION TASK**
 
-Goal:
-- PostgreSQL/server is the only authority for referral relationships.
-- Authenticated user identity comes only from verified Firebase token UID.
-- Client may submit referral code only.
-- Referral code must resolve exactly against authoritative server data.
-- One user can have only one immutable parent.
-- Reject self-referral, cycles, reassignment, invalid codes and forged identity.
-- Concurrent binding must result in exactly one valid parent.
-- Client localStorage may temporarily carry only the referral code; it cannot establish the relationship.
-- Disable client-side referral wallet credit / simulated commission credit.
+Task 2.4 backend relationship binding is verified, but the affiliate frontend/service still contains legacy local/demo authority that must be removed before the affiliate chapter is locked.
 
-Do not move forward until Task 2.4 is implemented, tested, pushed and verified from GitHub `main`.
-
-# ROAD TO LIVE — REMAINING SEQUENCE
-
-## Gate 1 — Finish Affiliate Productionization
-After Task 2.4 passes:
-- Verify referral UI reads authoritative server data only.
-- Remove/disable remaining production use of referral localStorage records, test conversion simulators and `simulatedWalletEngine` financial mutation.
-- Keep referral clicks/share UX non-financial; all relationships and money remain server-authoritative.
-- Re-run affiliate auth, accrual, claim, referral-cycle, concurrency and idempotency tests.
+Required cleanup:
+- AffiliateDashboard must load referral counts, commission totals, referral code/link and claimable amount from authenticated server APIs.
+- Remove production use of localStorage referral records as affiliate truth.
+- Remove synthetic/random 30-day affiliate financial/member data from production mode.
+- Remove client-side fake claim success and local claimed-state mutation; commission claim must call the authenticated `/api/affiliate/claim` endpoint.
+- Disable/remove production test click/conversion/commission simulators.
+- Referral sharing may remain client-side, but it must use the authoritative server-issued referral code.
+- Client localStorage may carry only a temporary incoming referral code until server binding; it cannot establish relationship, money, counts or claim state.
+- No client-generated referral bonus, commission or financial notification may represent a real credit.
+- Re-run affiliate auth, binding, accrual, claim, cycle, concurrency and idempotency tests.
 
 Exit criteria:
-- Affiliate relationship, accrual and claim path are fully server-authoritative.
-- No client path can create or credit affiliate money.
+- Affiliate relationship, accrual, claim and displayed financial/member state are server-authoritative.
+- No client path can create, fake, or credit affiliate money.
+- No production UI claims synthetic member/commission activity as real.
+
+# ROAD TO LIVE — REMAINING SEQUENCE
 
 ## Gate 2 — Promotions / Rewards Final Hardening
 - Add DB-level uniqueness/constraints for daily check-in and wheel claims.
@@ -163,7 +159,7 @@ Exit criteria:
 # Live-Readiness Summary
 From the current checkpoint, the road is:
 
-`Task 2.4 Referral -> Affiliate Final Cleanup -> Promotions/Rewards -> VIP/Wagering -> Cashier/Payments -> Provider Sandbox/Seamless Certification -> UI/Mobile Finalization -> Staging/Security/Launch Gate -> LIVE`
+`Affiliate Final Cleanup -> Promotions/Rewards -> VIP/Wagering -> Cashier/Payments -> Provider Sandbox/Seamless Certification -> UI/Mobile Finalization -> Staging/Security/Launch Gate -> LIVE`
 
 These are release gates, not a promise that each gate requires only one prompt. If GitHub verification reveals a production blocker, use a narrowly scoped corrective subtask before advancing.
 
@@ -182,6 +178,6 @@ These are release gates, not a promise that each gate requires only one prompt. 
 When asked “where are we now?”, “what remains?”, or “what is the next task?” :
 1. Read this checkpoint.
 2. Inspect latest GitHub `main` commits/files.
-3. Confirm Task 2.4 status.
+3. Confirm Affiliate Final Cleanup status.
 4. Continue from the first unfinished gate only.
 5. Never restart or repeat a locked gate unless GitHub verification shows a regression.
