@@ -1,138 +1,187 @@
 # PLAY369 Project Checkpoint
 
-Last updated: 2026-08-29
+Last updated: 2026-08-30
 Branch: `main`
+Latest verified implementation checkpoint before this roadmap update: `d740b20d70defe679ee7797f275f087dd787d271`
 
 ## Purpose
 This file is the persistent source-of-truth checkpoint for PLAY369. Before assigning any new implementation task, verify the latest GitHub `main` state and continue from this checkpoint instead of restarting or repeating completed work.
 
-## Current Status
+## Current Position
 
-### Completed foundation
+### LOCKED / VERIFIED FOUNDATION
 - React/Vite PLAY369 frontend with Emerald/Gold visual system.
-- Authentication and authenticated app shell.
-- Game lobby/provider-adapter foundation.
-- Server-side provider gateway with validation, masking, correlation IDs and timeout boundary.
-- PostgreSQL wallet-ledger foundation with ACID transaction pattern, row-level locking, idempotency and immutable ledger records.
-- Security-hardening work: Firestore restrictions, HMAC secret handling, secret removal from code, stricter webhook validation.
-- Live deployment/white-page stabilization work completed earlier.
-- Demo/mock user-facing financial/profile data cleanup completed and pushed.
-- New-user zero-state behavior implemented.
-- Affiliate empty-state and promotion eligibility moved toward real database-backed state.
+- Firebase authentication foundation.
+- PostgreSQL wallet-ledger foundation.
+- Seamless wallet `/balance`, `/bet`, `/win`, `/refund` controller foundation.
+- HMAC SHA-256 provider middleware foundation.
+- New-user production zero-balance defaults.
+- Canonical wallet schema aligned to PLAY369 integer/serial identities.
+- `balance_minor` uses scale-4 BIGINT semantics.
+- Existing-wallet migration supports safe NUMERIC -> BIGINT conversion.
+- Wallet `version` aligned to BIGINT.
+- Migration is designed to preserve existing balances and be idempotent.
+- Admin/Audit/Workbench navigation hidden from standard PLAYER/VIP accounts.
+- Privileged frontend access is based on server-verified role state.
+- Privileged backend routes use server-side RBAC (`requireAdmin`).
+- Legacy admin payment/stat routes were protected.
+- Promotion authentication/identity binding completed.
+- Promotion client-side financial fallback credit removed.
+- Affiliate authentication/identity binding completed.
+- Affiliate commission accrual hardened with authoritative source transaction validation, scale-4 math, row locking and idempotency.
+- Affiliate commission claim hardened around exact SETTLED entries, deterministic claim identity and production WalletLedgerService wiring.
 
-### Verified GitHub checkpoints
-- `67557706e4e6cde8f46602e41a717465a291eb42` — remove mock state / use live user data.
-- `0c35f9b468349850bb4dad822074c49a2faf6f65` — promotion state moved from localStorage toward authoritative server/database state.
+### Important verified commits
+- `99e6b8dd999a0c8debd870dcbc7234843a016561` — promotion integrity / BigInt work.
+- `acee908295303c1d4342891ee90da40b190c0995` — atomic affiliate commission claim.
+- `d5c34468a65518441abdc836306b0b131429ebc6` — affiliate claim routed through WalletLedgerService.
+- `dafc213bae536a13a74f7f0e519fb4b6651bc631` — production ledger injection / fail-closed affiliate claim wiring.
+- `2d59c0227a625a18ebe6dd1657cfbd7c6587a186` — authoritative server-side RBAC.
+- `e59507903eee1cfc7aedf111fee24534187e429f` — canonical schema / zero-balance production defaults.
+- `d740b20d70defe679ee7797f275f087dd787d271` — final wallet migration compatibility / BIGINT versioning.
 
-## CURRENT ACTIVE TASK — DO NOT SKIP
+# CURRENT ACTIVE TASK
 
-### Task 1.1: Promotion / Reward Integrity Fix
-Status: **IN PROGRESS**
+## Task 2.4 — Immutable Referral Relationship
+Status: **ACTIVE / NEXT IMPLEMENTATION TASK**
 
-Required completion criteria:
-1. Remove all client-side financial fallbacks.
-2. If check-in API fails, frontend must not credit any wallet.
-3. If spin API fails, frontend must not generate a prize or credit a wallet.
-4. Frontend must never use simulated wallet top-up for real rewards.
-5. Server/database is the sole authority for reward state and reward credit.
-6. Remove unsafe user-ID fallback mapping (`|| 1`, derived numeric fallback IDs, synthetic user mapping).
-7. Unknown users must return an error with zero mutation.
-8. Enforce daily spin limit inside the same server transaction that executes the spin.
-9. Reward credit must flow through the authoritative ACID wallet/ledger path.
-10. Reward operations must use idempotency, row-level locking and integer/minor-unit money math.
-11. Verify duplicate check-in, duplicate spin, unknown-user, API-failure, and concurrent/double-click behavior.
-12. Run lint + production build + relevant tests.
+Goal:
+- PostgreSQL/server is the only authority for referral relationships.
+- Authenticated user identity comes only from verified Firebase token UID.
+- Client may submit referral code only.
+- Referral code must resolve exactly against authoritative server data.
+- One user can have only one immutable parent.
+- Reject self-referral, cycles, reassignment, invalid codes and forged identity.
+- Concurrent binding must result in exactly one valid parent.
+- Client localStorage may temporarily carry only the referral code; it cannot establish the relationship.
+- Disable client-side referral wallet credit / simulated commission credit.
 
-Do not start the next phase until Task 1.1 is verified from GitHub `main`.
+Do not move forward until Task 2.4 is implemented, tested, pushed and verified from GitHub `main`.
 
-## Planned Next Steps
+# ROAD TO LIVE — REMAINING SEQUENCE
 
-### Task 2 — Affiliate System Productionization
-- Server-authoritative referral codes and referral hierarchy.
-- No client-supplied trusted user identity; resolve from authenticated server context.
-- Durable referral relationships in PostgreSQL.
-- Commission accrual only from valid settled game/bet events.
-- Commission calculation with integer/minor-unit money math.
-- Idempotent commission events keyed to source transaction.
-- Claim commissions through the authoritative wallet ledger, not direct balance mutation.
-- Row locks / ACID transaction for claims.
-- Real-time zero/empty states in UI.
+## Gate 1 — Finish Affiliate Productionization
+After Task 2.4 passes:
+- Verify referral UI reads authoritative server data only.
+- Remove/disable remaining production use of referral localStorage records, test conversion simulators and `simulatedWalletEngine` financial mutation.
+- Keep referral clicks/share UX non-financial; all relationships and money remain server-authoritative.
+- Re-run affiliate auth, accrual, claim, referral-cycle, concurrency and idempotency tests.
 
-### Task 3 — Rewards / Daily Tasks / Offers Claim Control
-- Server-authoritative eligibility and claim limits.
-- One-time/daily/weekly claim rules enforced in DB, not UI.
-- Durable claim records and unique constraints to block repeat claims.
-- Idempotency for all reward claims.
-- Wagering/turnover requirements backed by real ledger/game events.
-- Expiry, cooldown and status transitions enforced server-side.
-- No unlimited claims or synthetic reward state.
+Exit criteria:
+- Affiliate relationship, accrual and claim path are fully server-authoritative.
+- No client path can create or credit affiliate money.
 
-### Task 4 — Wallet / Cashier Production Integrity
-- New user starts at real balance 0.
-- Deposit/withdraw actions use authoritative ledger only.
-- No auto-approve or client-driven credit.
-- Local payment webhook verification with strict signatures and durable idempotency.
-- Integer/minor-unit monetary math only.
-- Real-time transaction history and wallet state from authoritative backend.
+## Gate 2 — Promotions / Rewards Final Hardening
+- Add DB-level uniqueness/constraints for daily check-in and wheel claims.
+- Define one authoritative daily time boundary/timezone.
+- Add durable idempotency keys for reward operations.
+- Route all monetary rewards through the canonical WalletLedgerService.
+- Replace `Math.random()` for financial/reward RNG with cryptographically secure RNG.
+- If the product says “provably fair,” implement a real verifiable seed/commit/reveal model; otherwise remove that claim.
+- Make offers, eligibility, expiry and wagering rules server-configured and server-authoritative.
 
-### Task 5 — Provider Sandbox Readiness
-- Only after core wallet/rewards/affiliate integrity passes.
-- Request sandbox/test credentials, callback registration and currency from provider.
-- Keep test/sandbox only at first.
-- No production deposit/payment commitment until technical and commercial due diligence is complete.
+Exit criteria:
+- No duplicate rewards under retries, double-clicks or concurrent requests.
+- No client-generated prize or reward balance.
 
-### Task 6 — Seamless Wallet Provider Integration
-Implement provider contract exactly from documentation, one endpoint at a time:
-- `/balance`
-- `/bet`
-- `/win`
-- `/refund`
+## Gate 3 — VIP + Wagering Integrity
+- Bind VIP progression to authoritative deposit/bet ledger events.
+- Harden VIP level-up bonus, cashback and periodic rewards with idempotency and ledger credit.
+- Make wagering/rollover progress derive from valid settled game transactions only.
+- Enforce expiry, completion and conversion states server-side.
+- Remove synthetic/demo VIP progress and reward counters.
 
-Requirements:
-- HMAC SHA-256 validation.
-- Replay/timestamp protection.
+Exit criteria:
+- VIP and wagering balances/progress reconcile to real ledger events.
+
+## Gate 4 — Cashier / Payment Productionization
+- Remove all `autoApprove` production behavior.
+- Never trust client-supplied `userId` for deposit/withdraw ownership.
+- Bind cashier requests to authenticated user identity.
+- Replace direct floating-point wallet mutation with canonical WalletLedgerService / scale-4 integer money.
+- Use ACID transactions, `SELECT ... FOR UPDATE`, durable transaction idempotency and reconciliation.
+- Integrate official/approved bKash/Nagad/Rocket provider or aggregator adapters.
+- Verify provider webhooks/signatures before wallet credit.
+- Add deposit/withdraw state machine: PENDING -> VERIFIED/APPROVED -> SETTLED/FAILED/REVERSED.
+- Protect withdrawal from replay, double-submit and race conditions.
+
+Exit criteria:
+- A client request alone can never create money.
+- Only verified payment confirmation can credit a deposit.
+- Withdrawal debit/payout/reversal is recoverable and exactly-once.
+
+## Gate 5 — Game Provider Sandbox + Seamless Wallet Certification
+- Obtain sandbox/test credentials only after core financial paths are ready.
+- Register callback URLs and supported currency.
+- Integrate the final approved provider/aggregator adapter.
+- Validate exact provider contract for `/balance`, `/bet`, `/win`, `/refund`.
+- HMAC SHA-256, timestamp/replay protection, correlation IDs and secret isolation.
 - Strict transaction idempotency.
-- `SELECT ... FOR UPDATE` where financial state changes.
-- Authoritative PostgreSQL ledger.
-- Provider response SLA target under 4 seconds.
-- Duplicate/retry/rollback/concurrency tests.
+- Row-level locking for financial mutations.
+- Reconciliation for retries, late wins/refunds and provider duplicates.
+- Load/latency tests with endpoint response target under 4 seconds.
 
-### Task 7 — Production UI / Mobile Polish
-After financial and provider core is stable:
-- Premium Emerald Green & Gold design pass.
-- Mobile-first Capacitor optimization.
-- 48px touch targets and safe-area handling.
-- Profile/navigation discoverability.
-- Real loading/empty/error states.
-- Remove all remaining fake counters, fake activity and placeholder financial values.
-- Code splitting/performance work.
-- PWA favicon/manifest/app icons and Android app icon package.
+Exit criteria:
+- Provider sandbox end-to-end transaction lifecycle passes with zero double debit/credit.
 
-### Task 8 — Final Audit / Staging / Production Gate
-- Registration/login/session persistence.
-- New-user zero wallet.
-- Deposit/withdraw webhook tests.
-- Affiliate accrual/claim tests.
-- Daily reward anti-repeat tests.
-- Provider sandbox launch and seamless-wallet transaction tests.
-- Security audit for secrets, HMAC, Firestore, SQL/DB and logs.
-- Load/concurrency/idempotency tests.
-- Production build and live-route verification.
+## Gate 6 — Production UI / Live-Data / Mobile Finalization
+- Remove all remaining fake/demo counters, fake activity, placeholder jackpots and synthetic financial values from production mode.
+- All wallet, affiliate, promo, VIP, cashier and transaction screens read live authoritative APIs.
+- Keep Emerald Green & Gold design.
+- Final responsive/mobile pass with >=48px touch targets.
+- Safe-area handling for Capacitor Android.
+- Loading, empty, retry and error states.
+- PWA manifest/favicon/app icons and Android adaptive icon integration.
+- Performance/code-splitting and asset optimization.
 
-## Working Rules
-- Use small micro-prompts, one scoped task at a time.
-- Do not repeat already completed work unless GitHub verification shows regression.
-- GitHub `main` is the implementation source of truth; screenshots/reports are not enough by themselves.
-- Before moving to a new task, verify the relevant files/commit in GitHub.
-- Do not enter real provider secrets before the provider-integration phase.
-- Do not enable real-money production flows until wallet/payment/security readiness is verified.
-- Never allow client-side code to authoritatively credit/debit financial balances or rewards.
-- Never use floating-point arithmetic for authoritative money movement.
-- Maintain ACID, row locking, idempotency and HMAC requirements throughout.
+Exit criteria:
+- A new real account sees only real zero/live state and no operator/developer surfaces.
+
+## Gate 7 — Staging, Security Audit & Production Launch Gate
+- Full fresh-user registration/login/logout/session test.
+- Role escalation / RBAC regression test.
+- Wallet reconciliation and migration verification against staging PostgreSQL.
+- Deposit/withdraw webhook and reversal tests.
+- Affiliate referral/accrual/claim tests.
+- Reward/VIP/wagering duplicate/concurrency tests.
+- Provider `/balance -> /bet -> /win -> /refund` E2E sandbox test.
+- HMAC/replay/idempotency/rate-limit/security-log tests.
+- SQL injection, race-condition and authorization audit.
+- Secret scan: no `.env`, live provider/payment keys or credentials committed.
+- Load/concurrency/SLA test.
+- Backup/restore and reconciliation procedure.
+- Production health checks, observability and rollback plan.
+- Final production build and live-route smoke test.
+
+Exit criteria:
+- No critical/high financial or authorization blockers.
+- Reconciliation passes.
+- Production environment variables/secrets configured outside source control.
+- Provider/payment integrations explicitly approved for production.
+- Only then mark PLAY369 **LIVE READY**.
+
+# Live-Readiness Summary
+From the current checkpoint, the road is:
+
+`Task 2.4 Referral -> Affiliate Final Cleanup -> Promotions/Rewards -> VIP/Wagering -> Cashier/Payments -> Provider Sandbox/Seamless Certification -> UI/Mobile Finalization -> Staging/Security/Launch Gate -> LIVE`
+
+These are release gates, not a promise that each gate requires only one prompt. If GitHub verification reveals a production blocker, use a narrowly scoped corrective subtask before advancing.
+
+## Non-Negotiable Production Rules
+- PostgreSQL/GamePlay365 is the financial source of truth.
+- No client-side authoritative credit/debit.
+- No floating-point authoritative money movement.
+- All financial mutations require ACID behavior, row locking where applicable and strict idempotency.
+- Provider callbacks require HMAC SHA-256 and replay protection.
+- Seamless wallet endpoints target <4 second response time.
+- No live secrets in GitHub or chat.
+- No production payment/provider enablement before sandbox/security/reconciliation gates pass.
+- GitHub `main` is the implementation source of truth; screenshots are supporting evidence only.
 
 ## Resume Rule
-When asked "where are we now?" or "what is the next task?":
+When asked “where are we now?”, “what remains?”, or “what is the next task?” :
 1. Read this checkpoint.
 2. Inspect latest GitHub `main` commits/files.
-3. Confirm whether Task 1.1 is complete.
-4. If complete, proceed to Task 2. Otherwise continue Task 1.1 only.
+3. Confirm Task 2.4 status.
+4. Continue from the first unfinished gate only.
+5. Never restart or repeat a locked gate unless GitHub verification shows a regression.
