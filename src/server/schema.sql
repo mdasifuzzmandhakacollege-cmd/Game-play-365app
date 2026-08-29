@@ -244,3 +244,36 @@ VALUES
     ('pgsoft', 'Pocket Games Soft', '', 4000),
     ('spribe', 'Spribe Turbo Games (Aviator)', '', 4000)
 ON CONFLICT (id) DO NOTHING;
+
+-- ============================================================================
+-- 9. Promotion & Event Engine Tables (PLAY369 Task 3.1)
+-- ============================================================================
+CREATE TABLE IF NOT EXISTS daily_check_ins (
+    id SERIAL PRIMARY KEY,
+    user_id INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+    check_in_date TIMESTAMPTZ NOT NULL,
+    claim_date_utc VARCHAR(10) NOT NULL, -- Authoritative 'YYYY-MM-DD' UTC calendar date
+    streak_day INTEGER NOT NULL,         -- 1 to 7
+    reward_amount NUMERIC(18, 4) NOT NULL,
+    reward_type VARCHAR(32) NOT NULL DEFAULT 'BONUS_CREDIT',
+    created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+);
+
+CREATE UNIQUE INDEX IF NOT EXISTS daily_check_ins_user_claim_date_utc_idx
+ON daily_check_ins (user_id, claim_date_utc);
+
+CREATE TABLE IF NOT EXISTS wheel_spins (
+    id SERIAL PRIMARY KEY,
+    user_id INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+    spin_date_utc VARCHAR(10) NOT NULL,  -- Authoritative 'YYYY-MM-DD' UTC calendar date
+    prize_type VARCHAR(32) NOT NULL,     -- 'REAL_CASH', 'BONUS_CASH', 'FREE_SPINS', 'JACKPOT_TICKET'
+    prize_label VARCHAR(64) NOT NULL,
+    prize_value NUMERIC(18, 4) NOT NULL,
+    currency VARCHAR(3) NOT NULL,
+    is_claimed BOOLEAN NOT NULL DEFAULT TRUE,
+    created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+);
+
+CREATE UNIQUE INDEX IF NOT EXISTS wheel_spins_user_spin_date_utc_idx
+ON wheel_spins (user_id, spin_date_utc);
+
