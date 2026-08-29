@@ -7,17 +7,96 @@
 
 import { Request, Response } from 'express';
 import { db } from '../../db/index.js';
-import { users, dailyCheckIns, wheelSpins, wageringRequirements, wallets, transactions } from '../../db/schema.js';
+import { users, dailyCheckIns, wheelSpins, wageringRequirements, wallets } from '../../db/schema.js';
 import { eq, sql } from 'drizzle-orm';
 import { DAILY_CHECKIN_REWARDS, WHEEL_PRIZES } from '../../shared/gameplayConfig.js';
 
+/**
+ * Pure integer minor-units decimal arithmetic (scale 4, 1.0000 = 10000n)
+ * Guarantees zero JavaScript floating-point representation errors.
+ */
+export const toScale4 = (val: string | number): bigint => {
+  const s = typeof val === 'number' ? val.toFixed(4) : String(val).trim();
+  const [intPart = '0', fracPart = ''] = s.split('.');
+  const paddedFrac = fracPart.padEnd(4, '0').slice(0, 4);
+  const isNeg = intPart.startsWith('-');
+  const cleanInt = isNeg ? intPart.slice(1) : intPart;
+  const combined = BigInt((cleanInt || '0') + paddedFrac);
+  return isNeg ? -combined : combined;
+};
+
+export const fromScale4 = (val: bigint): string => {
+  const isNeg = val < 0n;
+  const abs = isNeg ? -val : val;
+  const str = abs.toString().padStart(5, '0');
+  const intPart = str.slice(0, -4) || '0';
+  const fracPart = str.slice(-4);
+  return `${isNeg ? '-' : ''}${intPart}.${fracPart}`;
+};
+
+/**
+ * Authoritative User Identifier Resolver.
+ * Strictly resolves to the database `users.id` primary key.
+ * If user is not found, throws an error with NO fallbacks or default IDs.
+ */
+export const resolveDbUserId = async (rawUserId: unknown): Promise<number> => {
+  if (rawUserId === undefined || rawUserId === null || rawUserId === '') {
+    throw new Error('Valid userId is required');
+  }
+
+  const strUserId = String(rawUserId).trim();
+  if (!strUserId) {
+    throw new Error('Valid userId is required');
+  }
+
+  // 1. Check if numeric primary key id
+  if (/^\d+$/.test(strUserId)) {
+    const numId = parseInt(strUserId, 10);
+    const [foundUser] = await db
+      .select({ id: users.id })
+      .from(users)
+      .where(eq(users.id, numId))
+      .limit(1);
+
+    if (foundUser) {
+      return foundUser.id;
+    }
+  }
+
+  // 2. Check if text UID in users table
+  const [userByUid] = await db
+    .select({ id: users.id })
+    .from(users)
+    .where(eq(users.uid, strUserId))
+    .limit(1);
+
+  if (userByUid) {
+    return userByUid.id;
+  }
+
+  // Strict: If user cannot be found, throw error (no fallback or simulated user ID)
+  throw new Error(`User not found: ${strUserId}`);
+};
+
 export class PromotionService {
   /**
-   * Process 7-day Daily Check-In
+   * Process 7-day Daily Check-In with ACID Row-Level Locking & Scale-4 BigInt Math
    */
   public static async claimDailyCheckIn(userId: number) {
     return await db.transaction(async (tx) => {
-      // Find latest check in
+      // 1. Row-level lock on user's wallet to prevent concurrent duplicate claims
+      const walletRows = await tx
+        .select()
+        .from(wallets)
+        .where(eq(wallets.userId, userId))
+        .for('update');
+
+      const wallet = walletRows[0];
+      if (!wallet) {
+        throw new Error('Player wallet not found');
+      }
+
+      // 2. Fetch latest check in within transaction
       const [lastCheckIn] = await tx
         .select()
         .from(dailyCheckIns)
@@ -43,44 +122,42 @@ export class PromotionService {
 
       const rewardConfig = DAILY_CHECKIN_REWARDS.find((r) => r.day === nextStreakDay) || DAILY_CHECKIN_REWARDS[0];
       const rewardAmount = rewardConfig.reward;
+      const rewardAmountStr = rewardAmount.toFixed(4);
 
-      // Credit bonus balance to wallet
-      const [wallet] = await tx
-        .select()
-        .from(wallets)
-        .where(eq(wallets.userId, userId));
+      // 3. Scale-4 BigInt Ledger Calculation (no floating point errors)
+      const currentBonusBigInt = toScale4(wallet.bonusBalance);
+      const rewardBigInt = toScale4(rewardAmountStr);
+      const newBonusBigInt = currentBonusBigInt + rewardBigInt;
+      const newBonusBalanceStr = fromScale4(newBonusBigInt);
 
-      if (!wallet) throw new Error('Player wallet not found');
-
-      const beforeBonus = Number(wallet.bonusBalance);
-      const afterBonus = Number((beforeBonus + rewardAmount).toFixed(4));
-
+      // 4. Update wallet with atomic version bump
       await tx
         .update(wallets)
         .set({
-          bonusBalance: afterBonus.toString(),
+          bonusBalance: newBonusBalanceStr,
           version: sql`${wallets.version} + 1`,
           updatedAt: now
         })
         .where(eq(wallets.id, wallet.id));
 
-      // Record check-in
+      // 5. Insert immutable check-in record
       await tx.insert(dailyCheckIns).values({
         userId: userId,
         checkInDate: now,
         streakDay: nextStreakDay,
-        rewardAmount: rewardAmount.toString(),
+        rewardAmount: rewardAmountStr,
         rewardType: 'BONUS_CREDIT',
         createdAt: now
       });
 
-      // Add 10x wagering requirement entry
+      // 6. Insert 10x wagering requirement entry
+      const targetTurnoverBigInt = rewardBigInt * 10n;
       await tx.insert(wageringRequirements).values({
         userId: userId,
         promoName: `Daily Check-In Day ${nextStreakDay}`,
-        bonusAmountGranted: rewardAmount.toString(),
+        bonusAmountGranted: rewardAmountStr,
         requiredMultiplier: 10,
-        targetTurnoverAmount: (rewardAmount * 10).toString(),
+        targetTurnoverAmount: fromScale4(targetTurnoverBigInt),
         completedTurnoverAmount: '0.0000',
         status: 'ACTIVE',
         expiresAt: new Date(Date.now() + 7 * 24 * 3600 * 1000),
@@ -91,17 +168,44 @@ export class PromotionService {
         streakDay: nextStreakDay,
         rewardAmount: rewardAmount,
         label: rewardConfig.label,
-        newBonusBalance: afterBonus
+        newBonusBalance: parseFloat(newBonusBalanceStr)
       };
     });
   }
 
   /**
-   * Provably fair Lucky Spin-the-Wheel RNG algorithm
+   * Provably fair Lucky Spin-the-Wheel with ACID Row-Level Locking, Daily Limits & Scale-4 Math
    */
   public static async executeWheelSpin(userId: number) {
     return await db.transaction(async (tx) => {
-      // Calculate total weight
+      // 1. Acquire row-level lock on the player's wallet to serialize concurrent requests
+      const walletRows = await tx
+        .select()
+        .from(wallets)
+        .where(eq(wallets.userId, userId))
+        .for('update');
+
+      const wallet = walletRows[0];
+      if (!wallet) {
+        throw new Error('Player wallet not found');
+      }
+
+      // 2. Strictly enforce wheel daily-spin limit inside the same server transaction
+      const todayStart = new Date();
+      todayStart.setHours(0, 0, 0, 0);
+
+      const spinsToday = await tx
+        .select({ id: wheelSpins.id })
+        .from(wheelSpins)
+        .where(
+          sql`${wheelSpins.userId} = ${userId} AND ${wheelSpins.createdAt} >= ${todayStart}`
+        );
+
+      if (spinsToday.length >= 1) {
+        throw new Error('You have already used your daily free wheel spin for today. Come back tomorrow!');
+      }
+
+      // 3. Provably weighted Spin-the-Wheel RNG algorithm
       const totalWeight = WHEEL_PRIZES.reduce((acc, p) => acc + p.weight, 0);
       let randomWeight = Math.random() * totalWeight;
 
@@ -114,42 +218,53 @@ export class PromotionService {
         randomWeight -= prize.weight;
       }
 
-      // Credit wallet
-      const [wallet] = await tx
-        .select()
-        .from(wallets)
-        .where(eq(wallets.userId, userId));
+      const now = new Date();
+      const prizeValueStr = winningPrize.value.toFixed(4);
+      const prizeBigInt = toScale4(prizeValueStr);
 
-      if (!wallet) throw new Error('Player wallet not found');
+      // 4. Exact integer scale-4 balance mutation
+      if (winningPrize.type === 'REAL_CASH' && prizeBigInt > 0n) {
+        const currentRealBigInt = toScale4(wallet.realBalance);
+        const newRealBigInt = currentRealBigInt + prizeBigInt;
+        const newRealBalanceStr = fromScale4(newRealBigInt);
 
-      if (winningPrize.type === 'REAL_CASH') {
-        const after = Number((Number(wallet.realBalance) + winningPrize.value).toFixed(4));
         await tx
           .update(wallets)
-          .set({ realBalance: after.toString(), updatedAt: new Date() })
+          .set({
+            realBalance: newRealBalanceStr,
+            version: sql`${wallets.version} + 1`,
+            updatedAt: now
+          })
           .where(eq(wallets.id, wallet.id));
-      } else if (winningPrize.type === 'BONUS_CASH') {
-        const after = Number((Number(wallet.bonusBalance) + winningPrize.value).toFixed(4));
+      } else if (winningPrize.type === 'BONUS_CASH' && prizeBigInt > 0n) {
+        const currentBonusBigInt = toScale4(wallet.bonusBalance);
+        const newBonusBigInt = currentBonusBigInt + prizeBigInt;
+        const newBonusBalanceStr = fromScale4(newBonusBigInt);
+
         await tx
           .update(wallets)
-          .set({ bonusBalance: after.toString(), updatedAt: new Date() })
+          .set({
+            bonusBalance: newBonusBalanceStr,
+            version: sql`${wallets.version} + 1`,
+            updatedAt: now
+          })
           .where(eq(wallets.id, wallet.id));
       }
 
-      // Log wheel spin
+      // 5. Immutable wheel spin audit log
       await tx.insert(wheelSpins).values({
         userId: userId,
         prizeType: winningPrize.type,
         prizeLabel: winningPrize.label,
-        prizeValue: winningPrize.value.toString(),
+        prizeValue: prizeValueStr,
         currency: wallet.currency,
         isClaimed: true,
-        createdAt: new Date()
+        createdAt: now
       });
 
       return {
         prize: winningPrize,
-        timestamp: Date.now()
+        timestamp: now.getTime()
       };
     });
   }
@@ -166,15 +281,7 @@ export const getPromotionDetailsHandler = async (req: Request, res: Response): P
       return;
     }
 
-    let userId = Number(rawUserId);
-    if (isNaN(userId)) {
-      const [foundUser] = await db
-        .select({ id: users.id })
-        .from(users)
-        .where(eq(users.uid, String(rawUserId)))
-        .limit(1);
-      userId = foundUser ? foundUser.id : (parseInt(String(rawUserId).replace(/\D/g, '').slice(-6), 10) || 1);
-    }
+    const userId = await resolveDbUserId(rawUserId);
 
     const [lastCheckIn] = await db
       .select()
@@ -234,44 +341,39 @@ export const getPromotionDetailsHandler = async (req: Request, res: Response): P
       }
     });
   } catch (err: any) {
-    res.status(500).json({ status: 'ERROR', message: err.message });
+    const isNotFound = err.message?.includes('not found');
+    res.status(isNotFound ? 404 : 400).json({ status: 'ERROR', message: err.message });
   }
 };
 
 export const claimCheckInHandler = async (req: Request, res: Response): Promise<void> => {
   try {
     const { userId: rawUserId } = req.body;
-    let userId = Number(rawUserId);
-    if (isNaN(userId)) {
-      const [foundUser] = await db
-        .select({ id: users.id })
-        .from(users)
-        .where(eq(users.uid, String(rawUserId)))
-        .limit(1);
-      userId = foundUser ? foundUser.id : (parseInt(String(rawUserId).replace(/\D/g, '').slice(-6), 10) || 1);
+    if (!rawUserId) {
+      res.status(400).json({ status: 'ERROR', message: 'Valid userId is required' });
+      return;
     }
+    const userId = await resolveDbUserId(rawUserId);
     const result = await PromotionService.claimDailyCheckIn(userId);
     res.json({ status: 'SUCCESS', data: result });
   } catch (err: any) {
-    res.status(400).json({ status: 'ERROR', message: err.message });
+    const isNotFound = err.message?.includes('not found');
+    res.status(isNotFound ? 404 : 400).json({ status: 'ERROR', message: err.message });
   }
 };
 
 export const spinWheelHandler = async (req: Request, res: Response): Promise<void> => {
   try {
     const { userId: rawUserId } = req.body;
-    let userId = Number(rawUserId);
-    if (isNaN(userId)) {
-      const [foundUser] = await db
-        .select({ id: users.id })
-        .from(users)
-        .where(eq(users.uid, String(rawUserId)))
-        .limit(1);
-      userId = foundUser ? foundUser.id : (parseInt(String(rawUserId).replace(/\D/g, '').slice(-6), 10) || 1);
+    if (!rawUserId) {
+      res.status(400).json({ status: 'ERROR', message: 'Valid userId is required' });
+      return;
     }
+    const userId = await resolveDbUserId(rawUserId);
     const result = await PromotionService.executeWheelSpin(userId);
     res.json({ status: 'SUCCESS', data: result });
   } catch (err: any) {
-    res.status(400).json({ status: 'ERROR', message: err.message });
+    const isNotFound = err.message?.includes('not found');
+    res.status(isNotFound ? 404 : 400).json({ status: 'ERROR', message: err.message });
   }
 };

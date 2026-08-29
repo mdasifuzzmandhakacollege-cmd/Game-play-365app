@@ -34,7 +34,6 @@ import {
 } from 'lucide-react';
 import { UserEntity, WalletEntity } from '../server/types/seamless';
 import { DAILY_CHECKIN_REWARDS, WHEEL_PRIZES } from '../shared/gameplayConfig';
-import { seamlessEngine } from '../services/simulatedWalletEngine';
 import { notificationService } from '../services/notificationService';
 import { soundEngine } from '../services/soundEngine';
 import { useWalletGame } from '../contexts/WalletGameContext';
@@ -311,49 +310,38 @@ export const PromotionHub: React.FC<PromotionHubProps> = ({
         body: JSON.stringify({ userId: currentUser.id })
       });
 
-      if (res.ok) {
-        const json = await res.json();
-        if (json.status === 'SUCCESS' && json.data) {
-          const { streakDay, rewardAmount } = json.data;
-          setCurrentStreak(streakDay);
-          setHasCheckedInToday(true);
+      const json = await res.json().catch(() => ({}));
 
-          seamlessEngine.topUpWallet(currentUser.id, currentUser.currency, rewardAmount);
+      if (res.ok && json.status === 'SUCCESS' && json.data) {
+        const { streakDay, rewardAmount } = json.data;
+        setCurrentStreak(streakDay);
+        setHasCheckedInToday(true);
 
-          notificationService.pushNotification(currentUser.id, {
-            userId: currentUser.id,
-            title: '🎁 ডেইলি স্ট্রিক রিওয়ার্ড ক্লেইম!',
-            message: `ডে ${streakDay} ডেইলি চেক-ইন বোনাস ৳${rewardAmount} সফলভাবে ওয়ালেটে যোগ হয়েছে!`,
-            type: 'BONUS_UNLOCKED',
-            amount: rewardAmount,
-            currency: currentUser.currency as 'BDT' | 'USD',
-            isRead: false,
-            actionTab: 'promo'
-          });
+        notificationService.pushNotification(currentUser.id, {
+          userId: currentUser.id,
+          title: '🎁 ডেইলি স্ট্রিক রিওয়ার্ড ক্লেইম!',
+          message: `ডে ${streakDay} ডেইলি চেক-ইন বোনাস ৳${rewardAmount} সফলভাবে ওয়ালেটে যোগ হয়েছে!`,
+          type: 'BONUS_UNLOCKED',
+          amount: rewardAmount,
+          currency: currentUser.currency as 'BDT' | 'USD',
+          isRead: false,
+          actionTab: 'promo'
+        });
 
-          soundEngine.playWinChime();
-          showToast(`অভিনন্দন! ডে ${streakDay} বোনাস ৳${rewardAmount} যুক্ত হয়েছে!`);
-          onRewardClaimed();
-          refreshState();
-          await fetchPromotionState();
-          return;
-        }
-      }
-
-      const errJson = await res.json().catch(() => ({}));
-      if (errJson.message) {
-        showToast(errJson.message);
+        soundEngine.playWinChime();
+        showToast(`অভিনন্দন! ডে ${streakDay} বোনাস ৳${rewardAmount} যুক্ত হয়েছে!`);
+        onRewardClaimed();
+        refreshState();
+        await fetchPromotionState();
+      } else {
+        const msg = json.message || 'চেক-ইন রিওয়ার্ড ক্লেইম ব্যর্থ হয়েছে।';
+        showToast(msg);
+        await fetchPromotionState();
       }
     } catch (err) {
-      console.warn('Server check-in fallback:', err);
-      const nextDay = (currentStreak % 7) + 1;
-      const rewardConfig = DAILY_CHECKIN_REWARDS.find((r) => r.day === nextDay) || DAILY_CHECKIN_REWARDS[0];
-      seamlessEngine.topUpWallet(currentUser.id, currentUser.currency, rewardConfig.reward);
-      setCurrentStreak(nextDay);
-      setHasCheckedInToday(true);
-      showToast(`অভিনন্দন! ডে ${nextDay} বোনাস ৳${rewardConfig.reward} যুক্ত হয়েছে!`);
-      onRewardClaimed();
-      refreshState();
+      console.error('Server check-in request error:', err);
+      showToast('সার্ভার কানেকশন ত্রুটি! অনুগ্রহ করে পুনরায় চেষ্টা করুন।');
+      await fetchPromotionState();
     } finally {
       setCheckInLoading(false);
     }
@@ -366,8 +354,6 @@ export const PromotionHub: React.FC<PromotionHubProps> = ({
     setWonPrize(null);
     soundEngine.playClick(1000);
 
-    let serverPrize: typeof WHEEL_PRIZES[0] | null = null;
-
     try {
       const res = await fetch('/api/promo/spin', {
         method: 'POST',
@@ -375,53 +361,57 @@ export const PromotionHub: React.FC<PromotionHubProps> = ({
         body: JSON.stringify({ userId: currentUser.id })
       });
 
-      if (res.ok) {
-        const json = await res.json();
-        if (json.status === 'SUCCESS' && json.data?.prize) {
-          serverPrize = json.data.prize;
+      const json = await res.json().catch(() => ({}));
+
+      if (!res.ok || json.status !== 'SUCCESS' || !json.data?.prize) {
+        setSpinning(false);
+        const errMsg = json.message || 'স্পিন রিকোয়েস্ট ব্যর্থ হয়েছে!';
+        showToast(errMsg);
+        await fetchPromotionState();
+        return;
+      }
+
+      const serverPrize = json.data.prize;
+      const prizeIndex = WHEEL_PRIZES.findIndex((p) => p.label === serverPrize.label);
+      const safeIndex = prizeIndex >= 0 ? prizeIndex : 0;
+      const selectedPrize = WHEEL_PRIZES[safeIndex];
+
+      const extraSpins = 5 * 360;
+      const sliceAngle = 360 / WHEEL_PRIZES.length;
+      const targetAngle = extraSpins + (360 - safeIndex * sliceAngle);
+
+      setWheelRotation((prev) => prev + targetAngle);
+
+      setTimeout(async () => {
+        setSpinning(false);
+        setSpinsRemaining((prev) => Math.max(0, prev - 1));
+        setWonPrize(selectedPrize);
+
+        if (selectedPrize.value > 0) {
+          notificationService.pushNotification(currentUser.id, {
+            userId: currentUser.id,
+            title: '🎡 লাকি স্পিন উইন!',
+            message: `লাকি ফরচুন স্পিন থেকে আপনি জিতেছেন: ${selectedPrize.label}!`,
+            type: 'VIP_UPGRADE',
+            amount: selectedPrize.value,
+            currency: currentUser.currency as 'BDT' | 'USD',
+            isRead: false,
+            actionTab: 'promo'
+          });
+
+          soundEngine.playWinChime();
+          showToast(`🎉 লাকি স্পিন উইন! ${selectedPrize.label}`);
+          onRewardClaimed();
+          refreshState();
         }
-      }
-    } catch (e) {
-      console.warn('Wheel spin server call fallback:', e);
-    }
-
-    const prizeIndex = serverPrize
-      ? WHEEL_PRIZES.findIndex((p) => p.label === serverPrize?.label)
-      : Math.floor(Math.random() * WHEEL_PRIZES.length);
-    const selectedPrize = WHEEL_PRIZES[prizeIndex >= 0 ? prizeIndex : 0];
-
-    const extraSpins = 5 * 360;
-    const sliceAngle = 360 / WHEEL_PRIZES.length;
-    const targetAngle = extraSpins + (360 - (prizeIndex >= 0 ? prizeIndex : 0) * sliceAngle);
-
-    setWheelRotation((prev) => prev + targetAngle);
-
-    setTimeout(async () => {
+        await fetchPromotionState();
+      }, 3500);
+    } catch (err) {
+      console.error('Spin wheel request failed:', err);
       setSpinning(false);
-      setSpinsRemaining((prev) => Math.max(0, prev - 1));
-      setWonPrize(selectedPrize);
-
-      if (selectedPrize.value > 0) {
-        seamlessEngine.topUpWallet(currentUser.id, currentUser.currency, selectedPrize.value);
-        
-        notificationService.pushNotification(currentUser.id, {
-          userId: currentUser.id,
-          title: '🎡 লাকি স্পিন উইন!',
-          message: `লাকি ফরচুন স্পিন থেকে আপনি জিতেছেন: ${selectedPrize.label}!`,
-          type: 'VIP_UPGRADE',
-          amount: selectedPrize.value,
-          currency: currentUser.currency as 'BDT' | 'USD',
-          isRead: false,
-          actionTab: 'promo'
-        });
-
-        soundEngine.playWinChime();
-        showToast(`🎉 লাকি স্পিন উইন! ${selectedPrize.label}`);
-        onRewardClaimed();
-        refreshState();
-      }
+      showToast('সার্ভার কানেকশন ত্রুটি! অনুগ্রহ করে পুনরায় চেষ্টা করুন।');
       await fetchPromotionState();
-    }, 3500);
+    }
   };
 
   // Handle Claim Offer Action
@@ -433,24 +423,23 @@ export const PromotionHub: React.FC<PromotionHubProps> = ({
       setClaimingOfferId(null);
       setSelectedOffer(null);
 
-      // Add a simulation bonus voucher
-      seamlessEngine.topUpWallet(currentUser.id, currentUser.currency, 500);
-      
       notificationService.pushNotification(currentUser.id, {
         userId: currentUser.id,
         title: `🔥 ${offer.title} সক্রিয় হয়েছে`,
-        message: `আপনার বোনাস ভাউচার সফলভাবে একটিভেট করা হয়েছে। টার্নওভার ট্র্যাক করতে টার্নওভার পেজ দেখুন।`,
+        message: `আপনার প্রমোশন ভাউচার কোড "${offer.claimCode}" ক্যাশিয়ারে ডিপোজিটের সাথে ব্যবহার করুন।`,
         type: 'BONUS_UNLOCKED',
-        amount: 500,
         currency: currentUser.currency as 'BDT' | 'USD',
         isRead: false,
         actionTab: 'wagering'
       });
 
       soundEngine.playWinChime();
-      showToast(`অফার "${offer.title}" সফলভাবে সক্রিয় হয়েছে!`);
+      showToast(`অফার "${offer.title}" সক্রিয় হয়েছে! প্রোমো কোড: ${offer.claimCode}`);
       onRewardClaimed();
-    }, 900);
+      if (onOpenCashier) {
+        onOpenCashier();
+      }
+    }, 600);
   };
 
   const filteredOffers = PROMOTIONAL_OFFERS.filter((o) => {
