@@ -359,21 +359,59 @@ export class InMemoryPostgresLedgerEngine implements ILedgerDbPool {
 
         // 8. INSERT INTO ledger_entries
         if (cleanSql.startsWith('INSERT INTO ledger_entries')) {
-          const [
-            id,
-            walletId,
-            userId,
-            transactionId,
-            refTxId,
-            type,
-            amountMinor,
-            currency,
-            beforeMinor,
-            afterMinor,
-            status,
-            correlationId,
-            auditMetadata
-          ] = params;
+          let id: any;
+          let walletId: any;
+          let userId: any;
+          let transactionId: any;
+          let refTxId: any;
+          let type: any;
+          let balanceTarget: string = 'REAL';
+          let amountMinor: any;
+          let currency: any;
+          let beforeMinor: any;
+          let afterMinor: any;
+          let status: any;
+          let correlationId: any;
+          let auditMetadata: any;
+
+          if (params.length >= 14) {
+            [
+              id,
+              walletId,
+              userId,
+              transactionId,
+              refTxId,
+              type,
+              balanceTarget,
+              amountMinor,
+              currency,
+              beforeMinor,
+              afterMinor,
+              status,
+              correlationId,
+              auditMetadata
+            ] = params;
+          } else {
+            [
+              id,
+              walletId,
+              userId,
+              transactionId,
+              refTxId,
+              type,
+              amountMinor,
+              currency,
+              beforeMinor,
+              afterMinor,
+              status,
+              correlationId,
+              auditMetadata
+            ] = params;
+            const parsedAudit = typeof auditMetadata === 'string' ? JSON.parse(auditMetadata) : auditMetadata;
+            if (parsedAudit?.targetBalance === 'BONUS' || parsedAudit?.category === 'BONUS_CASH') {
+              balanceTarget = 'BONUS';
+            }
+          }
 
           // Check unique constraint on (user_id, transaction_id)
           for (const existingEntry of [...this.ledgerEntries.values(), ...activeTxState.stagedEntries.values()]) {
@@ -391,6 +429,7 @@ export class InMemoryPostgresLedgerEngine implements ILedgerDbPool {
             transaction_id: transactionId,
             reference_transaction_id: refTxId || null,
             type,
+            balance_target: balanceTarget || 'REAL',
             amount_minor: BigInt(amountMinor),
             currency,
             before_balance_minor: BigInt(beforeMinor),
@@ -448,6 +487,7 @@ export class InMemoryPostgresLedgerEngine implements ILedgerDbPool {
                   wallet_id: entry.wallet_id,
                   user_id: entry.user_id,
                   transaction_id: entry.transaction_id,
+                  balance_target: entry.balance_target || 'REAL',
                   audit_metadata: entry.audit_metadata
                 } as any],
                 rowCount: 1
@@ -457,18 +497,36 @@ export class InMemoryPostgresLedgerEngine implements ILedgerDbPool {
           return { rows: [], rowCount: 0 };
         }
 
-        // 11. Audit check: SUM ledger entries for a wallet
+        // 11. Audit check: SUM ledger entries for a wallet (with balance_target filtering)
         if (cleanSql.includes('SUM') && cleanSql.includes('FROM ledger_entries')) {
           const walletId = params[0];
+          const isBonusFilter = cleanSql.includes("'BONUS'") || params[1] === 'BONUS';
+          const isRealFilter = cleanSql.includes("'REAL'") || params[1] === 'REAL';
+          const targetFilter = isBonusFilter ? 'BONUS' : (isRealFilter ? 'REAL' : null);
+
           let totalCredits = 0n;
           let totalDebits = 0n;
+          let firstEntryBeforeMinor: bigint | null = null;
+          let entryCount = 0;
 
           for (const entry of this.ledgerEntries.values()) {
-            if (entry.wallet_id === walletId && entry.status === 'COMMITTED') {
-              if (entry.type === 'CREDIT' || entry.type === 'REVERSAL') {
-                totalCredits += entry.amount_minor;
-              } else if (entry.type === 'DEBIT') {
-                totalDebits += entry.amount_minor;
+            if (entry.wallet_id == walletId && entry.status === 'COMMITTED') {
+              const entryTarget = entry.balance_target || (
+                (entry.audit_metadata?.targetBalance === 'BONUS' || entry.audit_metadata?.category === 'BONUS_CASH')
+                  ? 'BONUS'
+                  : 'REAL'
+              );
+
+              if (!targetFilter || entryTarget === targetFilter) {
+                if (firstEntryBeforeMinor === null) {
+                  firstEntryBeforeMinor = entry.before_balance_minor;
+                }
+                if (entry.type === 'CREDIT' || entry.type === 'REVERSAL') {
+                  totalCredits += entry.amount_minor;
+                } else if (entry.type === 'DEBIT') {
+                  totalDebits += entry.amount_minor;
+                }
+                entryCount++;
               }
             }
           }
@@ -477,7 +535,9 @@ export class InMemoryPostgresLedgerEngine implements ILedgerDbPool {
             rows: [{
               total_credits: totalCredits.toString(),
               total_debits: totalDebits.toString(),
-              net_minor: (totalCredits - totalDebits).toString()
+              net_minor: (totalCredits - totalDebits).toString(),
+              initial_seed_minor: firstEntryBeforeMinor !== null ? firstEntryBeforeMinor.toString() : null,
+              entry_count: entryCount.toString()
             } as any],
             rowCount: 1
           };
@@ -542,5 +602,26 @@ export class InMemoryPostgresLedgerEngine implements ILedgerDbPool {
       ledgerEntriesCount: this.ledgerEntries.size,
       idempotencyRecordsCount: this.idempotencyRecords.size
     };
+  }
+
+  /**
+   * Helper to retrieve all ledger entries for testing and audit inspection
+   */
+  public getAllLedgerEntries(): any[] {
+    return Array.from(this.ledgerEntries.values());
+  }
+
+  /**
+   * Helper to directly set or manipulate a ledger entry for testing backfill & migration logic
+   */
+  public setRawLedgerEntry(id: string, entry: any): void {
+    this.ledgerEntries.set(id, entry);
+  }
+
+  /**
+   * Helper to directly mutate a wallet for testing reconciliation discrepancy detection
+   */
+  public setRawWallet(walletKey: string, wallet: any): void {
+    this.wallets.set(walletKey, wallet);
   }
 }

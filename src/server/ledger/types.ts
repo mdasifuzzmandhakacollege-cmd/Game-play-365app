@@ -49,6 +49,7 @@ export interface LedgerEntryRecord {
   transactionId: string;
   referenceTransactionId?: string | null;
   type: LedgerTransactionType;
+  balanceTarget: LedgerBalanceTarget;
   amountMinor: bigint;
   currency: SupportedCurrency;
   beforeBalanceMinor: bigint;
@@ -90,6 +91,7 @@ export interface LedgerTransactionResult {
   userId: string;
   currency: SupportedCurrency;
   type: LedgerTransactionType;
+  targetBalance?: LedgerBalanceTarget;
   amountMinor: string;          // Stringified bigint for safe JSON serialization
   amountMajor: string;          // Human-readable formatted string with 4-decimal precision (e.g. "100.5000", "0.0516")
   beforeBalanceMinor: string;
@@ -97,6 +99,24 @@ export interface LedgerTransactionResult {
   afterBalanceMajor: string;
   correlationId: string;
   timestamp: string;
+}
+
+export interface BalanceTargetReconciliationSummary {
+  isReconciled: boolean;
+  walletBalanceMinor: string;
+  walletBalanceMajor: string;
+  computedLedgerNetMinor: string;
+  discrepancyMinor: string;
+}
+
+export interface WalletAuditReconciliationResult {
+  isReconciled: boolean;
+  walletBalanceMinor: string;
+  walletBalanceMajor: string;
+  computedLedgerNetMinor: string;
+  discrepancyMinor: string;
+  real: BalanceTargetReconciliationSummary;
+  bonus: BalanceTargetReconciliationSummary;
 }
 
 export class LedgerValidationError extends Error {

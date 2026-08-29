@@ -14,11 +14,14 @@
 
 import { ILedgerDbPool, ILedgerDbClient, InMemoryPostgresLedgerEngine } from './db';
 import {
+  BalanceTargetReconciliationSummary,
   InsufficientFundsError,
+  LedgerBalanceTarget,
   LedgerTransactionRequest,
   LedgerTransactionResult,
   LedgerValidationError,
   SupportedCurrency,
+  WalletAuditReconciliationResult,
   WalletFrozenError,
   WalletNotFoundError,
   WalletRecord
@@ -325,10 +328,10 @@ export class WalletLedgerService {
       await client.query(
         `INSERT INTO ledger_entries (
            id, wallet_id, user_id, transaction_id, reference_transaction_id,
-           type, amount_minor, currency, before_balance_minor, after_balance_minor,
+           type, balance_target, amount_minor, currency, before_balance_minor, after_balance_minor,
            status, correlation_id, audit_metadata
          )
-         VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13)`,
+         VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14)`,
         [
           entryId,
           wallet.id,
@@ -336,6 +339,7 @@ export class WalletLedgerService {
           req.transactionId.trim(),
           req.referenceTransactionId?.trim() || null,
           req.type,
+          targetBalance,
           amountMinor.toString(),
           currency,
           beforeBalanceMinor.toString(),
@@ -356,6 +360,7 @@ export class WalletLedgerService {
         userId: normalizedUserId,
         currency,
         type: req.type,
+        targetBalance,
         amountMinor: amountMinor.toString(),
         amountMajor: formatMinorUnits(amountMinor, currency),
         beforeBalanceMinor: beforeBalanceMinor.toString(),
@@ -413,39 +418,116 @@ export class WalletLedgerService {
   }
 
   /**
-   * Performs an audit reconciliation between the wallet balance and sum of ledger entries.
-   * Invariant: wallet.balance_minor === initial_seed + SUM(credits + reversals) - SUM(debits)
+   * Performs an audit reconciliation between the wallet balances (REAL & BONUS) and sum of ledger entries.
+   * Invariants:
+   * - REAL: wallet.balance_minor === initial_seed + SUM(REAL credits + reversals) - SUM(REAL debits)
+   * - BONUS: toMinor(wallet.bonus_balance) === initial_seed + SUM(BONUS credits + reversals) - SUM(BONUS debits)
+   * REAL and BONUS entries are strictly separated so BONUS rewards never cause false REAL discrepancies.
    */
-  public async auditReconciliation(userId: string | number, currency: string): Promise<{
-    isReconciled: boolean;
-    walletBalanceMinor: string;
-    walletBalanceMajor: string;
-    computedLedgerNetMinor: string;
-    discrepancyMinor: string;
-  }> {
+  public async auditReconciliation(
+    userId: string | number,
+    currency: string,
+    targetBalance?: LedgerBalanceTarget
+  ): Promise<WalletAuditReconciliationResult> {
     const wallet = await this.getWallet(userId, currency);
-    const res = await this.db.query<{
+
+    // 1. Audit REAL ledger entries
+    const realRes = await this.db.query<{
       total_credits: string;
       total_debits: string;
       net_minor: string;
+      initial_seed_minor?: string | null;
+      entry_count?: string | number;
     }>(
       `SELECT 
          COALESCE(SUM(CASE WHEN type IN ('CREDIT', 'REVERSAL') THEN amount_minor ELSE 0 END), 0) AS total_credits,
          COALESCE(SUM(CASE WHEN type = 'DEBIT' THEN amount_minor ELSE 0 END), 0) AS total_debits,
-         COALESCE(SUM(CASE WHEN type IN ('CREDIT', 'REVERSAL') THEN amount_minor ELSE -amount_minor END), 0) AS net_minor
+         COALESCE(SUM(CASE WHEN type IN ('CREDIT', 'REVERSAL') THEN amount_minor ELSE -amount_minor END), 0) AS net_minor,
+         (SELECT before_balance_minor FROM ledger_entries WHERE wallet_id = $1 AND COALESCE(balance_target, 'REAL') = 'REAL' AND status = 'COMMITTED' ORDER BY created_at ASC, id ASC LIMIT 1) AS initial_seed_minor,
+         COUNT(*) AS entry_count
        FROM ledger_entries
-       WHERE wallet_id = $1 AND status = 'COMMITTED'`,
+       WHERE wallet_id = $1 AND COALESCE(balance_target, 'REAL') = 'REAL' AND status = 'COMMITTED'`,
       [wallet.id]
     );
 
-    const netFromLedger = BigInt(res.rows[0]?.net_minor || '0');
-    // Note: If wallet was initialized with a balance prior to transactions, add seed offset
+    // 2. Audit BONUS ledger entries
+    const bonusRes = await this.db.query<{
+      total_credits: string;
+      total_debits: string;
+      net_minor: string;
+      initial_seed_minor?: string | null;
+      entry_count?: string | number;
+    }>(
+      `SELECT 
+         COALESCE(SUM(CASE WHEN type IN ('CREDIT', 'REVERSAL') THEN amount_minor ELSE 0 END), 0) AS total_credits,
+         COALESCE(SUM(CASE WHEN type = 'DEBIT' THEN amount_minor ELSE 0 END), 0) AS total_debits,
+         COALESCE(SUM(CASE WHEN type IN ('CREDIT', 'REVERSAL') THEN amount_minor ELSE -amount_minor END), 0) AS net_minor,
+         (SELECT before_balance_minor FROM ledger_entries WHERE wallet_id = $1 AND COALESCE(balance_target, 'REAL') = 'BONUS' AND status = 'COMMITTED' ORDER BY created_at ASC, id ASC LIMIT 1) AS initial_seed_minor,
+         COUNT(*) AS entry_count
+       FROM ledger_entries
+       WHERE wallet_id = $1 AND COALESCE(balance_target, 'REAL') = 'BONUS' AND status = 'COMMITTED'`,
+      [wallet.id]
+    );
+
+    const realWalletMinor = wallet.balanceMinor;
+    const realRow = realRes.rows[0];
+    const realEntryCount = Number(realRow?.entry_count || 0);
+    const realNetLedgerMinor = BigInt(realRow?.net_minor || '0');
+    const realSeedMinor = realEntryCount > 0 && realRow?.initial_seed_minor !== undefined && realRow?.initial_seed_minor !== null
+      ? BigInt(realRow.initial_seed_minor)
+      : realWalletMinor;
+    const expectedRealMinor = realEntryCount > 0 ? realSeedMinor + realNetLedgerMinor : realWalletMinor;
+    const realDiscrepancyMinor = (realWalletMinor - expectedRealMinor).toString();
+    const realIsReconciled = realDiscrepancyMinor === '0';
+
+    const bonusWalletStr = wallet.bonusBalance || '0.0000';
+    const bonusWalletMinor = parseToMinorUnits(bonusWalletStr, wallet.currency, true);
+    const bonusRow = bonusRes.rows[0];
+    const bonusEntryCount = Number(bonusRow?.entry_count || 0);
+    const bonusNetLedgerMinor = BigInt(bonusRow?.net_minor || '0');
+    const bonusSeedMinor = bonusEntryCount > 0 && bonusRow?.initial_seed_minor !== undefined && bonusRow?.initial_seed_minor !== null
+      ? BigInt(bonusRow.initial_seed_minor)
+      : bonusWalletMinor;
+    const expectedBonusMinor = bonusEntryCount > 0 ? bonusSeedMinor + bonusNetLedgerMinor : bonusWalletMinor;
+    const bonusDiscrepancyMinor = (bonusWalletMinor - expectedBonusMinor).toString();
+    const bonusIsReconciled = bonusDiscrepancyMinor === '0';
+
+    const realSummary: BalanceTargetReconciliationSummary = {
+      isReconciled: realIsReconciled,
+      walletBalanceMinor: realWalletMinor.toString(),
+      walletBalanceMajor: wallet.realBalance || formatMinorUnits(realWalletMinor, wallet.currency),
+      computedLedgerNetMinor: realNetLedgerMinor.toString(),
+      discrepancyMinor: realDiscrepancyMinor
+    };
+
+    const bonusSummary: BalanceTargetReconciliationSummary = {
+      isReconciled: bonusIsReconciled,
+      walletBalanceMinor: bonusWalletMinor.toString(),
+      walletBalanceMajor: bonusWalletStr,
+      computedLedgerNetMinor: bonusNetLedgerMinor.toString(),
+      discrepancyMinor: bonusDiscrepancyMinor
+    };
+
+    if (targetBalance === 'BONUS') {
+      return {
+        isReconciled: bonusIsReconciled,
+        walletBalanceMinor: bonusSummary.walletBalanceMinor,
+        walletBalanceMajor: bonusSummary.walletBalanceMajor,
+        computedLedgerNetMinor: bonusSummary.computedLedgerNetMinor,
+        discrepancyMinor: bonusSummary.discrepancyMinor,
+        real: realSummary,
+        bonus: bonusSummary
+      };
+    }
+
     return {
-      isReconciled: true,
-      walletBalanceMinor: wallet.balanceMinor.toString(),
-      walletBalanceMajor: wallet.realBalance || formatMinorUnits(wallet.balanceMinor, wallet.currency),
-      computedLedgerNetMinor: netFromLedger.toString(),
-      discrepancyMinor: '0'
+      isReconciled: realIsReconciled && bonusIsReconciled,
+      walletBalanceMinor: realSummary.walletBalanceMinor,
+      walletBalanceMajor: realSummary.walletBalanceMajor,
+      computedLedgerNetMinor: realSummary.computedLedgerNetMinor,
+      discrepancyMinor: realSummary.discrepancyMinor,
+      real: realSummary,
+      bonus: bonusSummary
     };
   }
 }

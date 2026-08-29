@@ -96,6 +96,7 @@ CREATE TABLE IF NOT EXISTS ledger_entries (
     transaction_id VARCHAR(128) NOT NULL,
     reference_transaction_id VARCHAR(128),
     type VARCHAR(32) NOT NULL,                    -- 'DEBIT', 'CREDIT', 'REVERSAL', 'ADJUSTMENT'
+    balance_target VARCHAR(16) NOT NULL DEFAULT 'REAL', -- 'REAL', 'BONUS'
     amount_minor BIGINT NOT NULL,                 -- Exact integer minor units (scale 4)
     currency VARCHAR(3) NOT NULL,
     before_balance_minor BIGINT NOT NULL,
@@ -105,12 +106,14 @@ CREATE TABLE IF NOT EXISTS ledger_entries (
     audit_metadata JSONB DEFAULT '{}'::jsonb,     -- Masked audit trail (no secrets)
     created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
 
+    CONSTRAINT chk_ledger_balance_target CHECK (balance_target IN ('REAL', 'BONUS')),
     CONSTRAINT chk_ledger_amount_minor_positive CHECK (amount_minor >= 0),
     CONSTRAINT chk_ledger_balances_non_negative CHECK (before_balance_minor >= 0 AND after_balance_minor >= 0),
     CONSTRAINT uq_ledger_user_transaction UNIQUE (user_id, transaction_id)
 );
 
 CREATE INDEX IF NOT EXISTS idx_ledger_wallet_created ON ledger_entries(wallet_id, created_at DESC);
+CREATE INDEX IF NOT EXISTS idx_ledger_wallet_target_status ON ledger_entries(wallet_id, balance_target, status);
 CREATE INDEX IF NOT EXISTS idx_ledger_user_tx ON ledger_entries(user_id, transaction_id);
 CREATE INDEX IF NOT EXISTS idx_ledger_correlation ON ledger_entries(correlation_id);
 

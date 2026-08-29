@@ -120,6 +120,34 @@ export const transactions = pgTable('transactions', {
 });
 
 // ----------------------------------------------------------------------------
+// 5b. Core Financial Ledger Entries Table (Append-Only Immutable Ledger)
+// ----------------------------------------------------------------------------
+export const ledgerEntries = pgTable('ledger_entries', {
+  id: varchar('id', { length: 64 }).primaryKey(),
+  walletId: integer('wallet_id')
+    .references(() => wallets.id)
+    .notNull(),
+  userId: integer('user_id')
+    .references(() => users.id)
+    .notNull(),
+  transactionId: varchar('transaction_id', { length: 128 }).notNull(),
+  referenceTransactionId: varchar('reference_transaction_id', { length: 128 }),
+  type: varchar('type', { length: 32 }).notNull(), // 'DEBIT', 'CREDIT', 'REVERSAL', 'ADJUSTMENT'
+  balanceTarget: varchar('balance_target', { length: 16 }).default('REAL').notNull(), // 'REAL', 'BONUS'
+  amountMinor: bigint('amount_minor', { mode: 'bigint' }).notNull(),
+  currency: varchar('currency', { length: 3 }).notNull(),
+  beforeBalanceMinor: bigint('before_balance_minor', { mode: 'bigint' }).notNull(),
+  afterBalanceMinor: bigint('after_balance_minor', { mode: 'bigint' }).notNull(),
+  status: varchar('status', { length: 32 }).default('COMMITTED').notNull(),
+  correlationId: varchar('correlation_id', { length: 128 }).notNull(),
+  auditMetadata: jsonb('audit_metadata').default({}),
+  createdAt: timestamp('created_at', { withTimezone: true }).defaultNow().notNull(),
+}, (table) => ({
+  userTxIdx: uniqueIndex('ledger_entries_user_tx_idx').on(table.userId, table.transactionId),
+  walletTargetIdx: uniqueIndex('ledger_entries_wallet_target_idx').on(table.walletId, table.balanceTarget, table.id),
+}));
+
+// ----------------------------------------------------------------------------
 // 6. Idempotency Records Table
 // ----------------------------------------------------------------------------
 export const idempotencyKeys = pgTable('idempotency_keys', {
