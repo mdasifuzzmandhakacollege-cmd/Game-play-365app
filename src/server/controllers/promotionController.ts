@@ -10,6 +10,7 @@ import { db } from '../../db/index.js';
 import { users, dailyCheckIns, wheelSpins, wageringRequirements, wallets } from '../../db/schema.js';
 import { eq, sql } from 'drizzle-orm';
 import { DAILY_CHECKIN_REWARDS, WHEEL_PRIZES } from '../../shared/gameplayConfig.js';
+import { AuthRequest } from '../../middleware/auth.js';
 
 /**
  * Pure integer minor-units decimal arithmetic (scale 4, 1.0000 = 10000n)
@@ -34,10 +35,65 @@ export const fromScale4 = (val: bigint): string => {
   return `${isNeg ? '-' : ''}${intPart}.${fracPart}`;
 };
 
+export interface AuthenticatedUserResolution {
+  userId: number;
+  uid: string;
+}
+
 /**
- * Authoritative User Identifier Resolver.
- * Strictly resolves to the database `users.id` primary key.
- * If user is not found, throws an error with NO fallbacks or default IDs.
+ * Authoritative User Identifier Resolver with Firebase Auth Token Binding.
+ * - Extracts verified `req.user.uid` from Firebase Auth token.
+ * - Resolves the corresponding PostgreSQL user ID (`users.id`).
+ * - Strictly validates that any client-supplied userId matches the authenticated identity.
+ * - Throws 401 if token identity is missing/invalid.
+ * - Throws 403 if client attempts to read/claim for another user ID.
+ * - Throws 404 if user is not found in database.
+ */
+export const resolveAuthUser = async (
+  req: Request,
+  clientUserId?: unknown
+): Promise<AuthenticatedUserResolution> => {
+  const authUid = (req as AuthRequest).user?.uid;
+  if (!authUid) {
+    const error: any = new Error('Unauthorized: Authentication required');
+    error.statusCode = 401;
+    throw error;
+  }
+
+  // Authoritatively lookup user by Firebase UID in database
+  const [foundUser] = await db
+    .select({ id: users.id, uid: users.uid })
+    .from(users)
+    .where(eq(users.uid, authUid))
+    .limit(1);
+
+  if (!foundUser) {
+    const error: any = new Error(`User account not found for UID: ${authUid}`);
+    error.statusCode = 404;
+    throw error;
+  }
+
+  // If client provided a userId in query or body, verify ownership strictly
+  if (clientUserId !== undefined && clientUserId !== null && String(clientUserId).trim() !== '') {
+    const strClientUserId = String(clientUserId).trim();
+    const isMatchingUid = strClientUserId === foundUser.uid;
+    const isMatchingId = /^\d+$/.test(strClientUserId) && parseInt(strClientUserId, 10) === foundUser.id;
+
+    if (!isMatchingUid && !isMatchingId) {
+      const error: any = new Error('Forbidden: Cannot access or claim rewards for another user');
+      error.statusCode = 403;
+      throw error;
+    }
+  }
+
+  return {
+    userId: foundUser.id,
+    uid: foundUser.uid
+  };
+};
+
+/**
+ * Authoritative User Identifier Resolver (direct database resolution utility)
  */
 export const resolveDbUserId = async (rawUserId: unknown): Promise<number> => {
   if (rawUserId === undefined || rawUserId === null || rawUserId === '') {
@@ -77,6 +133,7 @@ export const resolveDbUserId = async (rawUserId: unknown): Promise<number> => {
   // Strict: If user cannot be found, throw error (no fallback or simulated user ID)
   throw new Error(`User not found: ${strUserId}`);
 };
+
 
 export class PromotionService {
   /**
@@ -275,13 +332,7 @@ export class PromotionService {
 // ----------------------------------------------------------------------------
 export const getPromotionDetailsHandler = async (req: Request, res: Response): Promise<void> => {
   try {
-    const rawUserId = req.query.userId;
-    if (!rawUserId) {
-      res.status(400).json({ status: 'ERROR', message: 'Valid userId query parameter is required' });
-      return;
-    }
-
-    const userId = await resolveDbUserId(rawUserId);
+    const { userId } = await resolveAuthUser(req, req.query.userId);
 
     const [lastCheckIn] = await db
       .select()
@@ -341,39 +392,29 @@ export const getPromotionDetailsHandler = async (req: Request, res: Response): P
       }
     });
   } catch (err: any) {
-    const isNotFound = err.message?.includes('not found');
-    res.status(isNotFound ? 404 : 400).json({ status: 'ERROR', message: err.message });
+    const statusCode = err.statusCode || (err.message?.includes('not found') ? 404 : 400);
+    res.status(statusCode).json({ status: 'ERROR', message: err.message });
   }
 };
 
 export const claimCheckInHandler = async (req: Request, res: Response): Promise<void> => {
   try {
-    const { userId: rawUserId } = req.body;
-    if (!rawUserId) {
-      res.status(400).json({ status: 'ERROR', message: 'Valid userId is required' });
-      return;
-    }
-    const userId = await resolveDbUserId(rawUserId);
+    const { userId } = await resolveAuthUser(req, req.body?.userId);
     const result = await PromotionService.claimDailyCheckIn(userId);
     res.json({ status: 'SUCCESS', data: result });
   } catch (err: any) {
-    const isNotFound = err.message?.includes('not found');
-    res.status(isNotFound ? 404 : 400).json({ status: 'ERROR', message: err.message });
+    const statusCode = err.statusCode || (err.message?.includes('not found') ? 404 : 400);
+    res.status(statusCode).json({ status: 'ERROR', message: err.message });
   }
 };
 
 export const spinWheelHandler = async (req: Request, res: Response): Promise<void> => {
   try {
-    const { userId: rawUserId } = req.body;
-    if (!rawUserId) {
-      res.status(400).json({ status: 'ERROR', message: 'Valid userId is required' });
-      return;
-    }
-    const userId = await resolveDbUserId(rawUserId);
+    const { userId } = await resolveAuthUser(req, req.body?.userId);
     const result = await PromotionService.executeWheelSpin(userId);
     res.json({ status: 'SUCCESS', data: result });
   } catch (err: any) {
-    const isNotFound = err.message?.includes('not found');
-    res.status(isNotFound ? 404 : 400).json({ status: 'ERROR', message: err.message });
+    const statusCode = err.statusCode || (err.message?.includes('not found') ? 404 : 400);
+    res.status(statusCode).json({ status: 'ERROR', message: err.message });
   }
 };

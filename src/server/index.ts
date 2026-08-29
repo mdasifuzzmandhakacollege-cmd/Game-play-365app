@@ -18,6 +18,7 @@ import { getAffiliateSummaryHandler, claimCommissionHandler } from './controller
 import { getVipDetailsHandler, claimVipBonusHandler } from './controllers/vipController';
 import { getPromotionDetailsHandler, claimCheckInHandler, spinWheelHandler } from './controllers/promotionController';
 import { createProviderGatewayRouter } from './controllers/providerGatewayController';
+import { requireAuth } from '../middleware/auth.js';
 
 dotenv.config();
 
@@ -96,6 +97,7 @@ vipRouter.post('/claim-bonus', claimVipBonusHandler);
 app.use('/api/vip', vipRouter);
 
 const promoRouter = express.Router();
+promoRouter.use(requireAuth);
 promoRouter.get('/details', getPromotionDetailsHandler);
 promoRouter.post('/checkin', claimCheckInHandler);
 promoRouter.post('/spin', spinWheelHandler);

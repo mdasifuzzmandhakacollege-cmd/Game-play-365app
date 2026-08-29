@@ -38,6 +38,7 @@ import { notificationService } from '../services/notificationService';
 import { soundEngine } from '../services/soundEngine';
 import { useWalletGame } from '../contexts/WalletGameContext';
 import { WageringRequirements } from './WageringRequirements';
+import { auth } from '../lib/firebase';
 import { DailyMissions } from './DailyMissions';
 import { motion, AnimatePresence } from 'framer-motion';
 
@@ -276,10 +277,29 @@ export const PromotionHub: React.FC<PromotionHubProps> = ({
   const [spinsRemaining, setSpinsRemaining] = useState<number>(0);
   const [wonPrize, setWonPrize] = useState<typeof WHEEL_PRIZES[0] | null>(null);
 
+  // Helper to attach verified Firebase ID token
+  const getAuthHeaders = async (): Promise<Record<string, string>> => {
+    const headers: Record<string, string> = {
+      'Content-Type': 'application/json'
+    };
+    try {
+      const token = await auth.currentUser?.getIdToken();
+      if (token) {
+        headers['Authorization'] = `Bearer ${token}`;
+      }
+    } catch (e) {
+      console.warn('Could not get Firebase auth token:', e);
+    }
+    return headers;
+  };
+
   // Load Authoritative State from Server Promotion API
   const fetchPromotionState = useCallback(async () => {
     try {
-      const res = await fetch(`/api/promo/details?userId=${encodeURIComponent(currentUser.id)}`);
+      const headers = await getAuthHeaders();
+      const res = await fetch(`/api/promo/details?userId=${encodeURIComponent(currentUser.id)}`, {
+        headers
+      });
       if (res.ok) {
         const json = await res.json();
         if (json.status === 'SUCCESS' && json.data) {
@@ -304,9 +324,10 @@ export const PromotionHub: React.FC<PromotionHubProps> = ({
     soundEngine.playClick(900);
 
     try {
+      const headers = await getAuthHeaders();
       const res = await fetch('/api/promo/checkin', {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
+        headers,
         body: JSON.stringify({ userId: currentUser.id })
       });
 
@@ -355,9 +376,10 @@ export const PromotionHub: React.FC<PromotionHubProps> = ({
     soundEngine.playClick(1000);
 
     try {
+      const headers = await getAuthHeaders();
       const res = await fetch('/api/promo/spin', {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
+        headers,
         body: JSON.stringify({ userId: currentUser.id })
       });
 
