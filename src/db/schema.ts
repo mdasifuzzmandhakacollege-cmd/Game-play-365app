@@ -8,6 +8,7 @@ import {
   serial,
   text,
   timestamp,
+  uniqueIndex,
   varchar,
 } from 'drizzle-orm/pg-core';
 
@@ -193,6 +194,14 @@ export const affiliateCommissions = pgTable('affiliate_commissions', {
   currency: varchar('currency', { length: 3 }).notNull(),
   status: varchar('status', { length: 32 }).default('SETTLED').notNull(), // 'PENDING', 'SETTLED', 'CLAIMED'
   settledAt: timestamp('settled_at', { withTimezone: true }).defaultNow().notNull(),
+}, (table) => {
+  return {
+    uniqueTxBeneficiaryTierIdx: uniqueIndex('affiliate_commissions_tx_beneficiary_tier_idx').on(
+      table.sourceTransactionId,
+      table.beneficiaryUserId,
+      table.tier
+    ),
+  };
 });
 
 // ----------------------------------------------------------------------------

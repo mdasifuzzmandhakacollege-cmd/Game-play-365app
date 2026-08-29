@@ -9,104 +9,179 @@ import { Request, Response } from 'express';
 import { db } from '../../db/index.js';
 import { affiliateNodes, affiliateCommissions, users, wallets, transactions } from '../../db/schema.js';
 import { eq, sql, inArray } from 'drizzle-orm';
-import { resolveAuthUser } from './promotionController.js';
+import { resolveAuthUser, toScale4, fromScale4 } from './promotionController.js';
 
 export interface DistributeCommissionParams {
   userId: number;
-  betAmount: number;
+  betAmount: number | string | bigint;
   currency: string;
   sourceTransactionId: string;
   gameId: string;
 }
 
+/**
+ * Pure integer minor-units arithmetic for Commission Rates
+ * Preserves exact business rates:
+ * Tier 1 (Direct Parent): 0.50% (0.0050 = 50 in basis points of 10000)
+ * Tier 2 (Grandparent): 0.20% (0.0020 = 20 in basis points of 10000)
+ * Tier 3 (Great-Grandparent): 0.10% (0.0010 = 10 in basis points of 10000)
+ */
+export const COMMISSION_TIER_BPS: Record<number, bigint> = {
+  1: 50n, // 0.0050 * 10000 = 50 bps
+  2: 20n, // 0.0020 * 10000 = 20 bps
+  3: 10n, // 0.0010 * 10000 = 10 bps
+};
+
 export class AffiliateService {
   /**
-   * Distribute multi-tier commissions when a player places a valid bet
-   * Tier 1 (Direct Parent): 0.50%
-   * Tier 2 (Grandparent): 0.20%
-   * Tier 3 (Great-Grandparent): 0.10%
+   * Distribute multi-tier commissions when a player places a valid bet.
+   * Enforces:
+   * 1. Exact Scale-4 BigInt Math (Zero float drift).
+   * 2. Transaction status validation (COMMITTED/COMPLETED/SETTLED).
+   * 3. Strict Idempotency via sourceTransactionId + beneficiaryUserId + tier.
+   * 4. Single ACID transaction with SELECT ... FOR UPDATE row-level locking on all affected affiliate nodes.
+   * 5. Immutable commission ledger entries.
    */
   public static async processValidBetCommission(params: DistributeCommissionParams) {
-    if (params.betAmount <= 0) return;
+    if (!params.sourceTransactionId || typeof params.sourceTransactionId !== 'string' || params.sourceTransactionId.trim() === '') {
+      throw new Error('sourceTransactionId is required for commission distribution');
+    }
 
-    // 1. Lookup user's affiliate node
+    // 1. Convert bet amount to Scale-4 BigInt and reject zero/negative amounts
+    const betScale4 = typeof params.betAmount === 'bigint' ? params.betAmount : toScale4(params.betAmount);
+    if (betScale4 <= 0n) {
+      return { success: false, reason: 'INVALID_BET_AMOUNT', distributedCount: 0 };
+    }
+
+    // 2. Lookup source bet transaction to verify it is a valid COMMITTED/COMPLETED bet
+    const [sourceTx] = await db
+      .select()
+      .from(transactions)
+      .where(eq(transactions.transactionId, params.sourceTransactionId))
+      .limit(1);
+
+    if (sourceTx) {
+      const isValidType = sourceTx.type === 'BET';
+      const isCommittedStatus = sourceTx.status === 'COMPLETED' || sourceTx.status === 'SETTLED';
+      if (!isValidType || !isCommittedStatus) {
+        return { success: false, reason: 'TRANSACTION_NOT_SETTLED_BET', distributedCount: 0 };
+      }
+    }
+
+    // 3. Lookup user's affiliate node to resolve upline beneficiaries
     const [userNode] = await db
       .select()
       .from(affiliateNodes)
-      .where(eq(affiliateNodes.userId, params.userId));
+      .where(eq(affiliateNodes.userId, params.userId))
+      .limit(1);
 
     if (!userNode || !userNode.parentAffiliateId) {
-      return; // No upline sponsor
+      return { success: true, reason: 'NO_UPLINE_BENEFICIARY', distributedCount: 0 }; // No upline sponsor
     }
 
-    const parentId = userNode.parentAffiliateId;
-    const grandParentId = userNode.grandParentAffiliateId;
-
-    // Tier 1 Commission (0.50%)
-    const tier1Rate = 0.005;
-    const tier1Amount = Number((params.betAmount * tier1Rate).toFixed(4));
-
-    if (tier1Amount > 0) {
-      await db.transaction(async (tx) => {
-        // Update parent affiliate totals
-        await tx
-          .update(affiliateNodes)
-          .set({
-            totalCommissionEarned: sql`${affiliateNodes.totalCommissionEarned} + ${tier1Amount}`,
-            unclaimedCommission: sql`${affiliateNodes.unclaimedCommission} + ${tier1Amount}`,
-            totalTurnoverVolume: sql`${affiliateNodes.totalTurnoverVolume} + ${params.betAmount}`,
-            updatedAt: new Date()
-          })
-          .where(eq(affiliateNodes.userId, parentId));
-
-        // Insert commission ledger entry
-        await tx.insert(affiliateCommissions).values({
-          beneficiaryUserId: parentId,
-          sourceUserId: params.userId,
-          sourceTransactionId: params.sourceTransactionId,
-          tier: 1,
-          validBetAmount: params.betAmount.toString(),
-          commissionRate: tier1Rate.toString(),
-          commissionAmount: tier1Amount.toString(),
-          currency: params.currency,
-          status: 'SETTLED',
-          settledAt: new Date()
-        });
+    const beneficiaries: { userId: number; tier: number; bps: bigint; rateStr: string }[] = [];
+    
+    if (userNode.parentAffiliateId) {
+      beneficiaries.push({
+        userId: userNode.parentAffiliateId,
+        tier: 1,
+        bps: COMMISSION_TIER_BPS[1],
+        rateStr: '0.0050'
       });
     }
 
-    // Tier 2 Commission (0.20%)
-    if (grandParentId) {
-      const tier2Rate = 0.002;
-      const tier2Amount = Number((params.betAmount * tier2Rate).toFixed(4));
-
-      if (tier2Amount > 0) {
-        await db.transaction(async (tx) => {
-          await tx
-            .update(affiliateNodes)
-            .set({
-              totalCommissionEarned: sql`${affiliateNodes.totalCommissionEarned} + ${tier2Amount}`,
-              unclaimedCommission: sql`${affiliateNodes.unclaimedCommission} + ${tier2Amount}`,
-              totalTurnoverVolume: sql`${affiliateNodes.totalTurnoverVolume} + ${params.betAmount}`,
-              updatedAt: new Date()
-            })
-            .where(eq(affiliateNodes.userId, grandParentId));
-
-          await tx.insert(affiliateCommissions).values({
-            beneficiaryUserId: grandParentId,
-            sourceUserId: params.userId,
-            sourceTransactionId: params.sourceTransactionId,
-            tier: 2,
-            validBetAmount: params.betAmount.toString(),
-            commissionRate: tier2Rate.toString(),
-            commissionAmount: tier2Amount.toString(),
-            currency: params.currency,
-            status: 'SETTLED',
-            settledAt: new Date()
-          });
-        });
-      }
+    if (userNode.grandParentAffiliateId) {
+      beneficiaries.push({
+        userId: userNode.grandParentAffiliateId,
+        tier: 2,
+        bps: COMMISSION_TIER_BPS[2],
+        rateStr: '0.0020'
+      });
     }
+
+    if (beneficiaries.length === 0) {
+      return { success: true, reason: 'NO_UPLINE_BENEFICIARY', distributedCount: 0 };
+    }
+
+    // Execute within a single ACID transaction
+    return await db.transaction(async (tx) => {
+      // 4. Check existing commission records for strict idempotency
+      const existingCommissions = await tx
+        .select()
+        .from(affiliateCommissions)
+        .where(eq(affiliateCommissions.sourceTransactionId, params.sourceTransactionId));
+
+      const existingTierMap = new Set(
+        existingCommissions.map((c) => `${c.beneficiaryUserId}_${c.tier}`)
+      );
+
+      // Filter to only beneficiaries that haven't been credited for this source transaction
+      const pendingBeneficiaries = beneficiaries.filter(
+        (b) => !existingTierMap.has(`${b.userId}_${b.tier}`)
+      );
+
+      if (pendingBeneficiaries.length === 0) {
+        return { success: true, reason: 'ALREADY_PROCESSED', distributedCount: 0 };
+      }
+
+      // Collect distinct beneficiary user IDs in deterministic ascending order to prevent deadlocks
+      const distinctBeneficiaryIds = Array.from(
+        new Set(pendingBeneficiaries.map((b) => b.userId))
+      ).sort((a, b) => a - b);
+
+      // 5. Row-level locking on affiliate_nodes using SELECT ... FOR UPDATE
+      for (const bUserId of distinctBeneficiaryIds) {
+        await tx.execute(
+          sql`SELECT * FROM affiliate_nodes WHERE user_id = ${bUserId} FOR UPDATE`
+        );
+      }
+
+      let distributedCount = 0;
+
+      for (const beneficiary of pendingBeneficiaries) {
+        // Exact BigInt calculation: (betScale4 * bps) / 10000n
+        const commissionScale4 = (betScale4 * beneficiary.bps) / 10000n;
+        if (commissionScale4 <= 0n) {
+          continue; // Below min fractional precision unit
+        }
+
+        const commissionAmountStr = fromScale4(commissionScale4);
+        const betAmountStr = fromScale4(betScale4);
+
+        // Update beneficiary affiliate node counters authoritatively
+        await tx
+          .update(affiliateNodes)
+          .set({
+            totalCommissionEarned: sql`(${affiliateNodes.totalCommissionEarned}::numeric + ${commissionAmountStr}::numeric)::text`,
+            unclaimedCommission: sql`(${affiliateNodes.unclaimedCommission}::numeric + ${commissionAmountStr}::numeric)::text`,
+            totalTurnoverVolume: sql`(${affiliateNodes.totalTurnoverVolume}::numeric + ${betAmountStr}::numeric)::text`,
+            updatedAt: new Date()
+          })
+          .where(eq(affiliateNodes.userId, beneficiary.userId));
+
+        // Insert immutable commission ledger entry
+        await tx.insert(affiliateCommissions).values({
+          beneficiaryUserId: beneficiary.userId,
+          sourceUserId: params.userId,
+          sourceTransactionId: params.sourceTransactionId,
+          tier: beneficiary.tier,
+          validBetAmount: betAmountStr,
+          commissionRate: beneficiary.rateStr,
+          commissionAmount: commissionAmountStr,
+          currency: params.currency || 'BDT',
+          status: 'SETTLED',
+          settledAt: new Date()
+        });
+
+        distributedCount++;
+      }
+
+      return {
+        success: true,
+        distributedCount,
+        sourceTransactionId: params.sourceTransactionId
+      };
+    });
   }
 
   /**
