@@ -7,10 +7,11 @@
 
 import { Request, Response } from 'express';
 import { db } from '../../db/index.js';
-import { users, dailyCheckIns, wheelSpins, wageringRequirements, wallets } from '../../db/schema.js';
+import { users, dailyCheckIns, wheelSpins, wageringRequirements } from '../../db/schema.js';
 import { and, eq, sql } from 'drizzle-orm';
 import { DAILY_CHECKIN_REWARDS, WHEEL_PRIZES } from '../../shared/gameplayConfig.js';
 import { AuthRequest } from '../../middleware/auth.js';
+import { WalletLedgerService } from '../ledger/walletLedgerService.js';
 
 /**
  * Pure integer minor-units decimal arithmetic (scale 4, 1.0000 = 10000n)
@@ -161,25 +162,54 @@ export const resolveDbUserId = async (rawUserId: unknown): Promise<number> => {
 
 
 export class PromotionService {
+  private static ledgerService: WalletLedgerService | null = null;
+
+  public static setLedgerService(service: WalletLedgerService) {
+    PromotionService.ledgerService = service;
+  }
+
+  public static getLedgerService(): WalletLedgerService | null {
+    return PromotionService.ledgerService;
+  }
+
   /**
    * Process 7-day Daily Check-In with ACID Row-Level Locking, Scale-4 BigInt Math,
-   * Authoritative UTC Calendar Day Boundary, and PostgreSQL DB-Level Unique Constraint Protection.
+   * Authoritative UTC Calendar Day Boundary, PostgreSQL DB-Level Unique Constraint Protection,
+   * and Authoritative WalletLedgerService routing (ZERO direct balance mutations).
    */
-  public static async claimDailyCheckIn(userId: number, claimTimestamp: Date = new Date()) {
+  public static async claimDailyCheckIn(
+    userId: number,
+    claimTimestamp: Date = new Date(),
+    customLedgerService?: WalletLedgerService
+  ) {
+    if (!userId || typeof userId !== 'number') {
+      throw new Error('Valid userId is required to claim daily check-in');
+    }
+
+    const effectiveLedger = customLedgerService || PromotionService.ledgerService;
+    if (!effectiveLedger) {
+      throw new Error('FATAL_LEDGER_UNAVAILABLE: Production WalletLedgerService is not configured. Promotion claim failed closed.');
+    }
+
     const todayUtc = getUtcDateString(claimTimestamp);
+    const deterministicClaimTxId = `PROMO_CHECKIN_${userId}_${todayUtc}`;
 
     try {
       return await db.transaction(async (tx) => {
-        // 1. Row-level lock on user's wallet to prevent concurrent duplicate claims
-        const walletRows = await tx
-          .select()
-          .from(wallets)
-          .where(eq(wallets.userId, userId))
-          .for('update');
+        // 1. Check if user already claimed check-in on this UTC date with row lock
+        const existingTodayCheckIn = await tx
+          .select({ id: dailyCheckIns.id })
+          .from(dailyCheckIns)
+          .where(
+            and(
+              eq(dailyCheckIns.userId, userId),
+              eq(dailyCheckIns.claimDateUtc, todayUtc)
+            )
+          )
+          .limit(1);
 
-        const wallet = walletRows[0];
-        if (!wallet) {
-          throw new Error('Player wallet not found');
+        if (existingTodayCheckIn.length > 0) {
+          throw new Error('You have already claimed today’s check-in bonus. Come back tomorrow!');
         }
 
         // 2. Fetch latest check in within transaction
@@ -208,24 +238,29 @@ export class PromotionService {
         const rewardConfig = DAILY_CHECKIN_REWARDS.find((r) => r.day === nextStreakDay) || DAILY_CHECKIN_REWARDS[0];
         const rewardAmount = rewardConfig.reward;
         const rewardAmountStr = rewardAmount.toFixed(4);
-
-        // 3. Scale-4 BigInt Ledger Calculation (no floating point errors)
-        const currentBonusBigInt = toScale4(wallet.bonusBalance);
         const rewardBigInt = toScale4(rewardAmountStr);
-        const newBonusBigInt = currentBonusBigInt + rewardBigInt;
-        const newBonusBalanceStr = fromScale4(newBonusBigInt);
 
-        // 4. Update wallet with atomic version bump
-        await tx
-          .update(wallets)
-          .set({
-            bonusBalance: newBonusBalanceStr,
-            version: sql`${wallets.version} + 1`,
-            updatedAt: claimTimestamp
-          })
-          .where(eq(wallets.id, wallet.id));
+        // 3. Authoritative Wallet Ledger Credit (NO direct wallets.bonusBalance mutation)
+        const ledgerResult = await effectiveLedger.executeTransaction({
+          userId: String(userId),
+          currency: 'BDT',
+          type: 'CREDIT',
+          targetBalance: 'BONUS',
+          amountMinor: rewardAmountStr,
+          transactionId: deterministicClaimTxId,
+          auditMetadata: {
+            providerId: 'GAMEPLAY365_PROMOTIONS',
+            category: 'BONUS_CASH',
+            rewardType: 'BONUS_CREDIT',
+            promoType: 'DAILY_CHECKIN',
+            streakDay: nextStreakDay,
+            claimDateUtc: todayUtc,
+            rewardAmount: rewardAmountStr,
+            isWithdrawable: false
+          }
+        });
 
-        // 5. Insert immutable check-in record with authoritative UTC claim date
+        // 4. Insert immutable check-in record with authoritative UTC claim date
         await tx.insert(dailyCheckIns).values({
           userId: userId,
           checkInDate: claimTimestamp,
@@ -236,7 +271,7 @@ export class PromotionService {
           createdAt: claimTimestamp
         });
 
-        // 6. Insert 10x wagering requirement entry
+        // 5. Insert 10x wagering requirement entry
         const targetTurnoverBigInt = rewardBigInt * 10n;
         await tx.insert(wageringRequirements).values({
           userId: userId,
@@ -254,7 +289,10 @@ export class PromotionService {
           streakDay: nextStreakDay,
           rewardAmount: rewardAmount,
           label: rewardConfig.label,
-          newBonusBalance: parseFloat(newBonusBalanceStr)
+          newBonusBalance: parseFloat(ledgerResult.afterBalanceMajor),
+          transactionId: deterministicClaimTxId,
+          ledgerEntryId: ledgerResult.ledgerEntryId,
+          isIdempotent: ledgerResult.isIdempotent || false
         };
       });
     } catch (err: any) {
@@ -267,27 +305,30 @@ export class PromotionService {
   }
 
   /**
-   * Provably fair Lucky Spin-the-Wheel with ACID Row-Level Locking, Daily Limits & Scale-4 Math
-   * Authoritative UTC Calendar Day Boundary, and PostgreSQL DB-Level Unique Constraint Protection.
+   * Provably fair Lucky Spin-the-Wheel with Daily Limits, Scale-4 Math,
+   * Authoritative UTC Calendar Day Boundary, PostgreSQL DB-Level Unique Constraint Protection,
+   * and Authoritative WalletLedgerService routing (ZERO direct balance mutations).
    */
-  public static async executeWheelSpin(userId: number, spinTimestamp: Date = new Date()) {
+  public static async executeWheelSpin(
+    userId: number,
+    spinTimestamp: Date = new Date(),
+    customLedgerService?: WalletLedgerService
+  ) {
+    if (!userId || typeof userId !== 'number') {
+      throw new Error('Valid userId is required to execute wheel spin');
+    }
+
+    const effectiveLedger = customLedgerService || PromotionService.ledgerService;
+    if (!effectiveLedger) {
+      throw new Error('FATAL_LEDGER_UNAVAILABLE: Production WalletLedgerService is not configured. Wheel spin failed closed.');
+    }
+
     const todayUtc = getUtcDateString(spinTimestamp);
+    const deterministicSpinTxId = `PROMO_WHEEL_${userId}_${todayUtc}`;
 
     try {
       return await db.transaction(async (tx) => {
-        // 1. Acquire row-level lock on the player's wallet to serialize concurrent requests
-        const walletRows = await tx
-          .select()
-          .from(wallets)
-          .where(eq(wallets.userId, userId))
-          .for('update');
-
-        const wallet = walletRows[0];
-        if (!wallet) {
-          throw new Error('Player wallet not found');
-        }
-
-        // 2. Strictly enforce wheel daily-spin limit using authoritative UTC date inside the same transaction
+        // 1. Strictly enforce wheel daily-spin limit using authoritative UTC date inside the same transaction
         const existingSpin = await tx
           .select({ id: wheelSpins.id })
           .from(wheelSpins)
@@ -303,7 +344,7 @@ export class PromotionService {
           throw new Error('You have already used your daily free wheel spin for today. Come back tomorrow!');
         }
 
-        // 3. Provably weighted Spin-the-Wheel RNG algorithm
+        // 2. Provably weighted Spin-the-Wheel RNG algorithm
         const totalWeight = WHEEL_PRIZES.reduce((acc, p) => acc + p.weight, 0);
         let randomWeight = Math.random() * totalWeight;
 
@@ -319,50 +360,69 @@ export class PromotionService {
         const prizeValueStr = winningPrize.value.toFixed(4);
         const prizeBigInt = toScale4(prizeValueStr);
 
-        // 4. Exact integer scale-4 balance mutation
-        if (winningPrize.type === 'REAL_CASH' && prizeBigInt > 0n) {
-          const currentRealBigInt = toScale4(wallet.realBalance);
-          const newRealBigInt = currentRealBigInt + prizeBigInt;
-          const newRealBalanceStr = fromScale4(newRealBigInt);
+        let ledgerResult: any = null;
 
-          await tx
-            .update(wallets)
-            .set({
-              realBalance: newRealBalanceStr,
-              version: sql`${wallets.version} + 1`,
-              updatedAt: spinTimestamp
-            })
-            .where(eq(wallets.id, wallet.id));
-        } else if (winningPrize.type === 'BONUS_CASH' && prizeBigInt > 0n) {
-          const currentBonusBigInt = toScale4(wallet.bonusBalance);
-          const newBonusBigInt = currentBonusBigInt + prizeBigInt;
-          const newBonusBalanceStr = fromScale4(newBonusBigInt);
-
-          await tx
-            .update(wallets)
-            .set({
-              bonusBalance: newBonusBalanceStr,
-              version: sql`${wallets.version} + 1`,
-              updatedAt: spinTimestamp
-            })
-            .where(eq(wallets.id, wallet.id));
+        // 3. Authoritative Wallet Ledger Credit for monetary prizes (NO direct wallets balance mutation)
+        if (prizeBigInt > 0n) {
+          if (winningPrize.type === 'REAL_CASH') {
+            ledgerResult = await effectiveLedger.executeTransaction({
+              userId: String(userId),
+              currency: 'BDT',
+              type: 'CREDIT',
+              targetBalance: 'REAL',
+              amountMinor: prizeValueStr,
+              transactionId: deterministicSpinTxId,
+              auditMetadata: {
+                providerId: 'GAMEPLAY365_PROMOTIONS',
+                category: 'REAL_CASH',
+                rewardType: winningPrize.type,
+                prizeLabel: winningPrize.label,
+                prizeValue: prizeValueStr,
+                promoType: 'LUCKY_WHEEL',
+                spinDateUtc: todayUtc,
+                isWithdrawable: true
+              }
+            });
+          } else if (winningPrize.type === 'BONUS_CASH') {
+            ledgerResult = await effectiveLedger.executeTransaction({
+              userId: String(userId),
+              currency: 'BDT',
+              type: 'CREDIT',
+              targetBalance: 'BONUS',
+              amountMinor: prizeValueStr,
+              transactionId: deterministicSpinTxId,
+              auditMetadata: {
+                providerId: 'GAMEPLAY365_PROMOTIONS',
+                category: 'BONUS_CASH',
+                rewardType: winningPrize.type,
+                prizeLabel: winningPrize.label,
+                prizeValue: prizeValueStr,
+                promoType: 'LUCKY_WHEEL',
+                spinDateUtc: todayUtc,
+                isWithdrawable: false
+              }
+            });
+          }
         }
 
-        // 5. Immutable wheel spin audit log with authoritative UTC spin date
+        // 4. Immutable wheel spin audit log with authoritative UTC spin date
         await tx.insert(wheelSpins).values({
           userId: userId,
           spinDateUtc: todayUtc,
           prizeType: winningPrize.type,
           prizeLabel: winningPrize.label,
           prizeValue: prizeValueStr,
-          currency: wallet.currency,
+          currency: 'BDT',
           isClaimed: true,
           createdAt: spinTimestamp
         });
 
         return {
           prize: winningPrize,
-          timestamp: spinTimestamp.getTime()
+          timestamp: spinTimestamp.getTime(),
+          transactionId: deterministicSpinTxId,
+          ledgerEntryId: ledgerResult?.ledgerEntryId || null,
+          isIdempotent: ledgerResult?.isIdempotent || false
         };
       });
     } catch (err: any) {

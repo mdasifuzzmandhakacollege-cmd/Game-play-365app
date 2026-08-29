@@ -16,7 +16,7 @@ import { paymentController } from './controllers/paymentController';
 import { paymentGatewayController } from './controllers/paymentGatewayController';
 import { getAffiliateSummaryHandler, claimCommissionHandler, bindReferralHandler, AffiliateService } from './controllers/affiliateController';
 import { getVipDetailsHandler, claimVipBonusHandler } from './controllers/vipController';
-import { getPromotionDetailsHandler, claimCheckInHandler, spinWheelHandler } from './controllers/promotionController';
+import { getPromotionDetailsHandler, claimCheckInHandler, spinWheelHandler, PromotionService } from './controllers/promotionController';
 import { createProviderGatewayRouter } from './controllers/providerGatewayController';
 import { requireAuth, requireAdmin, getAuthoritativeUserRole, AuthRequest } from '../middleware/auth.js';
 
@@ -50,8 +50,9 @@ export const postgresLedgerPool = new PostgresLedgerPool(process.env.DATABASE_UR
 export const walletLedgerService = new WalletLedgerService(postgresLedgerPool);
 export const walletController = new SeamlessWalletController(walletLedgerService);
 
-// Inject production PostgreSQL WalletLedgerService into AffiliateService
+// Inject production PostgreSQL WalletLedgerService into AffiliateService & PromotionService
 AffiliateService.setLedgerService(walletLedgerService);
+PromotionService.setLedgerService(walletLedgerService);
 
 // ----------------------------------------------------------------------------
 // 3. B2B Seamless Wallet Routes (Protected by HMAC Validation Middleware)

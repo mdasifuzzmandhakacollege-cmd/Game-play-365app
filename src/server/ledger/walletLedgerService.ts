@@ -55,13 +55,14 @@ export class WalletLedgerService {
       user_id: string | number;
       currency: SupportedCurrency;
       real_balance?: string | number;
+      bonus_balance?: string | number;
       balance_minor?: string | number | bigint;
       version: string | number;
       status: 'ACTIVE' | 'FROZEN' | 'CLOSED';
       created_at: Date;
       updated_at: Date;
     }>(
-      `SELECT id, user_id, currency, real_balance, balance_minor, version, status, created_at, updated_at
+      `SELECT id, user_id, currency, real_balance, bonus_balance, balance_minor, version, status, created_at, updated_at
        FROM wallets
        WHERE user_id = $1 AND currency = $2
        LIMIT 1`,
@@ -88,6 +89,7 @@ export class WalletLedgerService {
       currency: row.currency,
       balanceMinor,
       realBalance: row.real_balance !== undefined && row.real_balance !== null ? row.real_balance.toString() : formatMinorUnits(balanceMinor, row.currency),
+      bonusBalance: row.bonus_balance !== undefined && row.bonus_balance !== null ? row.bonus_balance.toString() : '0.0000',
       version: BigInt(row.version),
       status: row.status,
       createdAt: row.created_at,
@@ -150,17 +152,25 @@ export class WalletLedgerService {
     }
 
     const currency = validateCurrency(req.currency);
+    const targetBalance = req.targetBalance || 'REAL';
     const allowZero = req.type === 'CREDIT' || req.type === 'ADJUSTMENT';
     const rawAmount = req.amountMinor !== undefined ? req.amountMinor : req.amountMajor;
     const amountMinor = parseToMinorUnits(rawAmount, currency, allowZero);
     const correlationId = req.correlationId || `cid-${Date.now()}-${Math.random().toString(36).substring(2, 8)}`;
     const idempotencyKey = this.generateIdempotencyKey(normalizedUserId, currency, req.transactionId);
     const sanitizedAudit = req.auditMetadata ? maskSensitiveData(req.auditMetadata) : {};
+    sanitizedAudit.targetBalance = targetBalance;
+    if (targetBalance === 'BONUS' && !sanitizedAudit.category) {
+      sanitizedAudit.category = 'BONUS_CASH';
+    } else if (targetBalance === 'REAL' && !sanitizedAudit.category) {
+      sanitizedAudit.category = 'REAL_CASH';
+    }
 
-    safeLog('info', correlationId, `[Ledger] Initiating ${req.type} of ${formatMinorUnits(amountMinor, currency)} ${currency}`, {
+    safeLog('info', correlationId, `[Ledger] Initiating ${req.type} (${targetBalance}) of ${formatMinorUnits(amountMinor, currency)} ${currency}`, {
       userId: normalizedUserId,
       transactionId: req.transactionId,
-      type: req.type
+      type: req.type,
+      targetBalance
     });
 
     const client: ILedgerDbClient = await this.db.connect();
@@ -200,11 +210,12 @@ export class WalletLedgerService {
         user_id: string | number;
         currency: SupportedCurrency;
         real_balance?: string | number;
+        bonus_balance?: string | number;
         balance_minor?: string | number | bigint;
         version: string | number;
         status: 'ACTIVE' | 'FROZEN' | 'CLOSED';
       }>(
-        `SELECT id, user_id, currency, real_balance, balance_minor, version, status
+        `SELECT id, user_id, currency, real_balance, bonus_balance, balance_minor, version, status
          FROM wallets
          WHERE user_id = $1 AND currency = $2
          FOR UPDATE`,
@@ -214,8 +225,8 @@ export class WalletLedgerService {
       if (walletRes.rows.length === 0) {
         // Auto-initialize canonical player wallet
         await client.query(
-          `INSERT INTO wallets (user_id, currency, real_balance, balance_minor, status)
-           VALUES ($1, $2, $3, $4, 'ACTIVE')
+          `INSERT INTO wallets (user_id, currency, real_balance, bonus_balance, balance_minor, status)
+           VALUES ($1, $2, $3, '0.0000', $4, 'ACTIVE')
            ON CONFLICT (user_id, currency) DO NOTHING`,
           [normalizedUserId, currency, '0.0000', '0']
         );
@@ -224,11 +235,12 @@ export class WalletLedgerService {
           user_id: string | number;
           currency: SupportedCurrency;
           real_balance?: string | number;
+          bonus_balance?: string | number;
           balance_minor?: string | number | bigint;
           version: string | number;
           status: 'ACTIVE' | 'FROZEN' | 'CLOSED';
         }>(
-          `SELECT id, user_id, currency, real_balance, balance_minor, version, status
+          `SELECT id, user_id, currency, real_balance, bonus_balance, balance_minor, version, status
            FROM wallets
            WHERE user_id = $1 AND currency = $2
            FOR UPDATE`,
@@ -249,12 +261,17 @@ export class WalletLedgerService {
       }
 
       let beforeBalanceMinor: bigint;
-      if (wallet.balance_minor !== undefined && wallet.balance_minor !== null && wallet.balance_minor !== '') {
-        beforeBalanceMinor = BigInt(wallet.balance_minor.toString());
-      } else if (wallet.real_balance !== undefined && wallet.real_balance !== null) {
-        beforeBalanceMinor = parseToMinorUnits(wallet.real_balance.toString(), currency, true);
+      if (targetBalance === 'BONUS') {
+        const bonusStr = wallet.bonus_balance !== undefined && wallet.bonus_balance !== null ? wallet.bonus_balance.toString() : '0.0000';
+        beforeBalanceMinor = parseToMinorUnits(bonusStr, currency, true);
       } else {
-        beforeBalanceMinor = 0n;
+        if (wallet.balance_minor !== undefined && wallet.balance_minor !== null && wallet.balance_minor !== '') {
+          beforeBalanceMinor = BigInt(wallet.balance_minor.toString());
+        } else if (wallet.real_balance !== undefined && wallet.real_balance !== null) {
+          beforeBalanceMinor = parseToMinorUnits(wallet.real_balance.toString(), currency, true);
+        } else {
+          beforeBalanceMinor = 0n;
+        }
       }
 
       let afterBalanceMinor: bigint;
@@ -280,17 +297,28 @@ export class WalletLedgerService {
         throw new LedgerValidationError(`Unsupported ledger transaction type: ${req.type}`);
       }
 
-      // 6. Update Canonical Wallet Balance (both real_balance and balance_minor synchronized)
-      const formattedRealBalance = formatMinorUnits(afterBalanceMinor, currency);
-      await client.query(
-        `UPDATE wallets
-         SET real_balance = $1,
-             balance_minor = $2,
-             version = version + 1,
-             updated_at = NOW()
-         WHERE id = $3`,
-        [formattedRealBalance, afterBalanceMinor.toString(), wallet.id]
-      );
+      // 6. Update Canonical Wallet Balance (real_balance or bonus_balance)
+      const formattedBalance = formatMinorUnits(afterBalanceMinor, currency);
+      if (targetBalance === 'BONUS') {
+        await client.query(
+          `UPDATE wallets
+           SET bonus_balance = $1,
+               version = version + 1,
+               updated_at = NOW()
+           WHERE id = $2`,
+          [formattedBalance, wallet.id]
+        );
+      } else {
+        await client.query(
+          `UPDATE wallets
+           SET real_balance = $1,
+               balance_minor = $2,
+               version = version + 1,
+               updated_at = NOW()
+           WHERE id = $3`,
+          [formattedBalance, afterBalanceMinor.toString(), wallet.id]
+        );
+      }
 
       // 7. Insert Immutable Ledger Entry
       const entryId = `ledg_${Date.now()}_${Math.random().toString(36).substring(2, 9)}`;

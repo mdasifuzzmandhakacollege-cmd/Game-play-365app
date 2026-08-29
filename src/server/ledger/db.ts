@@ -208,6 +208,7 @@ export class InMemoryPostgresLedgerEngine implements ILedgerDbPool {
               user_id: existing.user_id,
               currency: existing.currency,
               real_balance: existing.real_balance || (existing.balance_minor !== undefined ? (Number(existing.balance_minor) / 10000).toFixed(4) : '0.0000'),
+              bonus_balance: existing.bonus_balance || '0.0000',
               balance_minor: existing.balance_minor.toString(),
               version: existing.version.toString(),
               status: existing.status,
@@ -224,10 +225,18 @@ export class InMemoryPostgresLedgerEngine implements ILedgerDbPool {
           let userId: string;
           let currency: string;
           let realBalance: string;
+          let bonusBalance: string = '0.0000';
           let balanceMinor: bigint;
           let status: string;
 
-          if (cleanSql.includes('real_balance')) {
+          if (cleanSql.includes('real_balance') && cleanSql.includes('bonus_balance')) {
+            userId = String(params[0] ?? '').trim();
+            currency = String(params[1] ?? 'BDT').trim();
+            realBalance = params[2] !== undefined ? String(params[2]) : '0.0000';
+            bonusBalance = params[3] !== undefined ? String(params[3]) : '0.0000';
+            balanceMinor = params[4] !== undefined ? BigInt(params[4]) : 0n;
+            status = params[5] || 'ACTIVE';
+          } else if (cleanSql.includes('real_balance')) {
             // Parameterized or literals
             userId = String(params[0] ?? '').trim();
             currency = String(params[1] ?? 'BDT').trim();
@@ -260,6 +269,7 @@ export class InMemoryPostgresLedgerEngine implements ILedgerDbPool {
             user_id: userId,
             currency,
             real_balance: realBalance,
+            bonus_balance: bonusBalance,
             balance_minor: balanceMinor,
             version: 1n,
             status,
@@ -279,10 +289,14 @@ export class InMemoryPostgresLedgerEngine implements ILedgerDbPool {
         // 7. UPDATE wallets SET ...
         if (cleanSql.startsWith('UPDATE wallets')) {
           let realBalance: string | null = null;
-          let balanceMinor: bigint;
+          let bonusBalance: string | null = null;
+          let balanceMinor: bigint | null = null;
           let walletId: any;
 
-          if (cleanSql.includes('real_balance = $1') && cleanSql.includes('balance_minor = $2')) {
+          if (cleanSql.includes('bonus_balance = $1')) {
+            bonusBalance = String(params[0]);
+            walletId = params[1];
+          } else if (cleanSql.includes('real_balance = $1') && cleanSql.includes('balance_minor = $2')) {
             realBalance = String(params[0]);
             balanceMinor = BigInt(params[1]);
             walletId = params[2];
@@ -319,7 +333,7 @@ export class InMemoryPostgresLedgerEngine implements ILedgerDbPool {
           }
 
           // Check balance non-negative constraint
-          if (balanceMinor < 0n) {
+          if (balanceMinor !== null && balanceMinor < 0n) {
             const err: any = new Error(`check constraint "chk_wallet_balance_non_negative" failed`);
             err.code = '23514';
             throw err;
@@ -328,7 +342,8 @@ export class InMemoryPostgresLedgerEngine implements ILedgerDbPool {
           const updated = {
             ...targetWallet,
             real_balance: realBalance ?? targetWallet.real_balance,
-            balance_minor: balanceMinor,
+            bonus_balance: bonusBalance ?? targetWallet.bonus_balance ?? '0.0000',
+            balance_minor: balanceMinor !== null ? balanceMinor : targetWallet.balance_minor,
             version: targetWallet.version + 1n,
             updated_at: new Date()
           };

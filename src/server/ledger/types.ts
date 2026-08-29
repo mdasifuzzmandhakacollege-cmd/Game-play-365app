@@ -27,12 +27,15 @@ export type LedgerTransactionStatus =
   | 'REJECTED'
   | 'ROLLED_BACK';
 
+export type LedgerBalanceTarget = 'REAL' | 'BONUS';
+
 export interface WalletRecord {
   id: string | number;
   userId: string | number;
   currency: SupportedCurrency;
   balanceMinor: bigint; // Stored as integer minor units (e.g. 100.5000 BDT = 1005000n minor units)
   realBalance?: string; // Canonical 4-decimal numeric balance (e.g. "100.5000")
+  bonusBalance?: string; // Canonical 4-decimal bonus balance (e.g. "50.0000")
   version: bigint;      // Optimistic locking / mutation sequence counter
   status: 'ACTIVE' | 'FROZEN' | 'CLOSED';
   createdAt: Date;
@@ -71,6 +74,7 @@ export interface LedgerTransactionRequest {
   transactionId: string;
   referenceTransactionId?: string;
   type: LedgerTransactionType;
+  targetBalance?: LedgerBalanceTarget;
   amountMinor?: bigint | number | string;
   amountMajor?: string | number;
   correlationId?: string;
