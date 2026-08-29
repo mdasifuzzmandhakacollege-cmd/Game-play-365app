@@ -8,7 +8,7 @@
 import { Request, Response } from 'express';
 import { db } from '../../db/index.js';
 import { affiliateNodes, affiliateCommissions, users, wallets, transactions } from '../../db/schema.js';
-import { eq, sql, inArray } from 'drizzle-orm';
+import { eq, sql, inArray, and } from 'drizzle-orm';
 import { resolveAuthUser, toScale4, fromScale4 } from './promotionController.js';
 
 export interface DistributeCommissionParams {
@@ -216,80 +216,167 @@ export class AffiliateService {
   }
 
   /**
-   * Claim accumulated affiliate commissions into withdrawable real wallet balance
+   * Claim accumulated affiliate commissions into withdrawable real wallet balance.
+   * Enforces:
+   * 1. Exact Scale-4 BigInt Math (zero float drift, strict minor-unit representation).
+   * 2. ACID transaction with row-level locks on affiliate_nodes (SELECT ... FOR UPDATE) and wallets (SELECT ... FOR UPDATE).
+   * 3. Idempotency guard via deterministic/supplied claim transaction ID.
+   * 4. Validation of wallet existence and ACTIVE status (fails safe on FROZEN/INACTIVE with zero mutation).
+   * 5. Filter for SETTLED and unclaimed commission ledger entries only (never re-claims CLAIMED entries).
+   * 6. Atomic balance update and double-entry transaction record.
+   * 7. Exact commission records marked as CLAIMED and unclaimedCommission updated consistently.
    */
-  public static async claimAffiliateCommission(userId: number) {
+  public static async claimAffiliateCommission(userId: number, claimTxId?: string) {
+    if (!userId || typeof userId !== 'number') {
+      throw new Error('Valid userId is required to claim commissions');
+    }
+
+    const deterministicTxId = claimTxId && typeof claimTxId === 'string' && claimTxId.trim() !== ''
+      ? claimTxId.trim()
+      : `COMM_CLAIM_${userId}_${Date.now()}`;
+
     return await db.transaction(async (tx) => {
+      // 1. Idempotency Check: if this exact claim transaction was already completed, return committed outcome
+      const [existingTx] = await tx
+        .select()
+        .from(transactions)
+        .where(
+          and(
+            eq(transactions.transactionId, deterministicTxId),
+            eq(transactions.userId, userId)
+          )
+        )
+        .limit(1);
+
+      if (existingTx && (existingTx.status === 'COMPLETED' || existingTx.status === 'SETTLED')) {
+        return {
+          claimedAmount: existingTx.amount,
+          newRealBalance: existingTx.afterBalance,
+          transactionId: existingTx.transactionId,
+          isIdempotent: true
+        };
+      }
+
+      // 2. Lock affiliate node row with SELECT ... FOR UPDATE
       const [node] = await tx
         .select()
         .from(affiliateNodes)
-        .where(eq(affiliateNodes.userId, userId));
+        .where(eq(affiliateNodes.userId, userId))
+        .for('update');
 
-      if (!node) throw new Error('Affiliate profile not found');
-      const unclaimed = Number(node.unclaimedCommission);
-      if (unclaimed <= 0) throw new Error('No unclaimed commissions available');
+      if (!node) {
+        throw new Error('Affiliate profile not found');
+      }
 
-      // Find user wallet
+      // 3. Lock wallet row with SELECT ... FOR UPDATE
       const [wallet] = await tx
         .select()
         .from(wallets)
-        .where(eq(wallets.userId, userId));
+        .where(eq(wallets.userId, userId))
+        .for('update');
 
-      if (!wallet) throw new Error('Player wallet not found');
+      if (!wallet) {
+        throw new Error('Player wallet not found');
+      }
 
-      const beforeBalance = Number(wallet.realBalance);
-      const afterBalance = Number((beforeBalance + unclaimed).toFixed(4));
+      if (wallet.status && wallet.status !== 'ACTIVE') {
+        throw new Error(`Player wallet is ${wallet.status.toLowerCase()}`);
+      }
 
-      // 1. Credit wallet real balance
+      // 4. Fetch all SETTLED (unclaimed) commission entries for this beneficiary with row lock
+      const settledCommissions = await tx
+        .select()
+        .from(affiliateCommissions)
+        .where(
+          and(
+            eq(affiliateCommissions.beneficiaryUserId, userId),
+            eq(affiliateCommissions.status, 'SETTLED')
+          )
+        )
+        .for('update');
+
+      // Calculate total claimable commission using exact Scale-4 BigInt math
+      let totalClaimableScale4 = 0n;
+      for (const entry of settledCommissions) {
+        totalClaimableScale4 += toScale4(entry.commissionAmount);
+      }
+
+      // If no SETTLED entries, check node.unclaimedCommission as fallback for accrued amounts
+      const nodeUnclaimedScale4 = toScale4(node.unclaimedCommission);
+      if (totalClaimableScale4 === 0n && nodeUnclaimedScale4 > 0n) {
+        totalClaimableScale4 = nodeUnclaimedScale4;
+      }
+
+      if (totalClaimableScale4 <= 0n) {
+        throw new Error('No unclaimed commissions available');
+      }
+
+      const claimedAmountStr = fromScale4(totalClaimableScale4);
+
+      // 5. Calculate new real wallet balance with exact Scale-4 BigInt math
+      const beforeBalanceScale4 = toScale4(wallet.realBalance);
+      const afterBalanceScale4 = beforeBalanceScale4 + totalClaimableScale4;
+      const beforeBalanceStr = fromScale4(beforeBalanceScale4);
+      const afterBalanceStr = fromScale4(afterBalanceScale4);
+
+      // 6. Credit wallet real balance with atomic version increment
       await tx
         .update(wallets)
         .set({
-          realBalance: afterBalance.toString(),
+          realBalance: afterBalanceStr,
           version: sql`${wallets.version} + 1`,
           updatedAt: new Date()
         })
         .where(eq(wallets.id, wallet.id));
 
-      // 2. Reset unclaimed commission
+      // 7. Update unclaimed commission on affiliate node
+      const remainingUnclaimedScale4 = nodeUnclaimedScale4 > totalClaimableScale4
+        ? nodeUnclaimedScale4 - totalClaimableScale4
+        : 0n;
+      const remainingUnclaimedStr = fromScale4(remainingUnclaimedScale4);
+
       await tx
         .update(affiliateNodes)
         .set({
-          unclaimedCommission: '0.0000',
+          unclaimedCommission: remainingUnclaimedStr,
           updatedAt: new Date()
         })
         .where(eq(affiliateNodes.userId, userId));
 
-      // 3. Mark commissions as CLAIMED
-      await tx
-        .update(affiliateCommissions)
-        .set({ status: 'CLAIMED' })
-        .where(eq(affiliateCommissions.beneficiaryUserId, userId));
+      // 8. Mark exact SETTLED commission entries as CLAIMED
+      if (settledCommissions.length > 0) {
+        const settledIds = settledCommissions.map((c) => c.id);
+        await tx
+          .update(affiliateCommissions)
+          .set({ status: 'CLAIMED' })
+          .where(inArray(affiliateCommissions.id, settledIds));
+      }
 
-      // 4. Record double-entry transaction in ledger
-      const txId = `COMM_CLAIM_${Date.now()}`;
+      // 9. Insert double-entry ledger transaction
       await tx.insert(transactions).values({
         providerId: 'GAMEPLAY365_CORE',
-        transactionId: txId,
+        transactionId: deterministicTxId,
         userId: userId,
         walletId: wallet.id,
         gameId: 'AFFILIATE_COMMISSION_CLAIM',
         type: 'COMMISSION',
-        amount: unclaimed.toString(),
-        currency: wallet.currency,
-        beforeBalance: beforeBalance.toString(),
-        afterBalance: afterBalance.toString(),
+        amount: claimedAmountStr,
+        currency: wallet.currency || 'BDT',
+        beforeBalance: beforeBalanceStr,
+        afterBalance: afterBalanceStr,
         status: 'COMPLETED',
         metadata: {
-          claimedAmount: unclaimed,
+          claimedAmount: claimedAmountStr,
+          claimedEntriesCount: settledCommissions.length,
           timestamp: Date.now()
         },
         createdAt: new Date()
       });
 
       return {
-        claimedAmount: unclaimed,
-        newRealBalance: afterBalance,
-        transactionId: txId
+        claimedAmount: claimedAmountStr,
+        newRealBalance: afterBalanceStr,
+        transactionId: deterministicTxId
       };
     });
   }
@@ -337,10 +424,11 @@ export const getAffiliateSummaryHandler = async (req: Request, res: Response): P
 export const claimCommissionHandler = async (req: Request, res: Response): Promise<void> => {
   try {
     const { userId } = await resolveAuthUser(req, req.body?.userId);
-    const result = await AffiliateService.claimAffiliateCommission(userId);
+    const claimTxId = req.body?.claimTxId || req.body?.transactionId;
+    const result = await AffiliateService.claimAffiliateCommission(userId, claimTxId);
     res.json({ status: 'SUCCESS', data: result });
   } catch (err: any) {
-    const statusCode = err.statusCode || (err.message?.includes('not found') ? 404 : 400);
+    const statusCode = err.statusCode || (err.message?.includes('not found') ? 404 : (err.message?.includes('frozen') || err.message?.includes('inactive') ? 403 : 400));
     res.status(statusCode).json({ status: 'ERROR', message: err.message });
   }
 };
