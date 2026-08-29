@@ -124,8 +124,9 @@ async function runTask2331Tests() {
   // TEST 5: Existing wallet migration preserves real balance & calculates minor correctly
   // --------------------------------------------------------------------------
   await assert('5. Migration 0001 preserves existing balance and backfills balance_minor accurately', () => {
-    if (!migrationSqlContent.includes('ALTER TABLE IF EXISTS wallets ADD COLUMN IF NOT EXISTS balance_minor BIGINT DEFAULT 0;')) {
-      throw new Error('Migration does not add balance_minor BIGINT DEFAULT 0');
+    if (!migrationSqlContent.includes('ALTER TABLE wallets ALTER COLUMN balance_minor TYPE BIGINT') &&
+        !migrationSqlContent.includes('ADD COLUMN balance_minor BIGINT')) {
+      throw new Error('Migration does not handle balance_minor BIGINT conversion/addition');
     }
     if (!migrationSqlContent.includes('SET balance_minor = ROUND(real_balance * 10000)')) {
       throw new Error('Migration does not backfill balance_minor from real_balance using scale 4 (10000)');

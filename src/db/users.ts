@@ -44,7 +44,7 @@ export async function getOrCreateUser(uid: string, email: string, username?: str
         lockedBalance: '0.0000',
         commissionBalance: '0.0000',
         balanceMinor: 0n,
-        version: 1,
+        version: 1n,
         status: 'ACTIVE',
       });
     }

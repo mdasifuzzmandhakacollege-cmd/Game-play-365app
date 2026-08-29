@@ -7,7 +7,7 @@
 import { Request, Response } from 'express';
 import { db } from '../../db/index';
 import { paymentRequests, wallets, transactions, users } from '../../db/schema';
-import { eq, desc } from 'drizzle-orm';
+import { eq, desc, sql } from 'drizzle-orm';
 import { PaymentMethodType } from '../types/seamless';
 
 export class PaymentController {
@@ -89,7 +89,7 @@ export class PaymentController {
           .update(wallets)
           .set({
             realBalance: newBal,
-            version: wallet.version + 1,
+            version: sql`${wallets.version} + 1`,
             updatedAt: new Date()
           })
           .where(eq(wallets.id, wallet.id));
@@ -164,7 +164,7 @@ export class PaymentController {
         .update(wallets)
         .set({
           realBalance: newBal,
-          version: wallet.version + 1,
+          version: sql`${wallets.version} + 1`,
           updatedAt: new Date()
         })
         .where(eq(wallets.id, wallet.id));

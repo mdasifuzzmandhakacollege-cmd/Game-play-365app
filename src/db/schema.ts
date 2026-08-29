@@ -60,7 +60,7 @@ export const wallets = pgTable('wallets', {
   lockedBalance: numeric('locked_balance', { precision: 18, scale: 4 }).default('0.0000').notNull(),
   commissionBalance: numeric('commission_balance', { precision: 18, scale: 4 }).default('0.0000').notNull(),
   balanceMinor: bigint('balance_minor', { mode: 'bigint' }).default(0n).notNull(),
-  version: integer('version').default(1).notNull(),
+  version: bigint('version', { mode: 'bigint' }).default(1n).notNull(),
   status: varchar('status', { length: 32 }).default('ACTIVE').notNull(),
   createdAt: timestamp('created_at', { withTimezone: true }).defaultNow().notNull(),
   updatedAt: timestamp('updated_at', { withTimezone: true }).defaultNow().notNull(),
