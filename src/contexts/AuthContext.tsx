@@ -255,8 +255,8 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
   const isAdmin = Boolean(
     firestoreUser?.isAdmin ||
     firestoreUser?.role === 'ADMIN' ||
-    user?.email === 'md.asifuzzman.dhakacollege@gmail.com' ||
-    (firestoreUser?.email && firestoreUser.email === 'md.asifuzzman.dhakacollege@gmail.com')
+    (firestoreUser?.role && String(firestoreUser.role).toUpperCase() === 'OPERATOR') ||
+    (firestoreUser?.role && String(firestoreUser.role).toUpperCase() === 'SUPER_ADMIN')
   );
 
   const userRole: 'ADMIN' | 'PLAYER' | 'VIP' = isAdmin

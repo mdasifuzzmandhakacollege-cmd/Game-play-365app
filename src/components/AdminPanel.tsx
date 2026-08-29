@@ -103,17 +103,6 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({ onStateMutated, onClose,
     const verifyFirestoreRole = async () => {
       setRoleVerifying(true);
       const targetUid = authUser?.uid || currentUser?.id;
-      const targetEmail = authUser?.email || currentUser?.email || '';
-
-      // Super admin owner whitelist
-      if (targetEmail === 'md.asifuzzman.dhakacollege@gmail.com') {
-        if (!isCancelled) {
-          setIsAuthorized(true);
-          setVerifiedRole('SUPER_ADMIN');
-          setRoleVerifying(false);
-        }
-        return;
-      }
 
       if (!targetUid) {
         if (!isCancelled) {
@@ -125,6 +114,31 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({ onStateMutated, onClose,
       }
 
       try {
+        // Try server-side authoritative verification first if token exists
+        if (authUser) {
+          try {
+            const idToken = await authUser.getIdToken();
+            const res = await fetch('/api/auth/verify-role', {
+              headers: {
+                Authorization: `Bearer ${idToken}`
+              }
+            });
+            if (res.ok) {
+              const data = await res.json();
+              if (data.isAdmin || data.isOperator) {
+                if (!isCancelled) {
+                  setIsAuthorized(true);
+                  setVerifiedRole(data.role || 'ADMIN');
+                  setRoleVerifying(false);
+                }
+                return;
+              }
+            }
+          } catch (e) {
+            console.warn('Server role verification notice:', e);
+          }
+        }
+
         let isDocAdmin = false;
         let roleFound = 'PLAYER';
 
@@ -134,13 +148,11 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({ onStateMutated, onClose,
           if (userDocSnap.exists()) {
             const data = userDocSnap.data();
             roleFound = (data.role || (data.isAdmin ? 'ADMIN' : 'PLAYER')).toUpperCase();
-            const userEmail = data.email || '';
             if (
               data.isAdmin === true ||
               roleFound === 'ADMIN' ||
               roleFound === 'OPERATOR' ||
-              roleFound === 'SUPER_ADMIN' ||
-              userEmail === 'md.asifuzzman.dhakacollege@gmail.com'
+              roleFound === 'SUPER_ADMIN'
             ) {
               isDocAdmin = true;
             }
@@ -165,7 +177,7 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({ onStateMutated, onClose,
         // 3. Fallback to cached authenticated Firestore profile if offline or local
         if (!isDocAdmin && firestoreUser) {
           const fsRole = (firestoreUser.role || '').toUpperCase();
-          if (firestoreUser.isAdmin || fsRole === 'ADMIN' || fsRole === 'OPERATOR') {
+          if (firestoreUser.isAdmin || fsRole === 'ADMIN' || fsRole === 'OPERATOR' || fsRole === 'SUPER_ADMIN') {
             isDocAdmin = true;
             roleFound = fsRole || 'ADMIN';
           }

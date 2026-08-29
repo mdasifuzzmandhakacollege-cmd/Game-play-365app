@@ -113,8 +113,7 @@ class FirebaseFirestoreService {
   /**
    * Helper to check if a user possesses elevated Admin role from Firestore
    */
-  public async isUserAdminRole(userId: string, email?: string | null): Promise<boolean> {
-    if (email === 'md.asifuzzman.dhakacollege@gmail.com') return true;
+  public async isUserAdminRole(userId: string, _email?: string | null): Promise<boolean> {
     try {
       // Check /admins/{userId} document
       const adminDoc = await getDoc(doc(db, 'admins', userId));
@@ -124,7 +123,8 @@ class FirebaseFirestoreService {
       const userDoc = await getDoc(doc(db, 'users', userId));
       if (userDoc.exists()) {
         const d = userDoc.data();
-        return d.role === 'ADMIN' || d.role === 'OPERATOR' || d.isAdmin === true || d.email === 'md.asifuzzman.dhakacollege@gmail.com';
+        const role = String(d.role || '').toUpperCase();
+        return role === 'ADMIN' || role === 'OPERATOR' || role === 'SUPER_ADMIN' || d.isAdmin === true;
       }
     } catch (e) {
       console.warn('Admin check notice:', e);
@@ -153,7 +153,8 @@ class FirebaseFirestoreService {
         if (snap.exists()) {
           const data = snap.data();
           const email = data.email || auth.currentUser?.email || '';
-          const isElevatedAdmin = data.role === 'ADMIN' || data.role === 'OPERATOR' || data.isAdmin === true || email === 'md.asifuzzman.dhakacollege@gmail.com';
+          const roleVal = String(data.role || '').toUpperCase();
+          const isElevatedAdmin = roleVal === 'ADMIN' || roleVal === 'OPERATOR' || roleVal === 'SUPER_ADMIN' || data.isAdmin === true;
 
           const userEntity: UserEntity = {
             id: userId,
@@ -190,8 +191,6 @@ class FirebaseFirestoreService {
     photoURL?: string | null;
     phoneNumber?: string | null;
   }, preferredCurrency: 'BDT' | 'USD' = 'BDT'): Promise<UserEntity> {
-    const isSuperAdminEmail = firebaseUser.email === 'md.asifuzzman.dhakacollege@gmail.com';
-
     if (!this.isUserAuthorized(firebaseUser.uid)) {
       // Local fallback for guest or unauthenticated user
       const existing = seamlessEngine.getUsers().find((u) => u.id === firebaseUser.uid);
@@ -204,8 +203,8 @@ class FirebaseFirestoreService {
         currency: preferredCurrency,
         status: 'ACTIVE',
         country_code: preferredCurrency === 'USD' ? 'US' : 'BD',
-        role: isSuperAdminEmail ? 'ADMIN' : 'PLAYER',
-        isAdmin: isSuperAdminEmail,
+        role: 'PLAYER',
+        isAdmin: false,
         created_at: now,
         updated_at: now
       };
@@ -221,21 +220,8 @@ class FirebaseFirestoreService {
       if (snap.exists()) {
         const data = snap.data();
         const email = data.email || firebaseUser.email || '';
-        const isElevatedAdmin = isSuperAdminEmail || data.role === 'ADMIN' || data.role === 'OPERATOR' || data.isAdmin === true || email === 'md.asifuzzman.dhakacollege@gmail.com';
-
-        // Auto bootstrap admin doc if owner email
-        if (isSuperAdminEmail) {
-          try {
-            await setDoc(doc(db, 'admins', firebaseUser.uid), {
-              id: firebaseUser.uid,
-              email: firebaseUser.email,
-              role: 'SUPER_ADMIN',
-              assignedAt: now
-            }, { merge: true });
-          } catch {
-            // Ignore if already set
-          }
-        }
+        const roleVal = String(data.role || '').toUpperCase();
+        const isElevatedAdmin = roleVal === 'ADMIN' || roleVal === 'OPERATOR' || roleVal === 'SUPER_ADMIN' || data.isAdmin === true;
 
         const userEntity: UserEntity = {
           id: firebaseUser.uid,
@@ -267,8 +253,8 @@ class FirebaseFirestoreService {
           currency: preferredCurrency,
           vipTier: 'VIP 1',
           vipPoints: 0,
-          role: isSuperAdminEmail ? 'ADMIN' : 'PLAYER',
-          isAdmin: isSuperAdminEmail,
+          role: 'PLAYER',
+          isAdmin: false,
           affiliateCode: `REF_${firebaseUser.uid.slice(0, 6).toUpperCase()}`,
           photoURL: firebaseUser.photoURL || '',
           createdAt: now,
@@ -276,19 +262,6 @@ class FirebaseFirestoreService {
         };
 
         await setDoc(userDocRef, initialUserData);
-
-        if (isSuperAdminEmail) {
-          try {
-            await setDoc(doc(db, 'admins', firebaseUser.uid), {
-              id: firebaseUser.uid,
-              email: firebaseUser.email,
-              role: 'SUPER_ADMIN',
-              assignedAt: now
-            });
-          } catch {
-            // Ignore
-          }
-        }
         
         // Initialize Real-time Wallet with 0.00 initial balance (Deposit required for gameplay)
         await this.ensureUserWallet(firebaseUser.uid, preferredCurrency, 0);
@@ -301,8 +274,8 @@ class FirebaseFirestoreService {
           status: 'ACTIVE',
           country_code: preferredCurrency === 'USD' ? 'US' : 'BD',
           email: firebaseUser.email || '',
-          role: isSuperAdminEmail ? 'ADMIN' : 'PLAYER',
-          isAdmin: isSuperAdminEmail,
+          role: 'PLAYER',
+          isAdmin: false,
           created_at: now,
           updated_at: now
         };

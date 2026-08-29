@@ -18,7 +18,8 @@ import { getAffiliateSummaryHandler, claimCommissionHandler, AffiliateService } 
 import { getVipDetailsHandler, claimVipBonusHandler } from './controllers/vipController';
 import { getPromotionDetailsHandler, claimCheckInHandler, spinWheelHandler } from './controllers/promotionController';
 import { createProviderGatewayRouter } from './controllers/providerGatewayController';
-import { requireAuth } from '../middleware/auth.js';
+import { requireAuth, requireAdmin, getAuthoritativeUserRole, AuthRequest } from '../middleware/auth.js';
+
 
 dotenv.config();
 
@@ -89,7 +90,62 @@ app.use('/api/v2/payment', paymentV2Router);
 // ----------------------------------------------------------------------------
 // 6. Multi-Tier Affiliate, VIP & Promotion Routes
 // ----------------------------------------------------------------------------
+const authRouter = express.Router();
+authRouter.get('/verify-role', requireAuth, async (req: AuthRequest, res: Response) => {
+  try {
+    const user = req.user!;
+    const authoritativeRole = await getAuthoritativeUserRole(user);
+    const isPrivileged = ['ADMIN', 'OPERATOR', 'SUPER_ADMIN'].includes(authoritativeRole);
+    res.json({
+      success: true,
+      uid: user.uid,
+      email: user.email || null,
+      role: authoritativeRole,
+      isPrivileged
+    });
+  } catch (err: any) {
+    console.error('[Auth verify-role error]:', err);
+    res.status(500).json({ success: false, error: err.message || 'Role verification failed' });
+  }
+});
+app.use('/api/auth', authRouter);
+
+// ----------------------------------------------------------------------------
+// 6b. Privileged Administration & Developer Tool Routes (Protected by requireAdmin)
+// ----------------------------------------------------------------------------
+const adminRouter = express.Router();
+adminRouter.use(requireAdmin);
+
+adminRouter.get('/verify', (req: AuthRequest, res: Response) => {
+  res.json({
+    success: true,
+    authorized: true,
+    uid: req.user?.uid,
+    role: req.userRole
+  });
+});
+
+adminRouter.get('/stats', (req: AuthRequest, res: Response) => {
+  res.json({
+    success: true,
+    authorized: true,
+    role: req.userRole,
+    timestamp: Date.now(),
+    system: {
+      status: 'OPERATIONAL',
+      uptime: process.uptime(),
+      activeNodes: 1
+    }
+  });
+});
+
+adminRouter.get('/requests', (req: AuthRequest, res: Response) => paymentController.getRequests(req, res));
+adminRouter.get('/destination-pool', (req: AuthRequest, res: Response) => paymentGatewayController.getDestinationPool(req, res));
+
+app.use('/api/admin', adminRouter);
+
 const affiliateRouter = express.Router();
+
 affiliateRouter.use(requireAuth);
 affiliateRouter.get('/summary', getAffiliateSummaryHandler);
 affiliateRouter.post('/claim', claimCommissionHandler);

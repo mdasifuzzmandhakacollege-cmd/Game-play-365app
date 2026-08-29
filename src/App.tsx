@@ -89,7 +89,8 @@ export type WorkbenchSubTabType =
  * Fallback component rendered when an unrecognized tab state is encountered
  */
 interface FallbackTabStateProps {
-  invalidTab: string;
+  invalidTab?: string;
+  isAdmin?: boolean;
   onReset: () => void;
   onOpenCashier: () => void;
   onOpenWorkbench: () => void;
@@ -97,6 +98,7 @@ interface FallbackTabStateProps {
 
 const FallbackTabState: React.FC<FallbackTabStateProps> = ({
   invalidTab,
+  isAdmin,
   onReset,
   onOpenCashier,
   onOpenWorkbench
@@ -138,13 +140,15 @@ const FallbackTabState: React.FC<FallbackTabStateProps> = ({
           <span>ক্যাশিয়ার (Cashier)</span>
         </button>
 
-        <button
-          onClick={onOpenWorkbench}
-          className="px-6 py-3 rounded-xl bg-slate-800 hover:bg-slate-700 text-cyan-300 border border-cyan-500/30 font-bold text-sm flex items-center space-x-2 transition-all cursor-pointer font-mono"
-        >
-          <Terminal className="w-4 h-4" />
-          <span>B2B Workbench</span>
-        </button>
+        {isAdmin && (
+          <button
+            onClick={onOpenWorkbench}
+            className="px-6 py-3 rounded-xl bg-slate-800 hover:bg-slate-700 text-cyan-300 border border-cyan-500/30 font-bold text-sm flex items-center space-x-2 transition-all cursor-pointer font-mono"
+          >
+            <Terminal className="w-4 h-4" />
+            <span>B2B Workbench</span>
+          </button>
+        )}
       </div>
     </div>
   );
@@ -233,6 +237,14 @@ function Playall365InnerApp() {
       'apiRate'
     ].includes(activeTab);
   }, [activeTab]);
+
+  // Route Protection: Prevent unauthorized users from staying on admin/audit/workbench tabs
+  useEffect(() => {
+    const isPrivilegedTab = activeTab === 'admin' || activeTab === 'audit' || isWorkbenchTab;
+    if (isPrivilegedTab && !isAdmin) {
+      setActiveTab('lobby');
+    }
+  }, [activeTab, isAdmin, isWorkbenchTab, setActiveTab]);
 
   // 1. If not authenticated, display the dedicated Registration & Auth Landing Page with instant Lobby return option
   if (!isAuthenticated) {
@@ -461,8 +473,20 @@ function Playall365InnerApp() {
       );
     }
 
-    // 7.1 ROLE-BASED OPERATOR ADMIN PANEL (Strictly Guarded with Firestore User Doc Check)
+    // 7.1 ROLE-BASED OPERATOR ADMIN PANEL (Strictly Guarded with Server & Firestore Check)
     if (activeTab === 'admin') {
+      if (!isAdmin) {
+        return (
+          <GameLobby
+            currentUser={currentUser}
+            currentWallet={currentWallet}
+            currency={currency}
+            onLaunchGame={launchGame}
+            onOpenCashier={() => setActiveTab('cashier')}
+            onNavigateTab={setActiveTab}
+          />
+        );
+      }
       return (
         <AdminPanel
           onStateMutated={refreshState}
@@ -474,6 +498,18 @@ function Playall365InnerApp() {
 
     // 7.2 CRYPTOGRAPHIC TRANSACTION AUDIT LOG
     if (activeTab === 'audit') {
+      if (!isAdmin) {
+        return (
+          <GameLobby
+            currentUser={currentUser}
+            currentWallet={currentWallet}
+            currency={currency}
+            onLaunchGame={launchGame}
+            onOpenCashier={() => setActiveTab('cashier')}
+            onNavigateTab={setActiveTab}
+          />
+        );
+      }
       return (
         <TransactionAuditLog
           onNavigateToLedger={() => {
@@ -486,6 +522,18 @@ function Playall365InnerApp() {
 
     // 8. B2B SEAMLESS WORKBENCH (Developer & Architect View)
     if (isWorkbenchTab) {
+      if (!isAdmin) {
+        return (
+          <GameLobby
+            currentUser={currentUser}
+            currentWallet={currentWallet}
+            currency={currency}
+            onLaunchGame={launchGame}
+            onOpenCashier={() => setActiveTab('cashier')}
+            onNavigateTab={setActiveTab}
+          />
+        );
+      }
       return (
         <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-6 space-y-6">
           {/* Workbench Navigation Header */}
@@ -591,6 +639,7 @@ function Playall365InnerApp() {
     return (
       <FallbackTabState
         invalidTab={String(activeTab)}
+        isAdmin={isAdmin}
         onReset={() => setActiveTab('lobby')}
         onOpenCashier={() => setActiveTab('cashier')}
         onOpenWorkbench={() => setActiveTab('workbench')}

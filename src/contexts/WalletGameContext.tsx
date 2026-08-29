@@ -204,8 +204,8 @@ export const WalletGameProvider: React.FC<{ children: React.ReactNode }> = ({ ch
     authIsAdmin ||
     currentUser.isAdmin ||
     currentUser.role === 'ADMIN' ||
-    authUser?.email === 'md.asifuzzman.dhakacollege@gmail.com' ||
-    (currentUser.email && currentUser.email === 'md.asifuzzman.dhakacollege@gmail.com')
+    (currentUser.role && String(currentUser.role).toUpperCase() === 'OPERATOR') ||
+    (currentUser.role && String(currentUser.role).toUpperCase() === 'SUPER_ADMIN')
   );
 
   const userRole: 'ADMIN' | 'PLAYER' | 'VIP' = isAdmin

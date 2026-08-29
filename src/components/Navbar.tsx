@@ -186,53 +186,57 @@ export const Navbar: React.FC<NavbarProps> = ({
                 <span>Offers</span>
               </button>
 
-              <button
-                id="play369-nav-admin"
-                onClick={() => {
-                  audioEngine.playClick();
-                  setActiveTab('admin');
-                }}
-                className={`min-h-[48px] px-3.5 rounded-xl flex items-center space-x-1.5 transition-all cursor-pointer ${
-                  activeTab === 'admin'
-                    ? 'bg-gradient-to-r from-amber-500 to-yellow-500 text-slate-950 font-black shadow-md shadow-amber-500/20'
-                    : 'text-amber-400 hover:text-amber-300 hover:bg-amber-500/10 border border-amber-500/20'
-                }`}
-              >
-                <ShieldCheck className="w-4 h-4" />
-                <span>Admin</span>
-              </button>
+              {isAdmin && (
+                <>
+                  <button
+                    id="play369-nav-admin"
+                    onClick={() => {
+                      audioEngine.playClick();
+                      setActiveTab('admin');
+                    }}
+                    className={`min-h-[48px] px-3.5 rounded-xl flex items-center space-x-1.5 transition-all cursor-pointer ${
+                      activeTab === 'admin'
+                        ? 'bg-gradient-to-r from-amber-500 to-yellow-500 text-slate-950 font-black shadow-md shadow-amber-500/20'
+                        : 'text-amber-400 hover:text-amber-300 hover:bg-amber-500/10 border border-amber-500/20'
+                    }`}
+                  >
+                    <ShieldCheck className="w-4 h-4" />
+                    <span>Admin</span>
+                  </button>
 
-              <button
-                id="play369-nav-audit"
-                onClick={() => {
-                  audioEngine.playClick();
-                  setActiveTab('audit');
-                }}
-                className={`min-h-[48px] px-3.5 rounded-xl flex items-center space-x-1.5 transition-all cursor-pointer ${
-                  activeTab === 'audit'
-                    ? 'bg-emerald-500 text-slate-950 font-black shadow-md shadow-emerald-500/20'
-                    : 'text-emerald-400 hover:text-emerald-300 hover:bg-emerald-500/10 border border-emerald-500/20'
-                }`}
-              >
-                <Fingerprint className="w-4 h-4" />
-                <span>Audit</span>
-              </button>
+                  <button
+                    id="play369-nav-audit"
+                    onClick={() => {
+                      audioEngine.playClick();
+                      setActiveTab('audit');
+                    }}
+                    className={`min-h-[48px] px-3.5 rounded-xl flex items-center space-x-1.5 transition-all cursor-pointer ${
+                      activeTab === 'audit'
+                        ? 'bg-emerald-500 text-slate-950 font-black shadow-md shadow-emerald-500/20'
+                        : 'text-emerald-400 hover:text-emerald-300 hover:bg-emerald-500/10 border border-emerald-500/20'
+                    }`}
+                  >
+                    <Fingerprint className="w-4 h-4" />
+                    <span>Audit</span>
+                  </button>
 
-              <button
-                id="play369-nav-workbench"
-                onClick={() => {
-                  audioEngine.playClick();
-                  setActiveTab('workbench');
-                }}
-                className={`min-h-[48px] px-3.5 rounded-xl flex items-center space-x-1.5 transition-all cursor-pointer ${
-                  ['workbench', 'latency', 'stress', 'hmac', 'ledger', 'architecture', 'code', 'deadlock'].includes(activeTab)
-                    ? 'bg-slate-800 text-cyan-400 border border-cyan-500/40 font-bold'
-                    : 'text-slate-400 hover:text-slate-200 hover:bg-slate-800/60'
-                }`}
-              >
-                <Terminal className="w-4 h-4" />
-                <span>Workbench</span>
-              </button>
+                  <button
+                    id="play369-nav-workbench"
+                    onClick={() => {
+                      audioEngine.playClick();
+                      setActiveTab('workbench');
+                    }}
+                    className={`min-h-[48px] px-3.5 rounded-xl flex items-center space-x-1.5 transition-all cursor-pointer ${
+                      ['workbench', 'latency', 'stress', 'hmac', 'ledger', 'architecture', 'code', 'deadlock'].includes(activeTab)
+                        ? 'bg-slate-800 text-cyan-400 border border-cyan-500/40 font-bold'
+                        : 'text-slate-400 hover:text-slate-200 hover:bg-slate-800/60'
+                    }`}
+                  >
+                    <Terminal className="w-4 h-4" />
+                    <span>Workbench</span>
+                  </button>
+                </>
+              )}
             </nav>
           </div>
 
