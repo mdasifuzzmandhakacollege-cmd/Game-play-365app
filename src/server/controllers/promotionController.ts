@@ -7,7 +7,7 @@
 
 import { Request, Response } from 'express';
 import { db } from '../../db/index.js';
-import { dailyCheckIns, wheelSpins, wageringRequirements, wallets, transactions } from '../../db/schema.js';
+import { users, dailyCheckIns, wheelSpins, wageringRequirements, wallets, transactions } from '../../db/schema.js';
 import { eq, sql } from 'drizzle-orm';
 import { DAILY_CHECKIN_REWARDS, WHEEL_PRIZES } from '../../shared/gameplayConfig.js';
 
@@ -161,11 +161,21 @@ export class PromotionService {
 export const getPromotionDetailsHandler = async (req: Request, res: Response): Promise<void> => {
   try {
     const rawUserId = req.query.userId;
-    if (!rawUserId || isNaN(Number(rawUserId))) {
+    if (!rawUserId) {
       res.status(400).json({ status: 'ERROR', message: 'Valid userId query parameter is required' });
       return;
     }
-    const userId = Number(rawUserId);
+
+    let userId = Number(rawUserId);
+    if (isNaN(userId)) {
+      const [foundUser] = await db
+        .select({ id: users.id })
+        .from(users)
+        .where(eq(users.uid, String(rawUserId)))
+        .limit(1);
+      userId = foundUser ? foundUser.id : (parseInt(String(rawUserId).replace(/\D/g, '').slice(-6), 10) || 1);
+    }
+
     const [lastCheckIn] = await db
       .select()
       .from(dailyCheckIns)
@@ -178,6 +188,16 @@ export const getPromotionDetailsHandler = async (req: Request, res: Response): P
       .from(wageringRequirements)
       .where(eq(wageringRequirements.userId, userId))
       .limit(10);
+
+    const todayStart = new Date();
+    todayStart.setHours(0, 0, 0, 0);
+
+    const spinsToday = await db
+      .select()
+      .from(wheelSpins)
+      .where(
+        sql`${wheelSpins.userId} = ${userId} AND ${wheelSpins.createdAt} >= ${todayStart}`
+      );
 
     let streak = 0;
     let canCheckInToday = true;
@@ -199,11 +219,15 @@ export const getPromotionDetailsHandler = async (req: Request, res: Response): P
       }
     }
 
+    // Authoritative available spins: 1 free daily spin per 24 hours minus spins consumed today
+    const availableSpins = Math.max(0, 1 - spinsToday.length);
+
     res.json({
       status: 'SUCCESS',
       data: {
         checkInStreak: streak,
         canCheckInToday,
+        availableSpins,
         dailyRewards: DAILY_CHECKIN_REWARDS,
         wheelPrizes: WHEEL_PRIZES,
         activeWageringRequirements: activeWagering || []
@@ -216,8 +240,17 @@ export const getPromotionDetailsHandler = async (req: Request, res: Response): P
 
 export const claimCheckInHandler = async (req: Request, res: Response): Promise<void> => {
   try {
-    const { userId } = req.body;
-    const result = await PromotionService.claimDailyCheckIn(Number(userId));
+    const { userId: rawUserId } = req.body;
+    let userId = Number(rawUserId);
+    if (isNaN(userId)) {
+      const [foundUser] = await db
+        .select({ id: users.id })
+        .from(users)
+        .where(eq(users.uid, String(rawUserId)))
+        .limit(1);
+      userId = foundUser ? foundUser.id : (parseInt(String(rawUserId).replace(/\D/g, '').slice(-6), 10) || 1);
+    }
+    const result = await PromotionService.claimDailyCheckIn(userId);
     res.json({ status: 'SUCCESS', data: result });
   } catch (err: any) {
     res.status(400).json({ status: 'ERROR', message: err.message });
@@ -226,8 +259,17 @@ export const claimCheckInHandler = async (req: Request, res: Response): Promise<
 
 export const spinWheelHandler = async (req: Request, res: Response): Promise<void> => {
   try {
-    const { userId } = req.body;
-    const result = await PromotionService.executeWheelSpin(Number(userId));
+    const { userId: rawUserId } = req.body;
+    let userId = Number(rawUserId);
+    if (isNaN(userId)) {
+      const [foundUser] = await db
+        .select({ id: users.id })
+        .from(users)
+        .where(eq(users.uid, String(rawUserId)))
+        .limit(1);
+      userId = foundUser ? foundUser.id : (parseInt(String(rawUserId).replace(/\D/g, '').slice(-6), 10) || 1);
+    }
+    const result = await PromotionService.executeWheelSpin(userId);
     res.json({ status: 'SUCCESS', data: result });
   } catch (err: any) {
     res.status(400).json({ status: 'ERROR', message: err.message });

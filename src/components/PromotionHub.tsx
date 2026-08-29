@@ -6,7 +6,7 @@
  * and Instant Bonus/Wagering Ledger integration.
  */
 
-import React, { useState } from 'react';
+import React, { useState, useEffect, useCallback } from 'react';
 import {
   Gift,
   Sparkles,
@@ -266,99 +266,139 @@ export const PromotionHub: React.FC<PromotionHubProps> = ({
   const [selectedOffer, setSelectedOffer] = useState<PromoOffer | null>(null);
   const [claimingOfferId, setClaimingOfferId] = useState<string | null>(null);
 
-  // 7-Day Streak State (Real, per-user state with 0 initial streak for new users)
-  const [currentStreak, setCurrentStreak] = useState<number>(() => {
-    try {
-      const stored = localStorage.getItem(`CHECKIN_STREAK_${currentUser.id}`);
-      return stored ? parseInt(stored, 10) : 0;
-    } catch {
-      return 0;
-    }
-  });
-  const [hasCheckedInToday, setHasCheckedInToday] = useState<boolean>(() => {
-    try {
-      const lastCheckIn = localStorage.getItem(`CHECKIN_DATE_${currentUser.id}`);
-      if (!lastCheckIn) return false;
-      const lastDate = new Date(parseInt(lastCheckIn, 10));
-      const now = new Date();
-      return lastDate.toDateString() === now.toDateString();
-    } catch {
-      return false;
-    }
-  });
+  // 7-Day Streak & Wheel State (Authoritative from Server / Database)
+  const [currentStreak, setCurrentStreak] = useState<number>(0);
+  const [hasCheckedInToday, setHasCheckedInToday] = useState<boolean>(false);
   const [checkInLoading, setCheckInLoading] = useState<boolean>(false);
 
-  // Wheel Spin State (Starts at 0 for new users unless granted)
+  // Wheel Spin State (Authoritative from Server / Database)
   const [spinning, setSpinning] = useState<boolean>(false);
   const [wheelRotation, setWheelRotation] = useState<number>(0);
-  const [spinsRemaining, setSpinsRemaining] = useState<number>(() => {
-    try {
-      const stored = localStorage.getItem(`SPINS_${currentUser.id}`);
-      return stored ? parseInt(stored, 10) : 0;
-    } catch {
-      return 0;
-    }
-  });
+  const [spinsRemaining, setSpinsRemaining] = useState<number>(0);
   const [wonPrize, setWonPrize] = useState<typeof WHEEL_PRIZES[0] | null>(null);
 
-  // Handle Daily Check In
-  const handleCheckIn = () => {
-    if (hasCheckedInToday) return;
+  // Load Authoritative State from Server Promotion API
+  const fetchPromotionState = useCallback(async () => {
+    try {
+      const res = await fetch(`/api/promo/details?userId=${encodeURIComponent(currentUser.id)}`);
+      if (res.ok) {
+        const json = await res.json();
+        if (json.status === 'SUCCESS' && json.data) {
+          setCurrentStreak(json.data.checkInStreak ?? 0);
+          setHasCheckedInToday(!json.data.canCheckInToday);
+          setSpinsRemaining(json.data.availableSpins ?? 0);
+        }
+      }
+    } catch (err) {
+      console.warn('Unable to fetch server promo details:', err);
+    }
+  }, [currentUser.id]);
+
+  useEffect(() => {
+    fetchPromotionState();
+  }, [fetchPromotionState]);
+
+  // Handle Daily Check In (Server-Authoritative)
+  const handleCheckIn = async () => {
+    if (hasCheckedInToday || checkInLoading) return;
     setCheckInLoading(true);
     soundEngine.playClick(900);
 
-    setTimeout(() => {
+    try {
+      const res = await fetch('/api/promo/checkin', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ userId: currentUser.id })
+      });
+
+      if (res.ok) {
+        const json = await res.json();
+        if (json.status === 'SUCCESS' && json.data) {
+          const { streakDay, rewardAmount } = json.data;
+          setCurrentStreak(streakDay);
+          setHasCheckedInToday(true);
+
+          seamlessEngine.topUpWallet(currentUser.id, currentUser.currency, rewardAmount);
+
+          notificationService.pushNotification(currentUser.id, {
+            userId: currentUser.id,
+            title: '🎁 ডেইলি স্ট্রিক রিওয়ার্ড ক্লেইম!',
+            message: `ডে ${streakDay} ডেইলি চেক-ইন বোনাস ৳${rewardAmount} সফলভাবে ওয়ালেটে যোগ হয়েছে!`,
+            type: 'BONUS_UNLOCKED',
+            amount: rewardAmount,
+            currency: currentUser.currency as 'BDT' | 'USD',
+            isRead: false,
+            actionTab: 'promo'
+          });
+
+          soundEngine.playWinChime();
+          showToast(`অভিনন্দন! ডে ${streakDay} বোনাস ৳${rewardAmount} যুক্ত হয়েছে!`);
+          onRewardClaimed();
+          refreshState();
+          await fetchPromotionState();
+          return;
+        }
+      }
+
+      const errJson = await res.json().catch(() => ({}));
+      if (errJson.message) {
+        showToast(errJson.message);
+      }
+    } catch (err) {
+      console.warn('Server check-in fallback:', err);
       const nextDay = (currentStreak % 7) + 1;
       const rewardConfig = DAILY_CHECKIN_REWARDS.find((r) => r.day === nextDay) || DAILY_CHECKIN_REWARDS[0];
-
       seamlessEngine.topUpWallet(currentUser.id, currentUser.currency, rewardConfig.reward);
       setCurrentStreak(nextDay);
       setHasCheckedInToday(true);
-      setCheckInLoading(false);
-
-      try {
-        localStorage.setItem(`CHECKIN_STREAK_${currentUser.id}`, nextDay.toString());
-        localStorage.setItem(`CHECKIN_DATE_${currentUser.id}`, Date.now().toString());
-      } catch (e) {
-        console.warn(e);
-      }
-
-      notificationService.pushNotification(currentUser.id, {
-        userId: currentUser.id,
-        title: '🎁 ডেইলি স্ট্রিক রিওয়ার্ড ক্লেইম!',
-        message: `ডে ${nextDay} ডেইলি চেক-ইন বোনাস ৳${rewardConfig.reward} সফলভাবে ওয়ালেটে যোগ হয়েছে!`,
-        type: 'BONUS_UNLOCKED',
-        amount: rewardConfig.reward,
-        currency: currentUser.currency as 'BDT' | 'USD',
-        isRead: false,
-        actionTab: 'promo'
-      });
-
-      soundEngine.playWinChime();
       showToast(`অভিনন্দন! ডে ${nextDay} বোনাস ৳${rewardConfig.reward} যুক্ত হয়েছে!`);
       onRewardClaimed();
-    }, 700);
+      refreshState();
+    } finally {
+      setCheckInLoading(false);
+    }
   };
 
-  // Handle Wheel Spin
-  const handleSpinWheel = () => {
+  // Handle Wheel Spin (Server-Authoritative RNG & Ledger Credit)
+  const handleSpinWheel = async () => {
     if (spinning || spinsRemaining <= 0) return;
     setSpinning(true);
     setWonPrize(null);
     soundEngine.playClick(1000);
 
-    const prizeIndex = Math.floor(Math.random() * WHEEL_PRIZES.length);
-    const selectedPrize = WHEEL_PRIZES[prizeIndex];
+    let serverPrize: typeof WHEEL_PRIZES[0] | null = null;
+
+    try {
+      const res = await fetch('/api/promo/spin', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ userId: currentUser.id })
+      });
+
+      if (res.ok) {
+        const json = await res.json();
+        if (json.status === 'SUCCESS' && json.data?.prize) {
+          serverPrize = json.data.prize;
+        }
+      }
+    } catch (e) {
+      console.warn('Wheel spin server call fallback:', e);
+    }
+
+    const prizeIndex = serverPrize
+      ? WHEEL_PRIZES.findIndex((p) => p.label === serverPrize?.label)
+      : Math.floor(Math.random() * WHEEL_PRIZES.length);
+    const selectedPrize = WHEEL_PRIZES[prizeIndex >= 0 ? prizeIndex : 0];
 
     const extraSpins = 5 * 360;
     const sliceAngle = 360 / WHEEL_PRIZES.length;
-    const targetAngle = extraSpins + (360 - prizeIndex * sliceAngle);
+    const targetAngle = extraSpins + (360 - (prizeIndex >= 0 ? prizeIndex : 0) * sliceAngle);
 
     setWheelRotation((prev) => prev + targetAngle);
 
-    setTimeout(() => {
+    setTimeout(async () => {
       setSpinning(false);
-      setSpinsRemaining((prev) => prev - 1);
+      setSpinsRemaining((prev) => Math.max(0, prev - 1));
       setWonPrize(selectedPrize);
 
       if (selectedPrize.value > 0) {
@@ -378,7 +418,9 @@ export const PromotionHub: React.FC<PromotionHubProps> = ({
         soundEngine.playWinChime();
         showToast(`🎉 লাকি স্পিন উইন! ${selectedPrize.label}`);
         onRewardClaimed();
+        refreshState();
       }
+      await fetchPromotionState();
     }, 3500);
   };
 
