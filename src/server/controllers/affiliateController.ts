@@ -9,6 +9,7 @@ import { Request, Response } from 'express';
 import { db } from '../../db/index.js';
 import { affiliateNodes, affiliateCommissions, users, wallets, transactions } from '../../db/schema.js';
 import { eq, sql, inArray } from 'drizzle-orm';
+import { resolveAuthUser } from './promotionController.js';
 
 export interface DistributeCommissionParams {
   userId: number;
@@ -193,12 +194,8 @@ export class AffiliateService {
 // ----------------------------------------------------------------------------
 export const getAffiliateSummaryHandler = async (req: Request, res: Response): Promise<void> => {
   try {
-    const rawUserId = req.query.userId;
-    if (!rawUserId || isNaN(Number(rawUserId))) {
-      res.status(400).json({ status: 'ERROR', message: 'Valid userId query parameter is required' });
-      return;
-    }
-    const userId = Number(rawUserId);
+    const { userId } = await resolveAuthUser(req, req.query.userId);
+
     const [node] = await db
       .select()
       .from(affiliateNodes)
@@ -226,16 +223,18 @@ export const getAffiliateSummaryHandler = async (req: Request, res: Response): P
       }
     });
   } catch (err: any) {
-    res.status(500).json({ status: 'ERROR', message: err.message });
+    const statusCode = err.statusCode || (err.message?.includes('not found') ? 404 : 500);
+    res.status(statusCode).json({ status: 'ERROR', message: err.message });
   }
 };
 
 export const claimCommissionHandler = async (req: Request, res: Response): Promise<void> => {
   try {
-    const userId = Number(req.body.userId);
+    const { userId } = await resolveAuthUser(req, req.body?.userId);
     const result = await AffiliateService.claimAffiliateCommission(userId);
     res.json({ status: 'SUCCESS', data: result });
   } catch (err: any) {
-    res.status(400).json({ status: 'ERROR', message: err.message });
+    const statusCode = err.statusCode || (err.message?.includes('not found') ? 404 : 400);
+    res.status(statusCode).json({ status: 'ERROR', message: err.message });
   }
 };

@@ -87,6 +87,7 @@ app.use('/api/v2/payment', paymentV2Router);
 // 6. Multi-Tier Affiliate, VIP & Promotion Routes
 // ----------------------------------------------------------------------------
 const affiliateRouter = express.Router();
+affiliateRouter.use(requireAuth);
 affiliateRouter.get('/summary', getAffiliateSummaryHandler);
 affiliateRouter.post('/claim', claimCommissionHandler);
 app.use('/api/affiliate', affiliateRouter);
