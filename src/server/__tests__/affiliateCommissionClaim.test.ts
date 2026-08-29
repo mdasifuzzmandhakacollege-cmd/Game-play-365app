@@ -207,8 +207,8 @@ async function runAffiliateCommissionClaimAuthorityTests() {
     const engine = new MockAffiliateClaimEngine();
     const userId = 201;
 
-    // Ensure wallet exists in WalletLedgerService with initial balance
-    await engine.ledgerService.ensureWallet(String(userId), 'BDT', 50000n); // 500.00 BDT
+    // Ensure wallet exists in WalletLedgerService with initial balance (500.0000 BDT = 5,000,000 scale-4 minor units)
+    await engine.ledgerService.ensureWallet(String(userId), 'BDT', toScale4('500.0000')); // 500.0000 BDT
 
     engine.nodes.set(userId, {
       userId,
@@ -227,14 +227,14 @@ async function runAffiliateCommissionClaimAuthorityTests() {
     if (result.claimedAmount !== '75.5000') {
       throw new Error(`Expected claimedAmount '75.5000', got '${result.claimedAmount}'`);
     }
-    if (result.newRealBalance !== '575.50') {
-      throw new Error(`Expected newRealBalance '575.50', got '${result.newRealBalance}'`);
+    if (result.newRealBalance !== '575.5000') {
+      throw new Error(`Expected newRealBalance '575.5000', got '${result.newRealBalance}'`);
     }
 
-    // Verify wallet in WalletLedgerService
+    // Verify wallet in WalletLedgerService (575.5000 BDT = 5,755,000 scale-4 minor units)
     const wallet = await engine.ledgerService.getWallet(String(userId), 'BDT');
-    if (wallet.balanceMinor !== 57550n) {
-      throw new Error(`Wallet ledger balance mismatch: expected 57550n, got ${wallet.balanceMinor}`);
+    if (wallet.balanceMinor !== toScale4('575.5000')) {
+      throw new Error(`Wallet ledger balance mismatch: expected ${toScale4('575.5000')}, got ${wallet.balanceMinor}`);
     }
 
     const updatedNode = engine.nodes.get(userId)!;
@@ -255,7 +255,7 @@ async function runAffiliateCommissionClaimAuthorityTests() {
     const engine = new MockAffiliateClaimEngine();
     const userId = 202;
 
-    await engine.ledgerService.ensureWallet(String(userId), 'BDT', 50000n);
+    await engine.ledgerService.ensureWallet(String(userId), 'BDT', toScale4('500.0000'));
 
     // Node has positive unclaimed commission aggregate counter, but 0 SETTLED entries in commissions table
     engine.nodes.set(userId, {
@@ -278,9 +278,9 @@ async function runAffiliateCommissionClaimAuthorityTests() {
       throw new Error('Expected claim without SETTLED entries to be rejected');
     }
 
-    // Verify zero credit happened in WalletLedgerService
+    // Verify zero credit happened in WalletLedgerService (500.0000 BDT = 5,000,000 scale-4 minor units)
     const wallet = await engine.ledgerService.getWallet(String(userId), 'BDT');
-    if (wallet.balanceMinor !== 50000n) {
+    if (wallet.balanceMinor !== toScale4('500.0000')) {
       throw new Error(`Wallet balance was mutated: ${wallet.balanceMinor}`);
     }
 
@@ -298,7 +298,7 @@ async function runAffiliateCommissionClaimAuthorityTests() {
     const engine = new MockAffiliateClaimEngine();
     const userId = 203;
 
-    await engine.ledgerService.ensureWallet(String(userId), 'BDT', 10000n); // 100.00 BDT
+    await engine.ledgerService.ensureWallet(String(userId), 'BDT', toScale4('100.0000')); // 100.0000 BDT
 
     engine.nodes.set(userId, {
       userId,
@@ -324,10 +324,10 @@ async function runAffiliateCommissionClaimAuthorityTests() {
       throw new Error(`Expected 1 fulfilled and 1 rejected, got ${successes.length} fulfilled and ${rejections.length} rejected`);
     }
 
-    // Wallet balance should be 140.00 BDT (exactly 1 credit of 40.00)
+    // Wallet balance should be 140.0000 BDT (1,400,000 minor units, exactly 1 credit of 40.0000)
     const wallet = await engine.ledgerService.getWallet(String(userId), 'BDT');
-    if (wallet.balanceMinor !== 14000n) {
-      throw new Error(`Double credit occurred! Balance is ${wallet.balanceMinor}, expected 14000n`);
+    if (wallet.balanceMinor !== toScale4('140.0000')) {
+      throw new Error(`Double credit occurred! Balance is ${wallet.balanceMinor}, expected ${toScale4('140.0000')}`);
     }
   });
 
@@ -338,7 +338,7 @@ async function runAffiliateCommissionClaimAuthorityTests() {
     const engine = new MockAffiliateClaimEngine();
     const userId = 204;
 
-    await engine.ledgerService.ensureWallet(String(userId), 'BDT', 20000n);
+    await engine.ledgerService.ensureWallet(String(userId), 'BDT', toScale4('200.0000'));
 
     engine.nodes.set(userId, {
       userId,
@@ -375,10 +375,10 @@ async function runAffiliateCommissionClaimAuthorityTests() {
       throw new Error('Expected second claim attempt on already claimed entries to be rejected');
     }
 
-    // Check wallet balance remained exactly 230.00 BDT (23000n)
+    // Check wallet balance remained exactly 230.0000 BDT (2,300,000 minor units)
     const wallet = await engine.ledgerService.getWallet(String(userId), 'BDT');
-    if (wallet.balanceMinor !== 23000n) {
-      throw new Error(`Expected 23000n, got ${wallet.balanceMinor}`);
+    if (wallet.balanceMinor !== toScale4('230.0000')) {
+      throw new Error(`Expected ${toScale4('230.0000')}, got ${wallet.balanceMinor}`);
     }
   });
 
@@ -389,7 +389,7 @@ async function runAffiliateCommissionClaimAuthorityTests() {
     const engine = new MockAffiliateClaimEngine();
     const userId = 205;
 
-    await engine.ledgerService.ensureWallet(String(userId), 'BDT', 10000n);
+    await engine.ledgerService.ensureWallet(String(userId), 'BDT', toScale4('100.0000'));
 
     engine.nodes.set(userId, {
       userId,
@@ -434,12 +434,12 @@ async function runAffiliateCommissionClaimAuthorityTests() {
     const engine = new MockAffiliateClaimEngine();
     const userId = 206;
 
-    // Create wallet with status FROZEN in ledgerDb
+    // Create wallet with status FROZEN in ledgerDb (100.0000 BDT = 1,000,000 scale-4 minor units)
     await engine.ledgerDb.connect().then(async (client) => {
       await client.query(
         `INSERT INTO wallets (id, user_id, currency, balance_minor, status)
          VALUES ($1, $2, $3, $4, $5)`,
-        ['w_frozen_206', String(userId), 'BDT', '10000', 'FROZEN']
+        ['w_frozen_206', String(userId), 'BDT', toScale4('100.0000').toString(), 'FROZEN']
       );
     });
 
@@ -491,8 +491,8 @@ async function runAffiliateCommissionClaimAuthorityTests() {
       throw new Error('claimAffiliateCommission method not found in affiliateController.ts');
     }
 
-    const endIdx = content.indexOf('export const getAffiliateSummaryHandler', startIdx);
-    const methodBody = content.substring(startIdx, endIdx);
+    const endIdx = content.indexOf('public static async bindReferral', startIdx);
+    const methodBody = content.substring(startIdx, endIdx !== -1 ? endIdx : content.indexOf('export const getAffiliateSummaryHandler', startIdx));
 
     // Ensure no direct update(wallets) or realBalance mutations inside claimAffiliateCommission
     if (methodBody.includes('.update(wallets)')) {
@@ -515,8 +515,8 @@ async function runAffiliateCommissionClaimAuthorityTests() {
     }
 
     const startIdx = content.indexOf('public static async claimAffiliateCommission');
-    const endIdx = content.indexOf('export const getAffiliateSummaryHandler', startIdx);
-    const methodBody = content.substring(startIdx, endIdx);
+    const endIdx = content.indexOf('public static async bindReferral', startIdx);
+    const methodBody = content.substring(startIdx, endIdx !== -1 ? endIdx : content.indexOf('export const getAffiliateSummaryHandler', startIdx));
 
     if (!methodBody.includes('executeTransaction(')) {
       throw new Error('WalletLedgerService.executeTransaction() is not called in claimAffiliateCommission');
@@ -531,7 +531,10 @@ async function runAffiliateCommissionClaimAuthorityTests() {
     const content = fs.readFileSync(controllerPath, 'utf8');
 
     const startIdx = content.indexOf('public static async claimAffiliateCommission');
-    const endIdx = content.indexOf('export const getAffiliateSummaryHandler', startIdx);
+    const endIdx = content.indexOf('public static async bindReferral', startIdx);
+    if (startIdx === -1 || endIdx === -1) {
+      throw new Error('claimAffiliateCommission or bindReferral method boundary not found in affiliateController.ts');
+    }
     const methodBody = content.substring(startIdx, endIdx);
 
     const bannedPatterns = [
