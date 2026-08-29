@@ -133,10 +133,10 @@ export const DailyMissions: React.FC<DailyMissionsProps> = ({
       icon: 'spin',
       target: 1,
       unit: 'Spin',
-      current: 1,
+      current: 0,
       rewardBdt: 50,
       rewardUsd: 0.8,
-      completed: true,
+      completed: false,
       claimed: !!missionClaimState['mission_lucky_wheel_spin']
     },
     {

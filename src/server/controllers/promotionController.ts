@@ -160,7 +160,12 @@ export class PromotionService {
 // ----------------------------------------------------------------------------
 export const getPromotionDetailsHandler = async (req: Request, res: Response): Promise<void> => {
   try {
-    const userId = Number(req.query.userId || 1);
+    const rawUserId = req.query.userId;
+    if (!rawUserId || isNaN(Number(rawUserId))) {
+      res.status(400).json({ status: 'ERROR', message: 'Valid userId query parameter is required' });
+      return;
+    }
+    const userId = Number(rawUserId);
     const [lastCheckIn] = await db
       .select()
       .from(dailyCheckIns)
@@ -174,14 +179,34 @@ export const getPromotionDetailsHandler = async (req: Request, res: Response): P
       .where(eq(wageringRequirements.userId, userId))
       .limit(10);
 
+    let streak = 0;
+    let canCheckInToday = true;
+
+    if (lastCheckIn) {
+      const now = new Date();
+      const lastDate = new Date(lastCheckIn.createdAt);
+      const diffHours = (now.getTime() - lastDate.getTime()) / (1000 * 3600);
+
+      if (diffHours < 24) {
+        canCheckInToday = false;
+        streak = lastCheckIn.streakDay || 0;
+      } else if (diffHours <= 48) {
+        canCheckInToday = true;
+        streak = lastCheckIn.streakDay || 0;
+      } else {
+        canCheckInToday = true;
+        streak = 0; // Streak broken
+      }
+    }
+
     res.json({
       status: 'SUCCESS',
       data: {
-        checkInStreak: lastCheckIn?.streakDay || 3,
-        canCheckInToday: true,
+        checkInStreak: streak,
+        canCheckInToday,
         dailyRewards: DAILY_CHECKIN_REWARDS,
         wheelPrizes: WHEEL_PRIZES,
-        activeWageringRequirements: activeWagering
+        activeWageringRequirements: activeWagering || []
       }
     });
   } catch (err: any) {

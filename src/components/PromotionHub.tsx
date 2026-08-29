@@ -266,15 +266,39 @@ export const PromotionHub: React.FC<PromotionHubProps> = ({
   const [selectedOffer, setSelectedOffer] = useState<PromoOffer | null>(null);
   const [claimingOfferId, setClaimingOfferId] = useState<string | null>(null);
 
-  // 7-Day Streak State
-  const [currentStreak, setCurrentStreak] = useState<number>(3);
-  const [hasCheckedInToday, setHasCheckedInToday] = useState<boolean>(false);
+  // 7-Day Streak State (Real, per-user state with 0 initial streak for new users)
+  const [currentStreak, setCurrentStreak] = useState<number>(() => {
+    try {
+      const stored = localStorage.getItem(`CHECKIN_STREAK_${currentUser.id}`);
+      return stored ? parseInt(stored, 10) : 0;
+    } catch {
+      return 0;
+    }
+  });
+  const [hasCheckedInToday, setHasCheckedInToday] = useState<boolean>(() => {
+    try {
+      const lastCheckIn = localStorage.getItem(`CHECKIN_DATE_${currentUser.id}`);
+      if (!lastCheckIn) return false;
+      const lastDate = new Date(parseInt(lastCheckIn, 10));
+      const now = new Date();
+      return lastDate.toDateString() === now.toDateString();
+    } catch {
+      return false;
+    }
+  });
   const [checkInLoading, setCheckInLoading] = useState<boolean>(false);
 
-  // Wheel Spin State
+  // Wheel Spin State (Starts at 0 for new users unless granted)
   const [spinning, setSpinning] = useState<boolean>(false);
   const [wheelRotation, setWheelRotation] = useState<number>(0);
-  const [spinsRemaining, setSpinsRemaining] = useState<number>(3);
+  const [spinsRemaining, setSpinsRemaining] = useState<number>(() => {
+    try {
+      const stored = localStorage.getItem(`SPINS_${currentUser.id}`);
+      return stored ? parseInt(stored, 10) : 0;
+    } catch {
+      return 0;
+    }
+  });
   const [wonPrize, setWonPrize] = useState<typeof WHEEL_PRIZES[0] | null>(null);
 
   // Handle Daily Check In
@@ -291,6 +315,13 @@ export const PromotionHub: React.FC<PromotionHubProps> = ({
       setCurrentStreak(nextDay);
       setHasCheckedInToday(true);
       setCheckInLoading(false);
+
+      try {
+        localStorage.setItem(`CHECKIN_STREAK_${currentUser.id}`, nextDay.toString());
+        localStorage.setItem(`CHECKIN_DATE_${currentUser.id}`, Date.now().toString());
+      } catch (e) {
+        console.warn(e);
+      }
 
       notificationService.pushNotification(currentUser.id, {
         userId: currentUser.id,

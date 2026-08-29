@@ -112,22 +112,30 @@ export const VipProgressionView: React.FC<VipProgressionViewProps> = ({
 }) => {
   const { showToast, refreshState } = useWalletGame();
 
-  const [claimedLevels, setClaimedLevels] = useState<number[]>([1, 2, 3]);
+  const [claimedLevels, setClaimedLevels] = useState<number[]>([]);
   const [claimingLevel, setClaimingLevel] = useState<number | null>(null);
   const [activeTab, setActiveTab] = useState<'TIERS' | 'OFFERS' | 'PRIVILEGES'>('TIERS');
 
-  // Active user level (Default: 4 Gold VIP)
-  const currentLevel = 4;
-  const currentTier = VIP_TIER_CONFIG.find((t) => t.level === currentLevel) || VIP_TIER_CONFIG[3];
-  const nextTier = VIP_TIER_CONFIG.find((t) => t.level === currentLevel + 1) || VIP_TIER_CONFIG[4];
+  // Real user transaction metrics
+  const userTxs = seamlessEngine.getTransactions().filter((tx) => tx.user_id === currentUser.id);
+  const cumulativeDeposit = userTxs
+    .filter((tx) => tx.type === 'DEPOSIT' && tx.status === 'COMPLETED')
+    .reduce((s, tx) => s + tx.amount, 0);
+  const cumulativeBet = userTxs
+    .filter((tx) => tx.type === 'BET' && tx.status === 'COMPLETED')
+    .reduce((s, tx) => s + tx.amount, 0);
+
+  // Compute tier strictly from real activity
+  const matchedTiers = VIP_TIER_CONFIG.filter(
+    (t) => cumulativeDeposit >= t.minDeposit && cumulativeBet >= t.minBet
+  );
+  const currentTier = matchedTiers.length > 0 ? matchedTiers[matchedTiers.length - 1] : VIP_TIER_CONFIG[0];
+  const currentLevel = currentTier.level;
+  const nextTier = VIP_TIER_CONFIG.find((t) => t.level === currentLevel + 1) || currentTier;
   const symbol = currency === 'BDT' ? '৳' : '$';
 
-  // Progress metrics
-  const cumulativeDeposit = currentUser.currency === 'BDT' ? 185000 : 1850;
-  const cumulativeBet = currentUser.currency === 'BDT' ? 820000 : 8200;
-
-  const depositProgress = Math.min(100, Math.round((cumulativeDeposit / nextTier.minDeposit) * 100));
-  const betProgress = Math.min(100, Math.round((cumulativeBet / nextTier.minBet) * 100));
+  const depositProgress = nextTier.minDeposit > 0 ? Math.min(100, Math.round((cumulativeDeposit / nextTier.minDeposit) * 100)) : 100;
+  const betProgress = nextTier.minBet > 0 ? Math.min(100, Math.round((cumulativeBet / nextTier.minBet) * 100)) : 100;
 
   const handleClaimBonus = (tier: typeof VIP_TIER_CONFIG[0]) => {
     if (claimedLevels.includes(tier.level)) return;

@@ -162,7 +162,12 @@ export class VipService {
 // ----------------------------------------------------------------------------
 export const getVipDetailsHandler = async (req: Request, res: Response): Promise<void> => {
   try {
-    const userId = Number(req.query.userId || 1);
+    const rawUserId = req.query.userId;
+    if (!rawUserId || isNaN(Number(rawUserId))) {
+      res.status(400).json({ status: 'ERROR', message: 'Valid userId query parameter is required' });
+      return;
+    }
+    const userId = Number(rawUserId);
     const [progress] = await db
       .select()
       .from(userVipProgress)
@@ -173,11 +178,11 @@ export const getVipDetailsHandler = async (req: Request, res: Response): Promise
       data: {
         tiers: VIP_TIER_CONFIG,
         userProgress: progress || {
-          currentLevel: 4,
-          cumulativeDeposit: '150000.0000',
-          cumulativeBet: '650000.0000',
-          levelUpBonusClaimed: [1, 2, 3],
-          totalCashbackClaimed: '4200.0000'
+          currentLevel: 1,
+          cumulativeDeposit: '0.0000',
+          cumulativeBet: '0.0000',
+          levelUpBonusClaimed: [],
+          totalCashbackClaimed: '0.0000'
         }
       }
     });

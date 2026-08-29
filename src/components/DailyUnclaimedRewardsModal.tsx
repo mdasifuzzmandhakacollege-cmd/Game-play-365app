@@ -42,58 +42,7 @@ interface PendingReward {
   isClaimed: boolean;
 }
 
-const INITIAL_REWARDS: PendingReward[] = [
-  {
-    id: 'REW_VIP_WEEKLY',
-    title: 'VIP উইকলি স্যালারি (Weekly Salary)',
-    subtitle: 'লেভেল ভিআইপি সদস্যপদ বোনাস • প্রতি সোমবার স্বয়ংক্রিয় রিনিউ',
-    amount: 1500,
-    icon: '👑',
-    category: 'VIP',
-    countdownSeconds: 18420,
-    isClaimed: false
-  },
-  {
-    id: 'REW_DESKTOP_PWA',
-    title: 'ডেস্কটপ শর্টকাট ও অ্যাপ বোনাস (Desktop Shortcut)',
-    subtitle: 'হোমস্ক্রিনে GamePlay365 শর্টকাট ইনস্টল করার এক্সক্লুসিভ রিওয়ার্ড',
-    amount: 500,
-    icon: '📲',
-    category: 'APP',
-    countdownSeconds: 84600,
-    isClaimed: false
-  },
-  {
-    id: 'REW_LOSS_REBATE',
-    title: 'লস রিবেট ক্যাশব্যাক (Daily Loss Cashback)',
-    subtitle: 'গতকালকের স্লট ও ক্র্যাশ টার্নওভার থেকে ৫% তাৎক্ষণিক রিফান্ড',
-    amount: 850,
-    icon: '💎',
-    category: 'CASHBACK',
-    countdownSeconds: 32400,
-    isClaimed: false
-  },
-  {
-    id: 'REW_DAILY_STREAK',
-    title: 'দৈনিক ৭-দিনের স্ট্রিক বোনাস (Daily Streak Check-in)',
-    subtitle: 'টানা ৪ দিন সক্রিয় লগইনের জন্য স্পেশাল রিওয়ার্ড',
-    amount: 300,
-    icon: '🔥',
-    category: 'DAILY',
-    countdownSeconds: 43200,
-    isClaimed: false
-  },
-  {
-    id: 'REW_AFFILIATE_TIER',
-    title: 'এজেন্ট রেফারেল লেভেল-১ অ্যাক্টিভিটি',
-    subtitle: 'আপনার ডাউনলাইন মেম্বারদের স্পিন অ্যাক্টিভিটি রিবেট',
-    amount: 1200,
-    icon: '🤝',
-    category: 'AFFILIATE',
-    countdownSeconds: 61200,
-    isClaimed: false
-  }
-];
+const INITIAL_REWARDS: PendingReward[] = [];
 
 export const DailyUnclaimedRewardsModal: React.FC<DailyUnclaimedRewardsModalProps> = ({
   isOpen,
@@ -247,7 +196,18 @@ export const DailyUnclaimedRewardsModal: React.FC<DailyUnclaimedRewardsModalProp
 
           {/* Rewards List (Scrollable) */}
           <div className="p-6 overflow-y-auto space-y-3 flex-1 scrollbar-thin scrollbar-thumb-emerald-700">
-            {rewards.map((reward) => {
+            {rewards.length === 0 ? (
+              <div className="py-12 px-4 text-center space-y-3">
+                <div className="w-14 h-14 mx-auto rounded-2xl bg-emerald-950/80 border border-emerald-700/50 flex items-center justify-center text-emerald-400">
+                  <Gift className="w-7 h-7 text-amber-400" />
+                </div>
+                <h4 className="text-sm font-bold text-white">বর্তমানে কোনো অদাবিকৃত রিওয়ার্ড নেই</h4>
+                <p className="text-xs text-emerald-200/60 max-w-md mx-auto leading-relaxed">
+                  নিয়মিত ডিপোজিট, টার্নওভার, ভিআইপি লেভেল-আপ এবং রেফারেল মেম্বারদের গেমপ্লে সম্পন্ন হলে নতুন রিওয়ার্ড স্বয়ংক্রিয়ভাবে এখানে যোগ হবে।
+                </p>
+              </div>
+            ) : (
+              rewards.map((reward) => {
               const amountFormatted = Math.round(reward.amount * rateMultiplier);
               return (
                 <div
@@ -312,7 +272,7 @@ export const DailyUnclaimedRewardsModal: React.FC<DailyUnclaimedRewardsModalProp
                   </div>
                 </div>
               );
-            })}
+            }))}
           </div>
 
           {/* Footer */}

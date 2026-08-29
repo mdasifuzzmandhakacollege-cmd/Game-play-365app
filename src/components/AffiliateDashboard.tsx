@@ -214,29 +214,19 @@ export const AffiliateDashboard: React.FC<AffiliateDashboardProps> = ({
     }, 600);
   };
 
-  // Real + Mock MLM Hierarchy Tree members
+  // Real MLM Hierarchy Tree members
   const allNetworkMembers = useMemo(() => {
-    const realList = stats.referrals.map((r) => ({
+    return stats.referrals.map((r) => ({
       name: r.referredUsername,
-      tier: `Tier 1 (রিয়েল লাইভ)`,
-      validBet: r.totalTurnover > 0 ? r.totalTurnover : (currency === 'BDT' ? 50000 : 450),
-      commission: r.commissionEarned > 0 ? r.commissionEarned : (currency === 'BDT' ? 500 : 5),
-      rate: '0.50%',
+      tier: `Tier ${r.tier} (রিয়েল লাইভ)`,
+      validBet: r.totalTurnover || 0,
+      commission: r.commissionEarned || 0,
+      rate: r.tier === 1 ? '0.50%' : r.tier === 2 ? '0.20%' : '0.10%',
       active: true,
       isRealTime: true,
       joinedAt: new Date(r.joinedAt).toLocaleDateString()
     }));
-
-    const mockList = [
-      { name: 'rahim_dhaka_01', tier: 'Tier 1 (Direct)', validBet: currency === 'BDT' ? 450000 : 3750, commission: currency === 'BDT' ? 2250 : 18.75, rate: '0.50%', active: true, isRealTime: false, joinedAt: '2 days ago' },
-      { name: 'tariq_ctg_player', tier: 'Tier 1 (Direct)', validBet: currency === 'BDT' ? 180000 : 1500, commission: currency === 'BDT' ? 900 : 7.5, rate: '0.50%', active: true, isRealTime: false, joinedAt: '3 days ago' },
-      { name: 'sohel_sylhet_vip', tier: 'Tier 2 (Subordinate)', validBet: currency === 'BDT' ? 120000 : 1000, commission: currency === 'BDT' ? 240 : 2.0, rate: '0.20%', active: true, isRealTime: false, joinedAt: '5 days ago' },
-      { name: 'kamrul_rajshahi', tier: 'Tier 2 (Subordinate)', validBet: currency === 'BDT' ? 85000 : 708, commission: currency === 'BDT' ? 170 : 1.4, rate: '0.20%', active: true, isRealTime: false, joinedAt: '1 week ago' },
-      { name: 'munna_khulna', tier: 'Tier 3 (Subordinate)', validBet: currency === 'BDT' ? 60000 : 500, commission: currency === 'BDT' ? 60 : 0.5, rate: '0.10%', active: false, isRealTime: false, joinedAt: '2 weeks ago' },
-    ];
-
-    return [...realList, ...mockList];
-  }, [stats.referrals, currency]);
+  }, [stats.referrals]);
 
   const symbol = currency === 'BDT' ? '৳' : '$';
 

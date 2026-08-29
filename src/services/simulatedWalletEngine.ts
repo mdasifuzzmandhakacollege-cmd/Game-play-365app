@@ -263,13 +263,13 @@ class SimulatedSeamlessEngine {
     this.users.set(u3.id, u3);
     this.users.set(u4.id, u4);
 
-    // Seed Wallets
+    // Seed Wallets with 0.00 initial balance (No fake balances)
     const w1: WalletEntity = {
       id: 'b0000000-0000-0000-0000-000000000001',
       user_id: u1.id,
       currency: 'USD',
-      real_balance: 2500.0,
-      bonus_balance: 250.0,
+      real_balance: 0.0,
+      bonus_balance: 0.0,
       locked_balance: 0.0,
       turnover_ratio: 10,
       version: 1,
@@ -282,8 +282,8 @@ class SimulatedSeamlessEngine {
       id: 'b0000000-0000-0000-0000-000000000002',
       user_id: u2.id,
       currency: 'USD',
-      real_balance: 650.0,
-      bonus_balance: 100.0,
+      real_balance: 0.0,
+      bonus_balance: 0.0,
       locked_balance: 0.0,
       turnover_ratio: 10,
       version: 1,
@@ -296,7 +296,7 @@ class SimulatedSeamlessEngine {
       id: 'b0000000-0000-0000-0000-000000000003',
       user_id: u3.id,
       currency: 'USD',
-      real_balance: 50.0,
+      real_balance: 0.0,
       bonus_balance: 0.0,
       locked_balance: 0.0,
       turnover_ratio: 10,
@@ -310,8 +310,8 @@ class SimulatedSeamlessEngine {
       id: 'b0000000-0000-0000-0000-000000000004',
       user_id: u4.id,
       currency: 'BDT',
-      real_balance: 75000.0,
-      bonus_balance: 10000.0,
+      real_balance: 0.0,
+      bonus_balance: 0.0,
       locked_balance: 0.0,
       turnover_ratio: 10,
       version: 1,
@@ -325,73 +325,11 @@ class SimulatedSeamlessEngine {
     this.wallets.set(`${u3.id}:USD`, w3);
     this.wallets.set(`${u4.id}:BDT`, w4);
 
-    // Initial Seed Payment Requests for bKash, Nagad
-    this.paymentRequests.push(
-      {
-        id: 'PAY_REQ_881920',
-        user_id: u4.id,
-        wallet_id: w4.id,
-        type: 'DEPOSIT',
-        method: 'BKASH',
-        amount: 25000.0,
-        currency: 'BDT',
-        sender_number: '01712-349911',
-        receiver_number: '01900-112233',
-        trx_id: 'BK9A88712K',
-        status: 'APPROVED',
-        admin_note: 'Verified against bKash merchant gateway',
-        metadata: { channel: 'bKash Merchant Send Money', bonusApplied: true },
-        created_at: new Date(Date.now() - 3600000 * 4).toISOString(),
-        updated_at: new Date(Date.now() - 3600000 * 4).toISOString()
-      },
-      {
-        id: 'PAY_REQ_881921',
-        user_id: u4.id,
-        wallet_id: w4.id,
-        type: 'DEPOSIT',
-        method: 'NAGAD',
-        amount: 50000.0,
-        currency: 'BDT',
-        sender_number: '01844-992200',
-        receiver_number: '01900-112233',
-        trx_id: 'NG7719204A',
-        status: 'APPROVED',
-        admin_note: 'Instant VIP Auto-credit',
-        metadata: { channel: 'Nagad Cash-in Agent', bonusApplied: false },
-        created_at: new Date(Date.now() - 3600000 * 2).toISOString(),
-        updated_at: new Date(Date.now() - 3600000 * 2).toISOString()
-      }
-    );
+    // Initial Seed Payment Requests (Empty by default for genuine live deposits)
+    this.paymentRequests = [];
 
-    // Initial Wagering Requirements (Rollover Turnover Tracking)
-    this.wageringRequirements.push(
-      {
-        id: 'WAGER_REQ_1001',
-        user_id: u4.id,
-        promo_name: '200% Welcome Mega Bonus',
-        bonus_amount_granted: 10000.0,
-        required_multiplier: 10, // 10x turnover requirement
-        target_turnover_amount: 100000.0,
-        completed_turnover_amount: 68500.0,
-        status: 'ACTIVE',
-        expires_at: new Date(Date.now() + 7 * 86400000).toISOString(),
-        created_at: new Date(Date.now() - 86400000).toISOString(),
-        completed_at: null
-      },
-      {
-        id: 'WAGER_REQ_1002',
-        user_id: u1.id,
-        promo_name: 'VIP High Roller Match Bonus',
-        bonus_amount_granted: 100.0,
-        required_multiplier: 10,
-        target_turnover_amount: 1000.0,
-        completed_turnover_amount: 1000.0,
-        status: 'ACTIVE',
-        expires_at: new Date(Date.now() + 7 * 86400000).toISOString(),
-        created_at: new Date(Date.now() - 86400000).toISOString(),
-        completed_at: null
-      }
-    );
+    // Initial Wagering Requirements (Empty by default)
+    this.wageringRequirements = [];
 
     // Seed realistic 30 historical endpoint latency samples
     this.latencyHistory = [];

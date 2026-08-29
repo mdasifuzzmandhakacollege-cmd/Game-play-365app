@@ -125,7 +125,7 @@ export const ProfileDashboard: React.FC<ProfileDashboardProps> = ({
       title: 'দাবিকৃত রিওয়ার্ডস',
       titleEn: 'Claim Rewards',
       icon: Gift,
-      badge: '5টি পেন্ডিং',
+      badge: 'রিওয়ার্ড ভল্ট',
       badgeColor: 'bg-amber-400 text-slate-950 font-black',
       action: () => {
         soundEngine.playClick(1000);

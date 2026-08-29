@@ -193,7 +193,12 @@ export class AffiliateService {
 // ----------------------------------------------------------------------------
 export const getAffiliateSummaryHandler = async (req: Request, res: Response): Promise<void> => {
   try {
-    const userId = Number(req.query.userId || 1);
+    const rawUserId = req.query.userId;
+    if (!rawUserId || isNaN(Number(rawUserId))) {
+      res.status(400).json({ status: 'ERROR', message: 'Valid userId query parameter is required' });
+      return;
+    }
+    const userId = Number(rawUserId);
     const [node] = await db
       .select()
       .from(affiliateNodes)
@@ -209,14 +214,15 @@ export const getAffiliateSummaryHandler = async (req: Request, res: Response): P
       status: 'SUCCESS',
       data: {
         node: node || {
-          referralCode: `GP365_${userId}`,
-          totalDirectReferrals: 14,
-          totalSubordinates: 68,
-          totalTurnoverVolume: '2480000.0000',
-          totalCommissionEarned: '12400.0000',
-          unclaimedCommission: '3450.0000'
+          userId,
+          referralCode: `PLAY369_${userId}`,
+          totalDirectReferrals: 0,
+          totalSubordinates: 0,
+          totalTurnoverVolume: '0.0000',
+          totalCommissionEarned: '0.0000',
+          unclaimedCommission: '0.0000'
         },
-        recentCommissions: commissions
+        recentCommissions: commissions || []
       }
     });
   } catch (err: any) {

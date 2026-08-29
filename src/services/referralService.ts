@@ -111,39 +111,9 @@ const DEVICES: Array<AffiliateActivityEvent['device']> = [
 
 class ReferralService {
   private listeners: Array<() => void> = [];
-  private backgroundInterval: any = null;
 
   constructor() {
-    this.initBackgroundSimulator();
-  }
-
-  /**
-   * Initializes background gentle activity simulator for real-time live feel
-   */
-  private initBackgroundSimulator(): void {
-    if (typeof window === 'undefined') return;
-
-    // Run every 18-35 seconds to simulate incoming organic clicks & activities
-    const scheduleNext = () => {
-      const delay = Math.floor(Math.random() * 17000) + 18000;
-      this.backgroundInterval = setTimeout(() => {
-        const users = seamlessEngine.getUsers();
-        const activeUser = users[0];
-        if (activeUser) {
-          const rand = Math.random();
-          if (rand < 0.70) {
-            // Click event
-            this.generateRandomClick(activeUser.id, activeUser.username, false);
-          } else if (rand < 0.90) {
-            // Small commission event
-            this.generateRandomCommission(activeUser.id, activeUser.username);
-          }
-        }
-        scheduleNext();
-      }, delay);
-    };
-
-    scheduleNext();
+    // Clean initial constructor with no fake background generators
   }
 
   /**
@@ -256,8 +226,8 @@ class ReferralService {
       if (found) return found;
     }
 
-    // Default fallback to first active user if valid code format but not found (for seamless demo experience)
-    return users.find((u) => u.status === 'ACTIVE') || users[0] || null;
+    // If code format is not found in real users, return null
+    return null;
   }
 
   /**
@@ -368,36 +338,35 @@ class ReferralService {
   }
 
   /**
-   * Get all referrals for a user (combining mock growth + real registered referrals)
+   * Get all referrals for a user (calculating real registered referrals and commissions)
    */
   public getReferralsForUser(userId: string, username: string, currency: 'BDT' | 'USD'): AffiliateStats {
     const stored = this.getAllStoredReferrals().filter(
       (r) => r.referrerId === userId || r.referrerUsername.toLowerCase() === username.toLowerCase()
     );
 
-    // Realistic baseline network members
-    const rateMultiplier = currency === 'BDT' ? 1 : 1 / 120;
-    const baseMembersCount = 14 + stored.length;
-    const tier1Count = 8 + stored.length;
-    const tier2Count = 4;
-    const tier3Count = 2;
+    const tier1 = stored.filter((r) => r.tier === 1);
+    const tier2 = stored.filter((r) => r.tier === 2);
+    const tier3 = stored.filter((r) => r.tier === 3);
 
-    const baseTurnover = (145000 + stored.length * 15000) * rateMultiplier;
-    const baseCommission = (8450 + stored.length * 500) * rateMultiplier;
-    const unclaimed = Math.round(baseCommission * 0.45);
+    const totalTurnover = stored.reduce((sum, r) => sum + (r.totalTurnover || 0), 0);
+    const totalCommission = stored.reduce((sum, r) => sum + (r.commissionEarned || 0), 0);
+    const unclaimed = stored
+      .filter((r) => !r.commissionClaimed)
+      .reduce((sum, r) => sum + (r.commissionEarned || 0), 0);
 
     const referralLink = this.generateReferralLink(username);
 
     return {
       referralCode: username.toLowerCase(),
       referralLink,
-      totalMembers: baseMembersCount,
-      tier1Count,
-      tier2Count,
-      tier3Count,
-      totalTurnover: Math.round(baseTurnover),
-      totalCommission: Math.round(baseCommission),
-      unclaimedCommission: Math.round(unclaimed),
+      totalMembers: stored.length,
+      tier1Count: tier1.length,
+      tier2Count: tier2.length,
+      tier3Count: tier3.length,
+      totalTurnover: Number(totalTurnover.toFixed(2)),
+      totalCommission: Number(totalCommission.toFixed(2)),
+      unclaimedCommission: Number(unclaimed.toFixed(2)),
       referrals: stored
     };
   }
@@ -408,21 +377,20 @@ class ReferralService {
   public getLiveAffiliateMetrics(userId: string, username: string, currency: 'BDT' | 'USD'): LiveAffiliateMetrics {
     const stats = this.getReferralsForUser(userId, username, currency);
     const clickCount = this.getStoredClickCount();
-    const rateMultiplier = currency === 'BDT' ? 1 : 1 / 120;
 
-    const totalClicks = 128 + clickCount;
-    const todayClicks = 18 + Math.floor(clickCount / 2);
+    const totalClicks = clickCount;
+    const todayClicks = clickCount;
     const totalConversions = stats.totalMembers;
     const conversionRate = totalClicks > 0 ? Number(((totalConversions / totalClicks) * 100).toFixed(1)) : 0;
-    const activeReferralsOnline = Math.max(3, Math.floor(totalConversions * 0.22) + 2);
-    const todayCommission = Math.round((650 + clickCount * 15) * rateMultiplier);
+    const activeReferralsOnline = 0;
+    const todayCommission = 0;
 
     return {
       referralCode: username.toLowerCase(),
       referralLink: stats.referralLink,
       totalClicks,
       todayClicks,
-      uniqueVisitors: Math.round(totalClicks * 0.88),
+      uniqueVisitors: totalClicks,
       totalConversions,
       conversionRate,
       activeReferralsOnline,
@@ -438,9 +406,6 @@ class ReferralService {
    */
   public getLiveActivityStream(limitCount: number = 15): AffiliateActivityEvent[] {
     const stored = this.getAllStoredActivityEvents();
-    if (stored.length === 0) {
-      return this.seedInitialActivityEvents();
-    }
     return stored.slice(0, limitCount);
   }
 
@@ -671,81 +636,6 @@ class ReferralService {
     } catch (e) {
       console.warn('[ReferralEngine] Failed to store activity event:', e);
     }
-  }
-
-  private seedInitialActivityEvents(): AffiliateActivityEvent[] {
-    const now = Date.now();
-    const seeded: AffiliateActivityEvent[] = [
-      {
-        id: `EVT_INIT_1`,
-        type: 'SIGNUP',
-        timestamp: now - 120000,
-        source: 'WhatsApp',
-        location: 'Dhaka (Uttara)',
-        device: 'Mobile',
-        username: 'Sakib_777',
-        amount: 500,
-        currency: 'BDT',
-        status: 'SUCCESS',
-        message: '🎯 @Sakib_777 আপনার রেফারেল লিংক ব্যবহার করে সাইন-আপ সম্পন্ন করেছেন (+৳৫০০)',
-        details: 'রেজিস্ট্রেশন বোনাস ক্রেডিটেড'
-      },
-      {
-        id: `EVT_INIT_2`,
-        type: 'CLICK',
-        timestamp: now - 350000,
-        source: 'Telegram',
-        location: 'Chittagong (Agrabad)',
-        device: 'Mobile',
-        status: 'ACTIVE',
-        message: 'ভিজিটর Telegram শেয়ার লিংক থেকে আপনার ক্যাসিনো সাইটে প্রবেশ করেছেন'
-      },
-      {
-        id: `EVT_INIT_3`,
-        type: 'COMMISSION',
-        timestamp: now - 720000,
-        source: 'Direct Link',
-        location: 'Sylhet (Zindabazar)',
-        device: 'Desktop',
-        username: 'Tanvir_Pro',
-        amount: 85,
-        currency: 'BDT',
-        status: 'SUCCESS',
-        message: '💰 @Tanvir_Pro এর লাইভ Aviator গেমপ্লে থেকে ৳৮৫ রিয়েল-টাইম কমিশন অর্জিত হয়েছে'
-      },
-      {
-        id: `EVT_INIT_4`,
-        type: 'CLICK',
-        timestamp: now - 1200000,
-        source: 'Facebook',
-        location: 'Rajshahi (Shaheb Bazar)',
-        device: 'Mobile',
-        status: 'ACTIVE',
-        message: 'Facebook শেয়ার পোস্ট থেকে ১টি নতুন ক্লিক রেজিস্টার হয়েছে'
-      },
-      {
-        id: `EVT_INIT_5`,
-        type: 'SIGNUP',
-        timestamp: now - 1800000,
-        source: 'WhatsApp',
-        location: 'Khulna (Shibbari)',
-        device: 'Mobile',
-        username: 'Mahmud_VIP',
-        amount: 500,
-        currency: 'BDT',
-        status: 'SUCCESS',
-        message: '🎯 @Mahmud_VIP রেফারেল লিংকে সফল রেজিস্ট্রেশন সম্পন্ন করেছেন (+৳৫০০)'
-      }
-    ];
-
-    if (typeof window !== 'undefined') {
-      try {
-        localStorage.setItem(AFFILIATE_EVENTS_KEY, JSON.stringify(seeded));
-      } catch (e) {
-        console.warn(e);
-      }
-    }
-    return seeded;
   }
 
   // --- Listeners for Real-time Reactive UI updates ---
