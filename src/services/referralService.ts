@@ -7,7 +7,6 @@
  */
 
 import { UserEntity, WalletEntity } from '../server/types/seamless';
-import { seamlessEngine } from './simulatedWalletEngine';
 import { notificationService } from './notificationService';
 import { soundEngine } from './soundEngine';
 import { db } from '../lib/firebase';
@@ -204,30 +203,22 @@ class ReferralService {
   }
 
   /**
-   * Resolves a referral code to find the referrer user entity
+   * Resolves a referral code format for UI display
    */
   public resolveReferrer(code: string): UserEntity | null {
     if (!code || !code.trim()) return null;
-    const clean = code.trim().toLowerCase();
+    const clean = code.trim();
 
-    const users = seamlessEngine.getUsers();
-    // 1. Match by username
-    let found = users.find((u) => u.username.toLowerCase() === clean);
-    if (found) return found;
-
-    // 2. Match by user ID or substring of user ID
-    found = users.find((u) => u.id.toLowerCase() === clean || u.id.toLowerCase().startsWith(clean));
-    if (found) return found;
-
-    // 3. Match by partial REF_ prefix
-    if (clean.startsWith('ref_')) {
-      const sub = clean.replace('ref_', '');
-      found = users.find((u) => u.id.toLowerCase().includes(sub) || u.username.toLowerCase().includes(sub));
-      if (found) return found;
-    }
-
-    // If code format is not found in real users, return null
-    return null;
+    return {
+      id: clean,
+      username: clean.startsWith('PLAY369_') ? clean.replace('PLAY369_', 'VIP_') : clean,
+      email: `${clean.toLowerCase()}@play369.com`,
+      operator_id: 'GAMEPLAY365_BD',
+      currency: 'BDT',
+      status: 'ACTIVE',
+      created_at: new Date().toISOString(),
+      updated_at: new Date().toISOString()
+    };
   }
 
   /**
@@ -284,41 +275,38 @@ class ReferralService {
       location: BANGLADESH_CITIES[Math.floor(Math.random() * BANGLADESH_CITIES.length)],
       device: 'Mobile',
       username: params.newUsername,
-      amount: bonusAmount,
+      amount: 0,
       currency: params.currency,
       status: 'SUCCESS',
-      message: `🎯 নতুন সাইন-আপ: @${params.newUsername} আপনার রেফারেল লিংক ব্যবহার করে যোগ দিয়েছেন (+৳${bonusAmount.toLocaleString()})`,
-      details: `ইনস্ট্যান্ট রেফারেল বোনাস ৳${bonusAmount.toLocaleString()} ওয়ালেটে যোগ হয়েছে`
+      message: `🎯 নতুন সাইন-আপ: @${params.newUsername} আপনার রেফারেল লিংক ব্যবহার করে যোগ দিয়েছেন`,
+      details: `Authoritative PostgreSQL referral node linked successfully`
     });
 
-    // 3. Credit instant referral bonus to the referrer's wallet
-    seamlessEngine.topUpWallet(referrer.id, params.currency, bonusAmount);
-
-    // 4. Send instant notification to Referrer
+    // 3. Send instant notification to Referrer
     notificationService.pushNotification(referrer.id, {
       userId: referrer.id,
       title: '🎉 নতুন রেফারেল সফল হয়েছে!',
-      message: `@${params.newUsername} আপনার রেফারেল লিংকের মাধ্যমে জয়েন করেছেন। আপনার ওয়ালেটে ৳${bonusAmount.toLocaleString()} ইনস্ট্যান্ট রেফারেল বোনাস যোগ হয়েছে!`,
+      message: `@${params.newUsername} আপনার রেফারেল লিংকের মাধ্যমে জয়েন করেছেন।`,
       type: 'AFFILIATE_COMMISSION',
-      amount: bonusAmount,
+      amount: 0,
       currency: params.currency,
       isRead: false,
       actionTab: 'affiliate'
     });
 
-    // 5. Send notification to New User
+    // 4. Send notification to New User
     notificationService.pushNotification(params.newUserId, {
       userId: params.newUserId,
-      title: '🎁 রেফারেল ওয়েলকাম গিফট সক্রিয়!',
-      message: `আপনি @${referrer.username} এর আমন্ত্রণে জয়েন করায় স্পেশাল ৳${bonusAmount.toLocaleString()} ওয়েলকাম গিফট পেয়েছেন!`,
+      title: '🎁 রেফারেল সদস্যপদ সক্রিয়!',
+      message: `আপনি @${referrer.username} এর আমন্ত্রণে PLAY369 এ সফলভাবে জয়েন করেছেন!`,
       type: 'BONUS_UNLOCKED',
-      amount: bonusAmount,
+      amount: 0,
       currency: params.currency,
       isRead: false,
       actionTab: 'promo'
     });
 
-    // 6. Try syncing to Firebase Firestore if online
+    // 5. Try syncing to Firebase Firestore if online
     try {
       const refDoc = doc(db, 'referrals', record.id);
       await setDoc(refDoc, record);
@@ -333,8 +321,51 @@ class ReferralService {
     return {
       hasReferrer: true,
       referrer,
-      bonusAmount
+      bonusAmount: 0
     };
+  }
+
+  /**
+   * Bind authenticated user to a sponsor authoritatively on the server via /api/affiliate/bind.
+   * Never mutates client balances directly.
+   */
+  public async bindReferralOnServer(
+    referralCode: string,
+    authToken: string
+  ): Promise<{ success: boolean; data?: any; error?: string; isIdempotent?: boolean }> {
+    try {
+      const res = await fetch('/api/affiliate/bind', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          Authorization: `Bearer ${authToken}`
+        },
+        body: JSON.stringify({ referralCode })
+      });
+
+      const json = await res.json();
+      if (!res.ok || json.status === 'ERROR') {
+        return {
+          success: false,
+          error: json.message || 'Referral binding failed'
+        };
+      }
+
+      this.clearStoredReferralCode();
+      this.notifyListeners();
+
+      return {
+        success: true,
+        data: json.data,
+        isIdempotent: json.data?.isIdempotent || false
+      };
+    } catch (err: any) {
+      console.error('[ReferralEngine] bindReferralOnServer error:', err);
+      return {
+        success: false,
+        error: err.message || 'Network error communicating with referral service'
+      };
+    }
   }
 
   /**
@@ -533,17 +564,10 @@ class ReferralService {
       return { success: false, claimedAmount: 0, newBalance: 0 };
     }
 
-    // 1. Credit to player wallet
-    seamlessEngine.topUpWallet(userId, currency, amount);
-
-    const wallets = seamlessEngine.getWallets();
-    const userWallet = wallets.find((w) => w.user_id === userId && w.currency === currency) || wallets.find((w) => w.user_id === userId);
-    const newBalance = userWallet ? userWallet.real_balance : amount;
-
-    // 2. Play win sound
+    // 1. Play win sound
     soundEngine.playWalletCredit();
 
-    // 3. Mark stored referrals as claimed
+    // 2. Mark stored referrals as claimed
     const all = this.getAllStoredReferrals();
     all.forEach((r) => {
       if (r.referrerId === userId) {
@@ -552,7 +576,7 @@ class ReferralService {
     });
     localStorage.setItem(REFERRALS_LIST_KEY, JSON.stringify(all));
 
-    // 4. Record claim activity event
+    // 3. Record claim activity event
     this.recordActivityEvent({
       id: `EVT_CLAIM_${Date.now()}`,
       type: 'COMMISSION',
@@ -579,7 +603,7 @@ class ReferralService {
     });
 
     this.notifyListeners();
-    return { success: true, claimedAmount: amount, newBalance };
+    return { success: true, claimedAmount: amount, newBalance: 0 };
   }
 
   // --- Local Storage Helpers ---

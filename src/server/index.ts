@@ -14,7 +14,7 @@ import { WalletLedgerService } from './ledger/walletLedgerService';
 import { SeamlessWalletController } from './controllers/seamlessWalletController';
 import { paymentController } from './controllers/paymentController';
 import { paymentGatewayController } from './controllers/paymentGatewayController';
-import { getAffiliateSummaryHandler, claimCommissionHandler, AffiliateService } from './controllers/affiliateController';
+import { getAffiliateSummaryHandler, claimCommissionHandler, bindReferralHandler, AffiliateService } from './controllers/affiliateController';
 import { getVipDetailsHandler, claimVipBonusHandler } from './controllers/vipController';
 import { getPromotionDetailsHandler, claimCheckInHandler, spinWheelHandler } from './controllers/promotionController';
 import { createProviderGatewayRouter } from './controllers/providerGatewayController';
@@ -150,6 +150,7 @@ const affiliateRouter = express.Router();
 affiliateRouter.use(requireAuth);
 affiliateRouter.get('/summary', getAffiliateSummaryHandler);
 affiliateRouter.post('/claim', claimCommissionHandler);
+affiliateRouter.post('/bind', bindReferralHandler);
 app.use('/api/affiliate', affiliateRouter);
 
 const vipRouter = express.Router();

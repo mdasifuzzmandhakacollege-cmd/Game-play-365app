@@ -19,6 +19,7 @@ import {
 } from 'lucide-react';
 import { useAuth } from '../../contexts/AuthContext';
 import { PasswordStrengthIndicator } from './PasswordStrengthIndicator';
+import { referralService } from '../../services/referralService';
 
 interface Play369AuthCardProps {
   initialMode?: 'login' | 'register';
@@ -123,6 +124,15 @@ export const Play369AuthCard: React.FC<Play369AuthCardProps> = ({
           preferredCurrency
         );
         if (user) {
+          const effectiveReferralCode = referralCode.trim() || referralService.getStoredReferralCode();
+          if (effectiveReferralCode) {
+            try {
+              const token = await user.getIdToken();
+              await referralService.bindReferralOnServer(effectiveReferralCode, token);
+            } catch (refErr) {
+              console.warn('[Play369AuthCard] Authoritative referral bind notification:', refErr);
+            }
+          }
           setSuccessMessage('Registration completed! High-roller credentials activated.');
           setTimeout(() => {
             if (onSuccess) onSuccess();

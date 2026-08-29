@@ -344,6 +344,258 @@ export class AffiliateService {
       };
     });
   }
+
+  /**
+   * Bind a new user to an authoritative referrer via unique referralCode.
+   * Enforces:
+   * 1. PostgreSQL/server as the ONLY authority for referral relationships.
+   * 2. Authoritative authenticated caller derived strictly from verified Firebase Auth token.
+   * 3. Authoritative resolution of referralCode only against PostgreSQL user/affiliate record.
+   * 4. Immutable relationship: Single parent only, never reassignable.
+   * 5. Strict idempotency: Retrying with the same parent returns identical success state.
+   * 6. Strict validation: Rejects self-referral, referral cycles (A->B->A), invalid codes, parent reassignment.
+   * 7. Concurrency-safe: Single ACID transaction with ordered row-level locking (SELECT ... FOR UPDATE).
+   * 8. Zero client-side financial mutations.
+   */
+  public static async bindReferral(params: { userId: number; referralCode: string }) {
+    if (!params.userId || typeof params.userId !== 'number') {
+      throw new Error('Valid userId is required for referral binding');
+    }
+
+    if (!params.referralCode || typeof params.referralCode !== 'string' || !params.referralCode.trim()) {
+      const error: any = new Error('Referral code is required');
+      error.statusCode = 400;
+      error.code = 'INVALID_REFERRAL_CODE';
+      throw error;
+    }
+
+    const cleanCode = params.referralCode.trim();
+
+    // 1. Authoritative lookup of referrer by referralCode in PostgreSQL
+    let referrerUserId: number | null = null;
+
+    // Check affiliate_nodes table first
+    const [matchedNode] = await db
+      .select()
+      .from(affiliateNodes)
+      .where(sql`LOWER(${affiliateNodes.referralCode}) = LOWER(${cleanCode})`)
+      .limit(1);
+
+    if (matchedNode) {
+      referrerUserId = matchedNode.userId;
+    } else {
+      // Check users table referral_code
+      const [matchedUser] = await db
+        .select()
+        .from(users)
+        .where(sql`LOWER(${users.referralCode}) = LOWER(${cleanCode})`)
+        .limit(1);
+
+      if (matchedUser) {
+        referrerUserId = matchedUser.id;
+      } else {
+        // Check exact PLAY369_<userId> standard format
+        const match = cleanCode.toUpperCase().match(/^PLAY369_(\d+)$/);
+        if (match) {
+          const possibleId = parseInt(match[1], 10);
+          const [userById] = await db
+            .select()
+            .from(users)
+            .where(eq(users.id, possibleId))
+            .limit(1);
+
+          if (userById) {
+            referrerUserId = userById.id;
+          }
+        }
+      }
+    }
+
+    if (!referrerUserId) {
+      const error: any = new Error(`Invalid or nonexistent referral code: ${cleanCode}`);
+      error.statusCode = 404;
+      error.code = 'INVALID_REFERRAL_CODE';
+      throw error;
+    }
+
+    // 2. Reject self-referral
+    if (referrerUserId === params.userId) {
+      const error: any = new Error('Self-referral is strictly forbidden');
+      error.statusCode = 400;
+      error.code = 'CANNOT_REFER_SELF';
+      throw error;
+    }
+
+    // 3. Concurrency-Safe Transaction with Deterministic Row-Level Locking
+    return await db.transaction(async (tx) => {
+      // Deterministically sort user IDs to prevent database deadlocks on concurrent binds
+      const lockIds = [params.userId, referrerUserId].sort((a, b) => a - b);
+      for (const uid of lockIds) {
+        await tx.execute(sql`SELECT id FROM users WHERE id = ${uid} FOR UPDATE`);
+      }
+
+      // Re-read current user under lock
+      const [currentUser] = await tx
+        .select()
+        .from(users)
+        .where(eq(users.id, params.userId))
+        .limit(1);
+
+      if (!currentUser) {
+        const error: any = new Error('User not found');
+        error.statusCode = 404;
+        throw error;
+      }
+
+      const [currentUserNode] = await tx
+        .select()
+        .from(affiliateNodes)
+        .where(eq(affiliateNodes.userId, params.userId))
+        .limit(1);
+
+      // 4. Immutability Check: A user may have only ONE parent; once set it can NEVER be reassigned
+      const existingParent = currentUser.referredByUserId || currentUserNode?.parentAffiliateId;
+      if (existingParent !== null && existingParent !== undefined) {
+        if (existingParent === referrerUserId) {
+          // Idempotent retry: user is already bound to this exact parent
+          return {
+            success: true,
+            isIdempotent: true,
+            message: 'Already referred by this sponsor',
+            parentUserId: referrerUserId,
+            grandParentUserId: currentUserNode?.grandParentAffiliateId || null,
+            referralCode: cleanCode
+          };
+        } else {
+          // Reject attempts to change an existing parent
+          const error: any = new Error('Referral relationship is immutable and cannot be reassigned');
+          error.statusCode = 409;
+          error.code = 'ALREADY_BOUND';
+          throw error;
+        }
+      }
+
+      // 5. Ensure referrer has an authoritative affiliate node record
+      let [referrerNode] = await tx
+        .select()
+        .from(affiliateNodes)
+        .where(eq(affiliateNodes.userId, referrerUserId))
+        .limit(1);
+
+      if (!referrerNode) {
+        const [insertedRefNode] = await tx
+          .insert(affiliateNodes)
+          .values({
+            userId: referrerUserId,
+            referralCode: `PLAY369_${referrerUserId}`,
+            totalDirectReferrals: 0,
+            totalSubordinates: 0,
+            totalTurnoverVolume: '0.0000',
+            totalCommissionEarned: '0.0000',
+            unclaimedCommission: '0.0000',
+            status: 'ACTIVE'
+          })
+          .returning();
+        referrerNode = insertedRefNode;
+      }
+
+      // 6. Referral Cycle Detection: Traverse upline hierarchy to prevent A -> B -> A cycles
+      let currentAncestorId: number | null = referrerNode.parentAffiliateId;
+      let depth = 0;
+      const visited = new Set<number>([referrerUserId]);
+
+      while (currentAncestorId && depth < 50) {
+        if (currentAncestorId === params.userId) {
+          const error: any = new Error('Referral cycle detected: Cannot create circular referral relationship');
+          error.statusCode = 400;
+          error.code = 'REFERRAL_CYCLE_DETECTED';
+          throw error;
+        }
+        if (visited.has(currentAncestorId)) {
+          break;
+        }
+        visited.add(currentAncestorId);
+
+        const [ancestorNode] = await tx
+          .select({ parentAffiliateId: affiliateNodes.parentAffiliateId })
+          .from(affiliateNodes)
+          .where(eq(affiliateNodes.userId, currentAncestorId))
+          .limit(1);
+
+        currentAncestorId = ancestorNode?.parentAffiliateId || null;
+        depth++;
+      }
+
+      // 7. Resolve Grandparent ID
+      const grandParentId = referrerNode.parentAffiliateId || null;
+
+      // 8. Update authoritative users table
+      await tx
+        .update(users)
+        .set({
+          referredByUserId: referrerUserId,
+          updatedAt: new Date()
+        })
+        .where(eq(users.id, params.userId));
+
+      // 9. Upsert authoritative affiliate_nodes record for new user
+      if (currentUserNode) {
+        await tx
+          .update(affiliateNodes)
+          .set({
+            parentAffiliateId: referrerUserId,
+            grandParentAffiliateId: grandParentId,
+            updatedAt: new Date()
+          })
+          .where(eq(affiliateNodes.userId, params.userId));
+      } else {
+        await tx
+          .insert(affiliateNodes)
+          .values({
+            userId: params.userId,
+            parentAffiliateId: referrerUserId,
+            grandParentAffiliateId: grandParentId,
+            referralCode: currentUser.referralCode || `PLAY369_${params.userId}`,
+            totalDirectReferrals: 0,
+            totalSubordinates: 0,
+            totalTurnoverVolume: '0.0000',
+            totalCommissionEarned: '0.0000',
+            unclaimedCommission: '0.0000',
+            status: 'ACTIVE'
+          });
+      }
+
+      // 10. Increment referrer's counters authoritatively
+      await tx
+        .update(affiliateNodes)
+        .set({
+          totalDirectReferrals: sql`${affiliateNodes.totalDirectReferrals} + 1`,
+          totalSubordinates: sql`${affiliateNodes.totalSubordinates} + 1`,
+          updatedAt: new Date()
+        })
+        .where(eq(affiliateNodes.userId, referrerUserId));
+
+      // 11. If grandparent exists, increment grandparent's subordinate counter
+      if (grandParentId) {
+        await tx
+          .update(affiliateNodes)
+          .set({
+            totalSubordinates: sql`${affiliateNodes.totalSubordinates} + 1`,
+            updatedAt: new Date()
+          })
+          .where(eq(affiliateNodes.userId, grandParentId));
+      }
+
+      return {
+        success: true,
+        isIdempotent: false,
+        message: 'Referral relationship bound successfully',
+        parentUserId: referrerUserId,
+        grandParentUserId: grandParentId,
+        referralCode: cleanCode
+      };
+    });
+  }
 }
 
 // ----------------------------------------------------------------------------
@@ -393,5 +645,42 @@ export const claimCommissionHandler = async (req: Request, res: Response): Promi
   } catch (err: any) {
     const statusCode = err.statusCode || (err.message?.includes('not found') ? 404 : (err.message?.includes('frozen') || err.message?.includes('inactive') ? 403 : 400));
     res.status(statusCode).json({ status: 'ERROR', message: err.message });
+  }
+};
+
+export const bindReferralHandler = async (req: Request, res: Response): Promise<void> => {
+  try {
+    // 1. Authoritatively resolve the authenticated user identity via verified Firebase token
+    const { userId } = await resolveAuthUser(req, req.body?.userId);
+
+    // 2. Extract ONLY referralCode from client payload (never trust client-supplied parent/referrer/role)
+    const referralCode = req.body?.referralCode;
+    if (!referralCode || typeof referralCode !== 'string' || !referralCode.trim()) {
+      res.status(400).json({
+        status: 'ERROR',
+        code: 'INVALID_REFERRAL_CODE',
+        message: 'Referral code is required'
+      });
+      return;
+    }
+
+    const result = await AffiliateService.bindReferral({
+      userId,
+      referralCode: referralCode.trim()
+    });
+
+    res.json({ status: 'SUCCESS', data: result });
+  } catch (err: any) {
+    const statusCode = err.statusCode || (
+      err.code === 'INVALID_REFERRAL_CODE' ? 404 :
+      err.code === 'ALREADY_BOUND' ? 409 :
+      err.code === 'CANNOT_REFER_SELF' || err.code === 'REFERRAL_CYCLE_DETECTED' ? 400 :
+      err.message?.includes('not found') ? 404 : 400
+    );
+    res.status(statusCode).json({
+      status: 'ERROR',
+      code: err.code || 'REFERRAL_BIND_ERROR',
+      message: err.message
+    });
   }
 };
