@@ -223,15 +223,17 @@ class FirebaseFirestoreService {
         const roleVal = String(data.role || '').toUpperCase();
         const isElevatedAdmin = roleVal === 'ADMIN' || roleVal === 'OPERATOR' || roleVal === 'SUPER_ADMIN' || data.isAdmin === true;
 
+        const phone = data.phone || firebaseUser.phoneNumber || '';
+
         const userEntity: UserEntity = {
           id: firebaseUser.uid,
-          username: data.username || firebaseUser.displayName || (firebaseUser.email ? firebaseUser.email.split('@')[0] : 'Player_365'),
+          username: data.username || firebaseUser.displayName || (firebaseUser.email ? firebaseUser.email.split('@')[0] : (phone ? `player_${phone.replace(/[^0-9]/g, '').slice(-4)}` : 'Player_365')),
           operator_id: 'GAMEPLAY365_LIVE',
           currency: (data.currency as 'BDT' | 'USD') || preferredCurrency,
           status: 'ACTIVE',
           country_code: data.currency === 'USD' ? 'US' : 'BD',
           email: email,
-          phone: data.phone || '',
+          phone: phone,
           role: isElevatedAdmin ? 'ADMIN' : ((data.role as 'ADMIN' | 'PLAYER' | 'VIP') || 'PLAYER'),
           isAdmin: isElevatedAdmin,
           vipTier: data.vipTier || 'VIP 1',

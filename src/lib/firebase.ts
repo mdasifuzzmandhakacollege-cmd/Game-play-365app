@@ -10,6 +10,10 @@ import {
   signOut,
   setPersistence,
   browserLocalPersistence,
+  RecaptchaVerifier,
+  signInWithPhoneNumber,
+  ConfirmationResult,
+  ApplicationVerifier,
   User
 } from 'firebase/auth';
 import { getFirestore } from 'firebase/firestore';
@@ -161,4 +165,92 @@ export const logout = async () => {
   }
   cachedAccessToken = null;
 };
+
+/**
+ * Creates and initializes a Firebase RecaptchaVerifier instance.
+ * Fails safely if environment cannot support Recaptcha.
+ */
+export const createRecaptchaVerifier = (
+  container: string | HTMLElement,
+  invisible: boolean = true
+): RecaptchaVerifier => {
+  if (typeof window === 'undefined') {
+    const err = new Error('Phone authentication is unavailable in this environment.');
+    (err as any).code = 'PHONE_AUTH_UNAVAILABLE';
+    throw err;
+  }
+
+  try {
+    const verifier = new RecaptchaVerifier(auth, container, {
+      size: invisible ? 'invisible' : 'normal',
+      callback: () => {
+        // reCAPTCHA solved - allow signInWithPhoneNumber
+      },
+      'expired-callback': () => {
+        // Response expired. Ask user to solve reCAPTCHA again.
+      }
+    });
+    return verifier;
+  } catch (error: any) {
+    console.warn('RecaptchaVerifier initialization notice:', error?.code || error?.message);
+    const err = new Error('Failed to initialize phone verification security layer.');
+    (err as any).code = error?.code || 'PHONE_AUTH_UNAVAILABLE';
+    throw err;
+  }
+};
+
+/**
+ * Initiates Firebase Phone Authentication with E.164 phone number and RecaptchaVerifier.
+ * Never logs raw phone number to console.
+ */
+export const signInWithPhone = async (
+  phoneNumberE164: string,
+  appVerifier: ApplicationVerifier
+): Promise<ConfirmationResult> => {
+  if (typeof window === 'undefined' || !auth) {
+    const err = new Error('Phone authentication is unavailable.');
+    (err as any).code = 'PHONE_AUTH_UNAVAILABLE';
+    throw err;
+  }
+
+  try {
+    isSigningIn = true;
+    const confirmationResult = await signInWithPhoneNumber(auth, phoneNumberE164, appVerifier);
+    return confirmationResult;
+  } catch (error: any) {
+    console.warn('Firebase Phone Auth request notice:', error?.code || 'AUTH_ERROR');
+    throw error;
+  } finally {
+    isSigningIn = false;
+  }
+};
+
+/**
+ * Confirms OTP code against Firebase ConfirmationResult.
+ * Never logs OTP code to console or persists it locally.
+ */
+export const confirmOtpCode = async (
+  confirmationResult: ConfirmationResult,
+  verificationCode: string
+): Promise<{ user: User; accessToken: string }> => {
+  if (!confirmationResult || typeof confirmationResult.confirm !== 'function') {
+    const err = new Error('Invalid or expired phone verification session.');
+    (err as any).code = 'INVALID_CONFIRMATION_RESULT';
+    throw err;
+  }
+
+  try {
+    isSigningIn = true;
+    const cred = await confirmationResult.confirm(verificationCode.trim());
+    const token = await cred.user.getIdToken();
+    cachedAccessToken = token;
+    return { user: cred.user, accessToken: token };
+  } catch (error: any) {
+    console.warn('Firebase OTP confirmation notice:', error?.code || 'OTP_VERIFICATION_FAILED');
+    throw error;
+  } finally {
+    isSigningIn = false;
+  }
+};
+
 

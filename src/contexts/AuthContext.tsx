@@ -1,15 +1,25 @@
 import React, { createContext, useContext, useEffect, useState, useCallback } from 'react';
-import { User } from 'firebase/auth';
+import { User, RecaptchaVerifier, ConfirmationResult } from 'firebase/auth';
 import {
   auth,
   googleSignIn as libGoogleSignIn,
   registerWithEmail as libRegisterWithEmail,
   loginWithEmail as libLoginWithEmail,
   logout as libLogout,
-  initAuth
+  initAuth,
+  createRecaptchaVerifier as libCreateRecaptchaVerifier,
+  signInWithPhone as libSignInWithPhone,
+  confirmOtpCode as libConfirmOtpCode
 } from '../lib/firebase';
 import { firebaseFirestore } from '../services/firebaseFirestoreService';
+import { referralService } from '../services/referralService';
 import { UserEntity } from '../server/types/seamless';
+
+export interface PhoneRegistrationMeta {
+  displayName?: string;
+  preferredCurrency?: 'BDT' | 'USD';
+  referralCode?: string;
+}
 
 interface AuthContextType {
   user: User | null;
@@ -22,6 +32,9 @@ interface AuthContextType {
   signInWithGoogle: () => Promise<User | null>;
   registerWithEmail: (email: string, pass: string, displayName: string, preferredCurrency?: 'BDT' | 'USD') => Promise<User | null>;
   loginWithEmail: (email: string, pass: string) => Promise<User | null>;
+  createRecaptchaVerifier: (container: string | HTMLElement, invisible?: boolean) => RecaptchaVerifier;
+  sendPhoneOtp: (phoneNumberE164: string, appVerifierOrContainer?: string | HTMLElement | RecaptchaVerifier) => Promise<ConfirmationResult>;
+  verifyPhoneOtp: (confirmationResult: ConfirmationResult, otpCode: string, registrationMeta?: PhoneRegistrationMeta) => Promise<User | null>;
   logout: () => Promise<void>;
   syncFirestoreProfile: (preferredCurrency?: 'BDT' | 'USD') => Promise<UserEntity | null>;
   refreshRole: () => Promise<void>;
@@ -38,6 +51,9 @@ const AuthContext = createContext<AuthContextType>({
   signInWithGoogle: async () => null,
   registerWithEmail: async () => null,
   loginWithEmail: async () => null,
+  createRecaptchaVerifier: () => { throw new Error('AuthContext uninitialized'); },
+  sendPhoneOtp: async () => { throw new Error('AuthContext uninitialized'); },
+  verifyPhoneOtp: async () => null,
   logout: async () => {},
   syncFirestoreProfile: async () => null,
   refreshRole: async () => {},
@@ -321,6 +337,99 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
     }
   };
 
+  const createRecaptchaVerifier = useCallback(
+    (container: string | HTMLElement, invisible: boolean = true): RecaptchaVerifier => {
+      return libCreateRecaptchaVerifier(container, invisible);
+    },
+    []
+  );
+
+  const sendPhoneOtp = async (
+    phoneNumberE164: string,
+    appVerifierOrContainer?: string | HTMLElement | RecaptchaVerifier
+  ): Promise<ConfirmationResult> => {
+    try {
+      setLoading(true);
+      let verifier: RecaptchaVerifier;
+
+      if (appVerifierOrContainer && typeof (appVerifierOrContainer as any).verify === 'function') {
+        verifier = appVerifierOrContainer as RecaptchaVerifier;
+      } else if (appVerifierOrContainer) {
+        verifier = libCreateRecaptchaVerifier(appVerifierOrContainer as string | HTMLElement);
+      } else {
+        const defaultContainer = typeof document !== 'undefined' ? (document.getElementById('play369-recaptcha-container') || document.body) : 'recaptcha-container';
+        verifier = libCreateRecaptchaVerifier(defaultContainer);
+      }
+
+      const confirmationResult = await libSignInWithPhone(phoneNumberE164, verifier);
+      return confirmationResult;
+    } catch (error: any) {
+      console.warn('Phone OTP dispatch notice:', error?.code || 'DISPATCH_ERROR');
+      throw error;
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  const verifyPhoneOtp = async (
+    confirmationResult: ConfirmationResult,
+    otpCode: string,
+    registrationMeta?: PhoneRegistrationMeta
+  ): Promise<User | null> => {
+    try {
+      setLoading(true);
+      const res = await libConfirmOtpCode(confirmationResult, otpCode);
+      if (res) {
+        setUser(res.user);
+        setToken(res.accessToken);
+        try {
+          localStorage.setItem('playall365_session_active', 'true');
+          localStorage.setItem('playall365_user_id', res.user.uid);
+        } catch {}
+
+        if (res.accessToken) {
+          await verifyServerPrivilege(res.accessToken);
+        }
+
+        const preferredCurrency = registrationMeta?.preferredCurrency || 'BDT';
+        const displayName = registrationMeta?.displayName || res.user.displayName || (res.user.phoneNumber ? `Player_${res.user.phoneNumber.replace(/[^0-9]/g, '').slice(-4)}` : 'PLAY369_Player');
+
+        // Authoritative Firestore profile sync & zero-balance wallet guarantee
+        try {
+          const profile = await firebaseFirestore.syncUserProfile({
+            uid: res.user.uid,
+            phoneNumber: res.user.phoneNumber,
+            displayName,
+            email: res.user.email || null
+          }, preferredCurrency);
+
+          await firebaseFirestore.ensureUserWallet(res.user.uid, preferredCurrency, 0);
+          setFirestoreUser(profile);
+
+          // Optional authoritative referral binding if specified during registration
+          const effectiveReferralCode = registrationMeta?.referralCode?.trim() || referralService.getStoredReferralCode();
+          if (effectiveReferralCode && res.accessToken) {
+            try {
+              await referralService.bindReferralOnServer(effectiveReferralCode, res.accessToken);
+            } catch (refErr) {
+              console.warn('[AuthContext] Phone Auth referral bind notice:', refErr);
+            }
+          }
+        } catch (syncErr) {
+          console.warn('Firestore phone user sync notice:', syncErr);
+        }
+
+        return res.user;
+      }
+      return null;
+    } catch (error: any) {
+      console.warn('Phone OTP Verification notice:', error?.code || 'VERIFY_ERROR');
+      throw error;
+    } finally {
+      setLoading(false);
+    }
+  };
+
   const logout = async () => {
     try {
       await libLogout();
@@ -354,6 +463,9 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
         signInWithGoogle,
         registerWithEmail,
         loginWithEmail,
+        createRecaptchaVerifier,
+        sendPhoneOtp,
+        verifyPhoneOtp,
         logout,
         syncFirestoreProfile,
         refreshRole
