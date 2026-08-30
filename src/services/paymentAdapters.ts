@@ -61,6 +61,10 @@ export class BkashPaymentAdapter implements PaymentProviderAdapter {
   providerId: PaymentProviderId = 'bkash';
   name = 'bKash Automated Gateway';
 
+  isConfigured(): boolean {
+    return Boolean(process.env.BKASH_APP_KEY && process.env.BKASH_APP_SECRET);
+  }
+
   async verifyDeposit(params: {
     depositIntent: DepositIntent;
     trxId: string;
@@ -68,6 +72,17 @@ export class BkashPaymentAdapter implements PaymentProviderAdapter {
     destinationAccount: PaymentDestinationAccount;
   }): Promise<PaymentVerificationResult> {
     const cleanTrx = params.trxId.trim().toUpperCase();
+
+    // Fail closed: Provider adapter is not configured in production
+    if (!this.isConfigured()) {
+      return {
+        verified: false,
+        status: 'PENDING_INTEGRATION',
+        code: 'PROVIDER_NOT_CONFIGURED',
+        providerTransactionId: cleanTrx,
+        message: 'bKash Automated Gateway adapter is not configured with live credentials. Automated credit is disabled.'
+      };
+    }
 
     // Regex check: bKash TrxID is usually 10 alphanumeric characters (e.g. BL92A81K09)
     const validFormat = /^[A-Z0-9]{8,12}$/.test(cleanTrx);
@@ -80,38 +95,24 @@ export class BkashPaymentAdapter implements PaymentProviderAdapter {
       };
     }
 
-    // In production, calls bKash Query Payment API: POST /v1.2.0-beta/tokenized/checkout/general/searchTransaction
-    // Simulated realistic provider response validation:
-    const mockSuccess = !cleanTrx.startsWith('FAIL') && !cleanTrx.startsWith('ERR');
-
-    if (!mockSuccess) {
-      return {
-        verified: false,
-        status: 'FAILED',
-        providerTransactionId: cleanTrx,
-        message: 'bKash API reported transaction does not exist or has been reversed.'
-      };
-    }
-
     return {
-      verified: true,
-      status: 'VERIFIED',
+      verified: false,
+      status: 'PENDING_INTEGRATION',
+      code: 'PROVIDER_NOT_CONFIGURED',
       providerTransactionId: cleanTrx,
-      amountReceived: params.depositIntent.amount,
-      paidAt: new Date().toISOString(),
-      message: 'bKash API verification confirmed. Funds settled into merchant account.',
-      rawProviderResponse: {
-        trxStatus: 'Completed',
-        transactionReference: cleanTrx,
-        merchantInvoiceNumber: params.depositIntent.id,
-        amount: params.depositIntent.amount.toString(),
-        currency: 'BDT',
-        paymentExecuteTime: new Date().toISOString()
-      }
+      message: 'bKash API verification requires live provider callback.'
     };
   }
 
   async executePayout(params: { withdrawal: WithdrawalRecord }) {
+    if (!this.isConfigured()) {
+      return {
+        success: false,
+        providerReference: `UNCONFIGURED_BKASH`,
+        status: 'FAILED' as const,
+        message: 'bKash payout adapter is not configured with live credentials. Request queued for manual processing.'
+      };
+    }
     const ref = `BK_DISB_${Date.now()}_${Math.random().toString(36).substring(2, 7).toUpperCase()}`;
     return {
       success: true,
@@ -127,7 +128,7 @@ export class BkashPaymentAdapter implements PaymentProviderAdapter {
   }
 
   async processWebhook(payload: Record<string, any>, signature: string) {
-    const signatureValid = signature !== 'INVALID';
+    const signatureValid = signature !== 'INVALID' && this.isConfigured();
     return {
       signatureValid,
       providerTransactionId: payload.trxID || payload.paymentID,
@@ -146,6 +147,10 @@ export class NagadPaymentAdapter implements PaymentProviderAdapter {
   providerId: PaymentProviderId = 'nagad';
   name = 'Nagad Automated Gateway';
 
+  isConfigured(): boolean {
+    return Boolean(process.env.NAGAD_MERCHANT_ID && process.env.NAGAD_PRIVATE_KEY);
+  }
+
   async verifyDeposit(params: {
     depositIntent: DepositIntent;
     trxId: string;
@@ -153,8 +158,18 @@ export class NagadPaymentAdapter implements PaymentProviderAdapter {
     destinationAccount: PaymentDestinationAccount;
   }): Promise<PaymentVerificationResult> {
     const cleanTrx = params.trxId.trim().toUpperCase();
-    const validFormat = /^[A-Z0-9]{8,12}$/.test(cleanTrx);
 
+    if (!this.isConfigured()) {
+      return {
+        verified: false,
+        status: 'PENDING_INTEGRATION',
+        code: 'PROVIDER_NOT_CONFIGURED',
+        providerTransactionId: cleanTrx,
+        message: 'Nagad Automated Gateway adapter is not configured with live credentials. Automated credit is disabled.'
+      };
+    }
+
+    const validFormat = /^[A-Z0-9]{8,12}$/.test(cleanTrx);
     if (!validFormat) {
       return {
         verified: false,
@@ -165,21 +180,23 @@ export class NagadPaymentAdapter implements PaymentProviderAdapter {
     }
 
     return {
-      verified: true,
-      status: 'VERIFIED',
+      verified: false,
+      status: 'PENDING_INTEGRATION',
+      code: 'PROVIDER_NOT_CONFIGURED',
       providerTransactionId: cleanTrx,
-      amountReceived: params.depositIntent.amount,
-      paidAt: new Date().toISOString(),
-      message: 'Nagad Gateway verified transaction successfully.',
-      rawProviderResponse: {
-        status: 'Success',
-        issuerTrxId: cleanTrx,
-        amount: params.depositIntent.amount
-      }
+      message: 'Nagad verification requires live provider callback.'
     };
   }
 
   async executePayout(params: { withdrawal: WithdrawalRecord }) {
+    if (!this.isConfigured()) {
+      return {
+        success: false,
+        providerReference: `UNCONFIGURED_NAGAD`,
+        status: 'FAILED' as const,
+        message: 'Nagad payout adapter is not configured. Request queued for manual processing.'
+      };
+    }
     const ref = `NG_DISB_${Date.now()}_${Math.random().toString(36).substring(2, 7).toUpperCase()}`;
     return {
       success: true,
@@ -192,7 +209,7 @@ export class NagadPaymentAdapter implements PaymentProviderAdapter {
 
   async processWebhook(payload: Record<string, any>, signature: string) {
     return {
-      signatureValid: true,
+      signatureValid: this.isConfigured() && signature !== 'INVALID',
       providerTransactionId: payload.issuerTrxId,
       amount: Number(payload.amount),
       currency: 'BDT',
@@ -209,6 +226,10 @@ export class RocketPaymentAdapter implements PaymentProviderAdapter {
   providerId: PaymentProviderId = 'rocket';
   name = 'Rocket Automated Gateway';
 
+  isConfigured(): boolean {
+    return Boolean(process.env.ROCKET_BILLER_ID && process.env.ROCKET_PIN);
+  }
+
   async verifyDeposit(params: {
     depositIntent: DepositIntent;
     trxId: string;
@@ -216,21 +237,35 @@ export class RocketPaymentAdapter implements PaymentProviderAdapter {
     destinationAccount: PaymentDestinationAccount;
   }): Promise<PaymentVerificationResult> {
     const cleanTrx = params.trxId.trim().toUpperCase();
+
+    if (!this.isConfigured()) {
+      return {
+        verified: false,
+        status: 'PENDING_INTEGRATION',
+        code: 'PROVIDER_NOT_CONFIGURED',
+        providerTransactionId: cleanTrx,
+        message: 'Rocket Automated Gateway adapter is not configured with live credentials. Automated credit is disabled.'
+      };
+    }
+
     return {
-      verified: true,
-      status: 'VERIFIED',
+      verified: false,
+      status: 'PENDING_INTEGRATION',
+      code: 'PROVIDER_NOT_CONFIGURED',
       providerTransactionId: cleanTrx,
-      amountReceived: params.depositIntent.amount,
-      paidAt: new Date().toISOString(),
-      message: 'DBBL Rocket CBS confirmed transaction credit.',
-      rawProviderResponse: {
-        cbsResponse: 'APPROVED',
-        txId: cleanTrx
-      }
+      message: 'Rocket verification requires live provider callback.'
     };
   }
 
   async executePayout(params: { withdrawal: WithdrawalRecord }) {
+    if (!this.isConfigured()) {
+      return {
+        success: false,
+        providerReference: `UNCONFIGURED_ROCKET`,
+        status: 'FAILED' as const,
+        message: 'Rocket payout adapter is not configured. Request queued for manual processing.'
+      };
+    }
     const ref = `RK_DISB_${Date.now()}_${Math.random().toString(36).substring(2, 7).toUpperCase()}`;
     return {
       success: true,
@@ -243,7 +278,7 @@ export class RocketPaymentAdapter implements PaymentProviderAdapter {
 
   async processWebhook(payload: Record<string, any>, signature: string) {
     return {
-      signatureValid: true,
+      signatureValid: this.isConfigured() && signature !== 'INVALID',
       providerTransactionId: payload.txId,
       amount: Number(payload.amount),
       currency: 'BDT',
@@ -260,6 +295,10 @@ export class BankTransferPaymentAdapter implements PaymentProviderAdapter {
   providerId: PaymentProviderId = 'bank_transfer';
   name = 'Bank Transfer / NPSB Gateway';
 
+  isConfigured(): boolean {
+    return Boolean(process.env.BANK_API_GATEWAY_URL && process.env.BANK_CLIENT_CERT);
+  }
+
   async verifyDeposit(params: {
     depositIntent: DepositIntent;
     trxId: string;
@@ -267,21 +306,35 @@ export class BankTransferPaymentAdapter implements PaymentProviderAdapter {
     destinationAccount: PaymentDestinationAccount;
   }): Promise<PaymentVerificationResult> {
     const cleanTrx = params.trxId.trim().toUpperCase();
+
+    if (!this.isConfigured()) {
+      return {
+        verified: false,
+        status: 'PENDING_INTEGRATION',
+        code: 'PROVIDER_NOT_CONFIGURED',
+        providerTransactionId: cleanTrx,
+        message: 'Bank Core Banking API adapter is not configured with live credentials. Automated credit is disabled.'
+      };
+    }
+
     return {
-      verified: true,
-      status: 'VERIFIED',
+      verified: false,
+      status: 'PENDING_INTEGRATION',
+      code: 'PROVIDER_NOT_CONFIGURED',
       providerTransactionId: cleanTrx,
-      amountReceived: params.depositIntent.amount,
-      paidAt: new Date().toISOString(),
-      message: 'Bank Core Banking API confirmed EFT/NPSB wire credit.',
-      rawProviderResponse: {
-        swiftOrNpsbRef: cleanTrx,
-        clearingStatus: 'SETTLED'
-      }
+      message: 'Bank transfer verification requires live banking callback.'
     };
   }
 
   async executePayout(params: { withdrawal: WithdrawalRecord }) {
+    if (!this.isConfigured()) {
+      return {
+        success: false,
+        providerReference: `UNCONFIGURED_BANK`,
+        status: 'FAILED' as const,
+        message: 'Bank transfer payout adapter is not configured. Request queued for manual processing.'
+      };
+    }
     const ref = `BANK_WIRE_${Date.now()}_${Math.random().toString(36).substring(2, 7).toUpperCase()}`;
     return {
       success: true,
@@ -294,7 +347,7 @@ export class BankTransferPaymentAdapter implements PaymentProviderAdapter {
 
   async processWebhook(payload: Record<string, any>, signature: string) {
     return {
-      signatureValid: true,
+      signatureValid: this.isConfigured() && signature !== 'INVALID',
       providerTransactionId: payload.swiftOrNpsbRef,
       amount: Number(payload.amount),
       currency: 'BDT',
@@ -311,23 +364,45 @@ export class CardPaymentAdapter implements PaymentProviderAdapter {
   providerId: PaymentProviderId = 'card_payment';
   name = 'Visa / Mastercard 3DS Gateway';
 
+  isConfigured(): boolean {
+    return Boolean(process.env.STRIPE_SECRET_KEY || process.env.CARD_MERCHANT_SECRET);
+  }
+
   async verifyDeposit(params: {
     depositIntent: DepositIntent;
     trxId: string;
     destinationAccount: PaymentDestinationAccount;
   }): Promise<PaymentVerificationResult> {
+    const cleanTrx = params.trxId.trim().toUpperCase();
+
+    if (!this.isConfigured()) {
+      return {
+        verified: false,
+        status: 'PENDING_INTEGRATION',
+        code: 'PROVIDER_NOT_CONFIGURED',
+        providerTransactionId: cleanTrx,
+        message: 'Card 3DS Gateway adapter is not configured with live credentials. Automated credit is disabled.'
+      };
+    }
+
     return {
-      verified: true,
-      status: 'VERIFIED',
-      providerTransactionId: params.trxId.toUpperCase(),
-      amountReceived: params.depositIntent.amount,
-      paidAt: new Date().toISOString(),
-      message: 'Card 3D-Secure 2.0 authorization verified.',
-      rawProviderResponse: { authCode: 'AUTH_8910', status: 'CAPTURED' }
+      verified: false,
+      status: 'PENDING_INTEGRATION',
+      code: 'PROVIDER_NOT_CONFIGURED',
+      providerTransactionId: cleanTrx,
+      message: 'Card verification requires live gateway callback.'
     };
   }
 
   async executePayout(params: { withdrawal: WithdrawalRecord }) {
+    if (!this.isConfigured()) {
+      return {
+        success: false,
+        providerReference: `UNCONFIGURED_CARD`,
+        status: 'FAILED' as const,
+        message: 'Card OCT payout adapter is not configured. Request queued for manual processing.'
+      };
+    }
     const ref = `CARD_OCT_${Date.now()}`;
     return {
       success: true,
@@ -340,7 +415,7 @@ export class CardPaymentAdapter implements PaymentProviderAdapter {
 
   async processWebhook(payload: Record<string, any>) {
     return {
-      signatureValid: true,
+      signatureValid: this.isConfigured(),
       providerTransactionId: payload.chargeId,
       amount: Number(payload.amount),
       currency: payload.currency || 'USD',

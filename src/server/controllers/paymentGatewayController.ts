@@ -81,7 +81,13 @@ export class PaymentGatewayController {
       });
     } catch (err: any) {
       console.error('[PaymentGatewayController.verifyTrxId error]:', err);
-      res.status(400).json({ success: false, error: err.message || 'Verification failed' });
+      const isUnconfigured = err.code === 'PROVIDER_NOT_CONFIGURED' || err.status === 'PENDING_INTEGRATION';
+      res.status(isUnconfigured ? 503 : 400).json({
+        success: false,
+        code: err.code || 'VERIFICATION_FAILED',
+        status: err.status || 'FAILED',
+        error: err.message || 'Verification failed'
+      });
     }
   }
 

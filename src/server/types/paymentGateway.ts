@@ -33,7 +33,8 @@ export type DepositStatus =
   | 'FAILED'
   | 'EXPIRED'
   | 'REJECTED'
-  | 'UNDER_REVIEW';
+  | 'UNDER_REVIEW'
+  | 'PENDING_INTEGRATION';
 
 export type WithdrawalStatus =
   | 'CREATED'
@@ -110,7 +111,8 @@ export interface DepositIntent {
 
 export interface PaymentVerificationResult {
   verified: boolean;
-  status: 'VERIFIED' | 'PENDING' | 'FAILED' | 'UNDER_REVIEW';
+  status: 'VERIFIED' | 'PENDING' | 'FAILED' | 'UNDER_REVIEW' | 'PENDING_INTEGRATION';
+  code?: string;
   providerTransactionId: string;
   amountReceived?: number;
   paidAt?: string;

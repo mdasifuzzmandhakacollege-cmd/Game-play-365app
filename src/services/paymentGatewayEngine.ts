@@ -473,20 +473,25 @@ export class PaymentGatewayEngine {
     });
 
     if (!verificationResult.verified) {
-      intent.status = 'FAILED';
+      const isUnconfigured = verificationResult.code === 'PROVIDER_NOT_CONFIGURED' || verificationResult.status === 'PENDING_INTEGRATION';
+      intent.status = isUnconfigured ? 'PENDING_INTEGRATION' : 'FAILED';
       intent.failedReason = verificationResult.message;
       intent.auditTrail.push({
-        status: 'FAILED',
+        status: intent.status,
         timestamp: new Date().toISOString(),
-        note: `Verification failed: ${verificationResult.message}`
+        note: `Verification halted: ${verificationResult.message}`
       });
       this.notifyChange();
-      throw new Error(verificationResult.message);
+      const err = new Error(verificationResult.message);
+      (err as any).code = verificationResult.code || 'VERIFICATION_FAILED';
+      (err as any).status = intent.status;
+      throw err;
     }
 
     // ------------------------------------------------------------------------
     // Step 05: Atomic Double-Entry Ledger & Balance Credit
     // ------------------------------------------------------------------------
+    // Note: Live production credit is reserved for verified server-side callbacks/WalletLedgerService.
     intent.status = 'VERIFIED';
     intent.verifiedAt = new Date().toISOString();
     intent.auditTrail.push({
@@ -502,14 +507,10 @@ export class PaymentGatewayEngine {
       consumedAt: new Date().toISOString()
     });
 
-    // Execute atomic credit in Seamless Wallet Engine
     const currentWallets = seamlessEngine.getWallets();
     const userWallet = currentWallets.find((w) => w.user_id === intent.userId) || currentWallets[0];
     const beforeBal = userWallet ? userWallet.real_balance : 0;
-
-    seamlessEngine.topUpWallet(intent.userId, intent.currency, intent.amount);
-    const updatedWallet = seamlessEngine.getWallets().find((w) => w.user_id === intent.userId);
-    const afterBal = updatedWallet ? updatedWallet.real_balance : beforeBal + intent.amount;
+    const afterBal = beforeBal; // No unverified in-memory balance top up
 
     // Record Double-Entry Ledger
     const ledgerEntry: DoubleEntryLedgerEntry = {
@@ -537,7 +538,7 @@ export class PaymentGatewayEngine {
     intent.auditTrail.push({
       status: 'CREDITED',
       timestamp: intent.creditedAt,
-      note: `Wallet credited +৳${intent.amount.toLocaleString()}. Balance before: ৳${beforeBal.toLocaleString()}, Balance after: ৳${afterBal.toLocaleString()}`
+      note: `Deposit record confirmed for ৳${intent.amount.toLocaleString()}.`
     });
 
     // Log Immutable Audit
@@ -904,6 +905,10 @@ export class PaymentGatewayEngine {
     );
     if (userId) return list.filter((d) => d.userId === userId);
     return list;
+  }
+
+  public getDepositIntent(id: string): DepositIntent | undefined {
+    return this.depositIntents.get(id);
   }
 
   public getWithdrawalRecords(userId?: string): WithdrawalRecord[] {

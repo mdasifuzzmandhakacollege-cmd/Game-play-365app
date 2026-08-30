@@ -1,7 +1,7 @@
 /**
  * @file paymentController.ts
  * @description Local Cashier Payment Controller for Playall 365.
- * Handles bKash, Nagad, Rocket, Upay semi-automated deposits and withdrawals.
+ * Handles bKash, Nagad, Rocket, Upay deposits and withdrawals with fail-safe server authority.
  */
 
 import { Request, Response } from 'express';
@@ -9,11 +9,13 @@ import { db } from '../../db/index';
 import { paymentRequests, wallets, transactions, users } from '../../db/schema';
 import { eq, desc, sql } from 'drizzle-orm';
 import { PaymentMethodType } from '../types/seamless';
-import { WageringService } from '../services/wageringService';
+import { WageringService, toScale4, fromScale4 } from '../services/wageringService';
 
 export class PaymentController {
   /**
    * Submit a local deposit request (bKash / Nagad / Rocket)
+   * In production, deposit submission creates ONLY a PENDING record.
+   * Client-controlled autoApprove and direct wallet balance mutation are strictly disabled.
    */
   async submitDeposit(req: Request, res: Response): Promise<void> {
     try {
@@ -21,25 +23,41 @@ export class PaymentController {
         userId,
         method,
         amount,
-        currency = 'USD',
+        currency = 'BDT',
         senderNumber,
         receiverNumber,
-        trxId,
-        autoApprove = true
+        trxId
       } = req.body;
 
-      if (!userId || !method || !amount || !trxId) {
+      if (!userId || !method || amount === undefined || amount === null || !trxId) {
         res.status(400).json({ error: 'Missing required deposit parameters' });
         return;
       }
 
-      // 1. Verify user & wallet
+      // Exact Scale-4 validation to prevent floating point inaccuracies
+      let amountMinor: bigint;
+      try {
+        amountMinor = toScale4(String(amount));
+      } catch (err: any) {
+        res.status(400).json({ error: `Invalid monetary amount: ${err.message}` });
+        return;
+      }
+
+      if (amountMinor <= 0n) {
+        res.status(400).json({ error: 'Deposit amount must be greater than zero' });
+        return;
+      }
+
+      const normalizedAmount = fromScale4(amountMinor);
+
+      // 1. Verify user exists
       const userList = await db.select().from(users).where(eq(users.id, Number(userId)));
       if (userList.length === 0) {
         res.status(404).json({ error: 'User not found' });
         return;
       }
 
+      // 2. Verify or create wallet
       const walletList = await db
         .select()
         .from(wallets)
@@ -48,7 +66,6 @@ export class PaymentController {
       let wallet = walletList.find((w) => w.currency === currency) || walletList[0];
 
       if (!wallet) {
-        // Auto-create wallet if not present
         const [newWallet] = await db
           .insert(wallets)
           .values({
@@ -62,8 +79,8 @@ export class PaymentController {
         wallet = newWallet;
       }
 
-      // 2. Insert Payment Request
-      const status = autoApprove ? 'APPROVED' : 'PENDING';
+      // 3. Insert Payment Request with strictly PENDING status
+      // Real wallet credit is strictly reserved for verified server-side provider callbacks/manual review
       const [insertedReq] = await db
         .insert(paymentRequests)
         .values({
@@ -71,54 +88,20 @@ export class PaymentController {
           walletId: wallet.id,
           type: 'DEPOSIT',
           method: method as PaymentMethodType,
-          amount: amount.toString(),
+          amount: normalizedAmount,
           currency: currency,
-          senderNumber: senderNumber || '',
-          receiverNumber: receiverNumber || '01900-112233',
-          trxId: String(trxId).toUpperCase(),
-          status: status,
-          adminNote: autoApprove ? 'Instant Automated bKash/Nagad Validation' : 'Pending Review'
+          senderNumber: senderNumber ? String(senderNumber) : '',
+          receiverNumber: receiverNumber ? String(receiverNumber) : '01900-112233',
+          trxId: String(trxId).trim().toUpperCase(),
+          status: 'PENDING',
+          adminNote: 'Deposit submitted, pending provider callback/manual verification'
         })
         .returning();
-
-      // 3. If autoApprove, credit the wallet balance atomically
-      if (autoApprove) {
-        const currentBal = Number(wallet.realBalance);
-        const newBal = (currentBal + Number(amount)).toFixed(4);
-
-        await db
-          .update(wallets)
-          .set({
-            realBalance: newBal,
-            version: sql`${wallets.version} + 1`,
-            updatedAt: new Date()
-          })
-          .where(eq(wallets.id, wallet.id));
-
-        // Insert double-entry ledger record
-        await db.insert(transactions).values({
-          providerId: 'CASHIER_LOCAL',
-          transactionId: `DEP_${trxId.toUpperCase()}`,
-          referenceTransactionId: String(insertedReq.id),
-          userId: Number(userId),
-          walletId: wallet.id,
-          gameId: 'CASHIER_DEPOSIT',
-          type: 'PROMO',
-          amount: amount.toString(),
-          currency: currency,
-          beforeBalance: currentBal.toFixed(4),
-          afterBalance: newBal,
-          status: 'COMPLETED',
-          metadata: { method, senderNumber, trxId }
-        });
-      }
 
       res.status(201).json({
         success: true,
         data: insertedReq,
-        message: autoApprove
-          ? 'Deposit verified and credited successfully'
-          : 'Deposit request submitted for manual verification'
+        message: 'Deposit request submitted for manual/provider verification'
       });
     } catch (err: any) {
       console.error('[PaymentController Error]:', err);
@@ -135,15 +118,29 @@ export class PaymentController {
         userId,
         method,
         amount,
-        currency = 'USD',
-        receiverNumber,
-        autoApprove = true
+        currency = 'BDT',
+        receiverNumber
       } = req.body;
 
-      if (!userId || !method || !amount || !receiverNumber) {
+      if (!userId || !method || amount === undefined || amount === null || !receiverNumber) {
         res.status(400).json({ error: 'Missing required withdrawal parameters' });
         return;
       }
+
+      let amountMinor: bigint;
+      try {
+        amountMinor = toScale4(String(amount));
+      } catch (err: any) {
+        res.status(400).json({ error: `Invalid monetary amount: ${err.message}` });
+        return;
+      }
+
+      if (amountMinor <= 0n) {
+        res.status(400).json({ error: 'Withdrawal amount must be greater than zero' });
+        return;
+      }
+
+      const normalizedAmount = fromScale4(amountMinor);
 
       // Authoritative Server-Side Wagering Gate Check (PLAY369 Task 5.2)
       const gate = await WageringService.enforceWithdrawalWageringGate({ userId: Number(userId) });
@@ -151,7 +148,7 @@ export class PaymentController {
         res.status(403).json({
           success: false,
           error: `Withdrawal blocked: active wagering requirement is not completed (${gate.reason}).`,
-          code: 'WAGERING_REQUIREMENT_INCOMPLETE',
+          code: gate.reason || 'WAGERING_REQUIREMENT_INCOMPLETE',
           activeRequirementsCount: gate.activeRequirementsCount,
           activeRequirements: gate.activeRequirements
         });
@@ -165,19 +162,25 @@ export class PaymentController {
 
       const wallet = walletList.find((w) => w.currency === currency) || walletList[0];
 
-      if (!wallet || Number(wallet.realBalance) < Number(amount)) {
+      if (!wallet) {
+        res.status(404).json({ error: 'Wallet not found' });
+        return;
+      }
+
+      const currentBalMinor = toScale4(wallet.realBalance || '0.0000');
+      if (currentBalMinor < amountMinor) {
         res.status(400).json({ error: 'Insufficient funds for withdrawal' });
         return;
       }
 
-      const currentBal = Number(wallet.realBalance);
-      const newBal = (currentBal - Number(amount)).toFixed(4);
+      const newBalMinor = currentBalMinor - amountMinor;
+      const newBalStr = fromScale4(newBalMinor);
 
-      // 1. Debit wallet
+      // 1. Debit wallet using scale-4 string
       await db
         .update(wallets)
         .set({
-          realBalance: newBal,
+          realBalance: newBalStr,
           version: sql`${wallets.version} + 1`,
           updatedAt: new Date()
         })
@@ -185,7 +188,7 @@ export class PaymentController {
 
       const trxId = `WTH_${method}_${Math.random().toString(36).substring(2, 9).toUpperCase()}`;
 
-      // 2. Insert Payment Request
+      // 2. Insert Payment Request (PENDING)
       const [insertedReq] = await db
         .insert(paymentRequests)
         .values({
@@ -193,12 +196,12 @@ export class PaymentController {
           walletId: wallet.id,
           type: 'WITHDRAWAL',
           method: method as PaymentMethodType,
-          amount: amount.toString(),
+          amount: normalizedAmount,
           currency: currency,
-          receiverNumber: receiverNumber,
+          receiverNumber: String(receiverNumber),
           trxId: trxId,
-          status: autoApprove ? 'APPROVED' : 'PENDING',
-          adminNote: autoApprove ? 'Instant VIP Dispatched' : 'Queued for Bank Transfer'
+          status: 'PENDING',
+          adminNote: 'Queued for Bank/MFS Transfer'
         })
         .returning();
 
@@ -211,18 +214,18 @@ export class PaymentController {
         walletId: wallet.id,
         gameId: 'CASHIER_WITHDRAWAL',
         type: 'TIP',
-        amount: amount.toString(),
+        amount: normalizedAmount,
         currency: currency,
-        beforeBalance: currentBal.toFixed(4),
-        afterBalance: newBal,
-        status: 'COMPLETED',
+        beforeBalance: fromScale4(currentBalMinor),
+        afterBalance: newBalStr,
+        status: 'PENDING',
         metadata: { method, receiverNumber }
       });
 
       res.status(201).json({
         success: true,
         data: insertedReq,
-        message: 'Withdrawal request processed successfully'
+        message: 'Withdrawal request submitted successfully and queued for disbursement'
       });
     } catch (err: any) {
       console.error('[PaymentController Error]:', err);
