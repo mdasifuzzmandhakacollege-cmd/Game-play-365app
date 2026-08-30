@@ -186,37 +186,61 @@ export class InMemoryPostgresLedgerEngine implements ILedgerDbPool {
           return { rows: [], rowCount: 0 };
         }
 
-        // 5. SELECT FROM wallets WHERE user_id = $1 AND currency = $2 (FOR UPDATE)
-        if (cleanSql.includes('FROM wallets') && cleanSql.includes('user_id = $1') && cleanSql.includes('currency = $2')) {
+        // 5. SELECT FROM wallets WHERE user_id = $1 (AND currency = $2) (FOR UPDATE)
+        if (cleanSql.includes('FROM wallets') && (cleanSql.includes('user_id = $1') || cleanSql.includes('WHERE user_id = $1'))) {
           const userId = String(params[0]).trim();
-          const currency = String(params[1]).trim();
-          const walletKey = `${userId}:${currency}`;
+          const currency = params[1] !== undefined ? String(params[1]).trim() : null;
 
-          if (cleanSql.toUpperCase().includes('FOR UPDATE')) {
-            // Acquire row-level lock
-            await this.acquireRowLock(walletKey, activeTxState);
+          if (currency) {
+            const walletKey = `${userId}:${currency}`;
+
+            if (cleanSql.toUpperCase().includes('FOR UPDATE')) {
+              // Acquire row-level lock
+              await this.acquireRowLock(walletKey, activeTxState);
+            }
+
+            const existing = activeTxState.stagedWallets.get(walletKey) || this.wallets.get(walletKey);
+            if (!existing) {
+              return { rows: [], rowCount: 0 };
+            }
+
+            return {
+              rows: [{
+                id: existing.id,
+                user_id: existing.user_id,
+                currency: existing.currency,
+                real_balance: existing.real_balance || (existing.balance_minor !== undefined ? (Number(existing.balance_minor) / 10000).toFixed(4) : '0.0000'),
+                bonus_balance: existing.bonus_balance || '0.0000',
+                balance_minor: existing.balance_minor.toString(),
+                version: existing.version.toString(),
+                status: existing.status,
+                created_at: existing.created_at,
+                updated_at: existing.updated_at
+              } as any],
+              rowCount: 1
+            };
+          } else {
+            // Find any wallet matching userId
+            const matched: any[] = [];
+            const source = activeTxState.inTransaction ? new Map([...this.wallets, ...activeTxState.stagedWallets]) : this.wallets;
+            for (const existing of source.values()) {
+              if (String(existing.user_id) === userId) {
+                matched.push({
+                  id: existing.id,
+                  user_id: existing.user_id,
+                  currency: existing.currency,
+                  real_balance: existing.real_balance || (existing.balance_minor !== undefined ? (Number(existing.balance_minor) / 10000).toFixed(4) : '0.0000'),
+                  bonus_balance: existing.bonus_balance || '0.0000',
+                  balance_minor: existing.balance_minor.toString(),
+                  version: existing.version.toString(),
+                  status: existing.status,
+                  created_at: existing.created_at,
+                  updated_at: existing.updated_at
+                });
+              }
+            }
+            return { rows: matched as any[], rowCount: matched.length };
           }
-
-          const existing = activeTxState.stagedWallets.get(walletKey) || this.wallets.get(walletKey);
-          if (!existing) {
-            return { rows: [], rowCount: 0 };
-          }
-
-          return {
-            rows: [{
-              id: existing.id,
-              user_id: existing.user_id,
-              currency: existing.currency,
-              real_balance: existing.real_balance || (existing.balance_minor !== undefined ? (Number(existing.balance_minor) / 10000).toFixed(4) : '0.0000'),
-              bonus_balance: existing.bonus_balance || '0.0000',
-              balance_minor: existing.balance_minor.toString(),
-              version: existing.version.toString(),
-              status: existing.status,
-              created_at: existing.created_at,
-              updated_at: existing.updated_at
-            } as any],
-            rowCount: 1
-          };
         }
 
         // 6. INSERT INTO wallets
@@ -293,7 +317,12 @@ export class InMemoryPostgresLedgerEngine implements ILedgerDbPool {
           let balanceMinor: bigint | null = null;
           let walletId: any;
 
-          if (cleanSql.includes('bonus_balance = $1')) {
+          if (cleanSql.includes('bonus_balance = $1') && cleanSql.includes('real_balance = $2')) {
+            bonusBalance = String(params[0]);
+            realBalance = String(params[1]);
+            balanceMinor = BigInt(params[2]);
+            walletId = params[3];
+          } else if (cleanSql.includes('bonus_balance = $1')) {
             bonusBalance = String(params[0]);
             walletId = params[1];
           } else if (cleanSql.includes('real_balance = $1') && cleanSql.includes('balance_minor = $2')) {
@@ -476,7 +505,34 @@ export class InMemoryPostgresLedgerEngine implements ILedgerDbPool {
           return { rows: [{ idempotency_key: key } as any], rowCount: 1 };
         }
 
-        // 10. SELECT FROM ledger_entries WHERE transaction_id = $1
+        // 10. SELECT FROM ledger_entries WHERE transaction_id = $1 or user_id = $1
+        if (cleanSql.includes('FROM ledger_entries') && cleanSql.includes('user_id = $1')) {
+          const userId = String(params[0]).trim();
+          const matched: any[] = [];
+          for (const entry of this.ledgerEntries.values()) {
+            if (String(entry.user_id) === userId) {
+              matched.push({
+                id: entry.id,
+                wallet_id: entry.wallet_id,
+                user_id: entry.user_id,
+                transaction_id: entry.transaction_id,
+                reference_transaction_id: entry.reference_transaction_id,
+                type: entry.type,
+                balance_target: entry.balance_target || 'REAL',
+                amount_minor: entry.amount_minor !== undefined ? entry.amount_minor.toString() : '0',
+                currency: entry.currency,
+                before_balance_minor: entry.before_balance_minor !== undefined ? entry.before_balance_minor.toString() : '0',
+                after_balance_minor: entry.after_balance_minor !== undefined ? entry.after_balance_minor.toString() : '0',
+                status: entry.status,
+                correlation_id: entry.correlation_id,
+                audit_metadata: typeof entry.audit_metadata === 'object' ? JSON.stringify(entry.audit_metadata) : entry.audit_metadata,
+                created_at: entry.created_at
+              });
+            }
+          }
+          return { rows: matched as any[], rowCount: matched.length };
+        }
+
         if (cleanSql.includes('FROM ledger_entries') && cleanSql.includes('transaction_id = $1')) {
           const txId = params[0];
           for (const entry of this.ledgerEntries.values()) {
@@ -602,6 +658,45 @@ export class InMemoryPostgresLedgerEngine implements ILedgerDbPool {
       ledgerEntriesCount: this.ledgerEntries.size,
       idempotencyRecordsCount: this.idempotencyRecords.size
     };
+  }
+
+  /**
+   * Helper to seed or reset a wallet for testing
+   */
+  public seedWallet(params: {
+    userId: string | number;
+    currency?: string;
+    realBalance?: string;
+    bonusBalance?: string;
+    status?: 'ACTIVE' | 'FROZEN' | 'CLOSED';
+  }): void {
+    const userId = String(params.userId);
+    const currency = params.currency || 'BDT';
+    const realBalance = params.realBalance || '0.0000';
+    const bonusBalance = params.bonusBalance || '0.0000';
+    const realMinor = BigInt(Math.round(parseFloat(realBalance) * 10000));
+    const walletKey = `${userId}:${currency}`;
+    const id = this.wallets.size + 1;
+
+    this.users.set(userId, {
+      id: userId,
+      username: `user_${userId}`,
+      status: params.status || 'ACTIVE',
+      currency
+    });
+
+    this.wallets.set(walletKey, {
+      id,
+      user_id: userId,
+      currency,
+      real_balance: realBalance,
+      bonus_balance: bonusBalance,
+      balance_minor: realMinor,
+      version: 1n,
+      status: params.status || 'ACTIVE',
+      created_at: new Date(),
+      updated_at: new Date()
+    });
   }
 
   /**

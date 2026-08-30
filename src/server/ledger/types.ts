@@ -101,6 +101,37 @@ export interface LedgerTransactionResult {
   timestamp: string;
 }
 
+export interface BonusToRealTransferRequest {
+  userId: string | number;
+  currency: string;
+  transactionId: string;
+  amountMinor?: bigint | number | string;
+  amountMajor?: string | number;
+  wageringRequirementId: number;
+  correlationId?: string;
+  auditMetadata?: Record<string, any>;
+}
+
+export interface BonusToRealTransferResult {
+  success: boolean;
+  isIdempotent: boolean;
+  transactionId: string;
+  userId: string;
+  currency: SupportedCurrency;
+  amountMinor: string;
+  amountMajor: string;
+  debitEntryId: string;
+  creditEntryId: string;
+  beforeBonusBalanceMinor: string;
+  afterBonusBalanceMinor: string;
+  beforeRealBalanceMinor: string;
+  afterRealBalanceMinor: string;
+  bonusBalanceMajor: string;
+  realBalanceMajor: string;
+  correlationId: string;
+  timestamp: string;
+}
+
 export interface BalanceTargetReconciliationSummary {
   isReconciled: boolean;
   walletBalanceMinor: string;

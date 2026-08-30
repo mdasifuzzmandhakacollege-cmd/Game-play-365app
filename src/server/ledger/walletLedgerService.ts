@@ -15,6 +15,8 @@
 import { ILedgerDbPool, ILedgerDbClient, InMemoryPostgresLedgerEngine } from './db';
 import {
   BalanceTargetReconciliationSummary,
+  BonusToRealTransferRequest,
+  BonusToRealTransferResult,
   InsufficientFundsError,
   LedgerBalanceTarget,
   LedgerTransactionRequest,
@@ -407,6 +409,320 @@ export class WalletLedgerService {
       }
 
       safeLog('error', correlationId, `[Ledger] Transaction failed: ${err.message}`, {
+        code: err.code,
+        name: err.name
+      });
+
+      throw err;
+    } finally {
+      client.release();
+    }
+  }
+
+  /**
+   * Executes an authoritative atomic balance conversion from BONUS to REAL:
+   * 1. Validates inputs & sanitizes metadata.
+   * 2. Opens transaction: `BEGIN`.
+   * 3. Checks idempotency using root transactionId: `WAGERING_RELEASE_<userId>_<requirementId>`.
+   * 4. Acquires row lock: `SELECT ... FROM wallets WHERE user_id = $1 AND currency = $2 FOR UPDATE`.
+   * 5. Enforces balance invariants & status guards:
+   *    - Verifies wallet is ACTIVE.
+   *    - Verifies sufficient BONUS balance (bonusBalanceMinor >= amountMinor).
+   * 6. Atomically debits BONUS balance and credits REAL balance in a single database update:
+   *    `UPDATE wallets SET bonus_balance = $1, real_balance = $2, balance_minor = $3 ...`
+   * 7. Inserts 2 immutable ledger entries:
+   *    - Leg 1: DEBIT (targetBalance: 'BONUS')
+   *    - Leg 2: CREDIT (targetBalance: 'REAL')
+   *    Both entries reference the root transactionId as reference_transaction_id.
+   * 8. Records single idempotency record under the root idempotency key.
+   * 9. Commits transaction: `COMMIT`.
+   */
+  public async executeBonusToRealTransfer(req: BonusToRealTransferRequest): Promise<BonusToRealTransferResult> {
+    // 1. Input Validation
+    if (req.userId === undefined || req.userId === null || String(req.userId).trim() === '') {
+      throw new LedgerValidationError("userId is required", { userId: req.userId });
+    }
+    const normalizedUserId = String(req.userId).trim();
+
+    if (!req.transactionId || typeof req.transactionId !== 'string' || req.transactionId.trim().length === 0) {
+      throw new LedgerValidationError("transactionId is required and must be a non-empty string", { transactionId: req.transactionId });
+    }
+
+    if (req.wageringRequirementId === undefined || req.wageringRequirementId === null || isNaN(Number(req.wageringRequirementId))) {
+      throw new LedgerValidationError("wageringRequirementId is required and must be a valid number", { wageringRequirementId: req.wageringRequirementId });
+    }
+
+    const currency = validateCurrency(req.currency);
+    const rawAmount = req.amountMinor !== undefined ? req.amountMinor : req.amountMajor;
+    const amountMinor = parseToMinorUnits(rawAmount, currency, false);
+    const correlationId = req.correlationId || `cid-${Date.now()}-${Math.random().toString(36).substring(2, 8)}`;
+    const rootTxId = req.transactionId.trim();
+    const idempotencyKey = this.generateIdempotencyKey(normalizedUserId, currency, rootTxId);
+    const sanitizedAudit = req.auditMetadata ? maskSensitiveData(req.auditMetadata) : {};
+    sanitizedAudit.operation = 'BONUS_TO_REAL_CONVERSION';
+    sanitizedAudit.wageringRequirementId = req.wageringRequirementId;
+
+    safeLog('info', correlationId, `[Ledger] Initiating atomic BONUS -> REAL transfer of ${formatMinorUnits(amountMinor, currency)} ${currency}`, {
+      userId: normalizedUserId,
+      transactionId: rootTxId,
+      amountMinor: amountMinor.toString(),
+      wageringRequirementId: req.wageringRequirementId
+    });
+
+    const client: ILedgerDbClient = await this.db.connect();
+
+    try {
+      // 2. BEGIN PostgreSQL ACID Transaction
+      await client.query('BEGIN');
+
+      // 3. Idempotency Check within transaction
+      const existingIdemp = await client.query<{
+        idempotency_key: string;
+        transaction_id: string;
+        status_code: number;
+        response_payload: BonusToRealTransferResult;
+      }>(
+        `SELECT idempotency_key, transaction_id, status_code, response_payload
+         FROM idempotency_records
+         WHERE idempotency_key = $1
+         LIMIT 1`,
+        [idempotencyKey]
+      );
+
+      if (existingIdemp.rows.length > 0) {
+        await client.query('COMMIT');
+        safeLog('info', correlationId, `[Ledger] Idempotent hit for bonus transfer: ${rootTxId}`);
+        const rawPayload = existingIdemp.rows[0].response_payload;
+        const cached = typeof rawPayload === 'string' ? JSON.parse(rawPayload) : rawPayload;
+        return {
+          ...cached,
+          isIdempotent: true
+        };
+      }
+
+      // 4. Row-Level Locking (SELECT ... FOR UPDATE)
+      let walletRes = await client.query<{
+        id: string | number;
+        user_id: string | number;
+        currency: SupportedCurrency;
+        real_balance?: string | number;
+        bonus_balance?: string | number;
+        balance_minor?: string | number | bigint;
+        version: string | number;
+        status: 'ACTIVE' | 'FROZEN' | 'CLOSED';
+      }>(
+        `SELECT id, user_id, currency, real_balance, bonus_balance, balance_minor, version, status
+         FROM wallets
+         WHERE user_id = $1 AND currency = $2
+         FOR UPDATE`,
+        [normalizedUserId, currency]
+      );
+
+      // 4b. Re-check idempotency under row lock (handles concurrent serialized attempts)
+      const postLockIdemp = await client.query<{
+        idempotency_key: string;
+        transaction_id: string;
+        status_code: number;
+        response_payload: BonusToRealTransferResult;
+      }>(
+        `SELECT idempotency_key, transaction_id, status_code, response_payload
+         FROM idempotency_records
+         WHERE idempotency_key = $1
+         LIMIT 1`,
+        [idempotencyKey]
+      );
+
+      if (postLockIdemp.rows.length > 0) {
+        await client.query('COMMIT');
+        safeLog('info', correlationId, `[Ledger] Idempotent hit (post-lock) for bonus transfer: ${rootTxId}`);
+        const rawPayload = postLockIdemp.rows[0].response_payload;
+        const cached = typeof rawPayload === 'string' ? JSON.parse(rawPayload) : rawPayload;
+        return {
+          ...cached,
+          isIdempotent: true
+        };
+      }
+
+      if (walletRes.rows.length === 0) {
+        await client.query('ROLLBACK');
+        throw new WalletNotFoundError(normalizedUserId, currency);
+      }
+
+      const wallet = walletRes.rows[0];
+
+      // 5. Invariant Checks
+      if (wallet.status !== 'ACTIVE') {
+        await client.query('ROLLBACK');
+        throw new WalletFrozenError(normalizedUserId, wallet.status);
+      }
+
+      const beforeBonusStr = wallet.bonus_balance !== undefined && wallet.bonus_balance !== null ? wallet.bonus_balance.toString() : '0.0000';
+      const beforeBonusMinor = parseToMinorUnits(beforeBonusStr, currency, true);
+
+      let beforeRealMinor: bigint;
+      if (wallet.balance_minor !== undefined && wallet.balance_minor !== null && wallet.balance_minor !== '') {
+        beforeRealMinor = BigInt(wallet.balance_minor.toString());
+      } else if (wallet.real_balance !== undefined && wallet.real_balance !== null) {
+        beforeRealMinor = parseToMinorUnits(wallet.real_balance.toString(), currency, true);
+      } else {
+        beforeRealMinor = 0n;
+      }
+
+      // Verify sufficient BONUS balance before conversion. Never create REAL value from nothing.
+      if (beforeBonusMinor < amountMinor) {
+        await client.query('ROLLBACK');
+        safeLog('warn', correlationId, `[Ledger] Insufficient bonus funds for conversion: available=${beforeBonusMinor}, required=${amountMinor}`);
+        throw new InsufficientFundsError(beforeBonusMinor, amountMinor, currency);
+      }
+
+      const afterBonusMinor = beforeBonusMinor - amountMinor;
+      const afterRealMinor = beforeRealMinor + amountMinor;
+
+      const formattedAfterBonus = formatMinorUnits(afterBonusMinor, currency);
+      const formattedAfterReal = formatMinorUnits(afterRealMinor, currency);
+
+      // 6. Update Canonical Wallet Balances (Atomic Update of both bonus_balance and real_balance/balance_minor)
+      await client.query(
+        `UPDATE wallets
+         SET bonus_balance = $1,
+             real_balance = $2,
+             balance_minor = $3,
+             version = version + 1,
+             updated_at = NOW()
+         WHERE id = $4`,
+        [formattedAfterBonus, formattedAfterReal, afterRealMinor.toString(), wallet.id]
+      );
+
+      // 7. Insert Immutable Ledger Entries for BOTH Legs
+      const debitEntryId = `ledg_${Date.now()}_${Math.random().toString(36).substring(2, 9)}_deb`;
+      const creditEntryId = `ledg_${Date.now()}_${Math.random().toString(36).substring(2, 9)}_cred`;
+
+      const debitTxId = `${rootTxId}:BONUS_DEBIT`;
+      const creditTxId = `${rootTxId}:REAL_CREDIT`;
+
+      // Leg 1: BONUS DEBIT
+      await client.query(
+        `INSERT INTO ledger_entries (
+           id, wallet_id, user_id, transaction_id, reference_transaction_id,
+           type, balance_target, amount_minor, currency, before_balance_minor, after_balance_minor,
+           status, correlation_id, audit_metadata
+         )
+         VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14)`,
+        [
+          debitEntryId,
+          wallet.id,
+          normalizedUserId,
+          debitTxId,
+          rootTxId,
+          'DEBIT',
+          'BONUS',
+          amountMinor.toString(),
+          currency,
+          beforeBonusMinor.toString(),
+          afterBonusMinor.toString(),
+          'COMMITTED',
+          correlationId,
+          JSON.stringify({
+            ...sanitizedAudit,
+            leg: 'BONUS_DEBIT',
+            targetBalance: 'BONUS',
+            transferType: 'BONUS_TO_REAL',
+            wageringRequirementId: req.wageringRequirementId
+          })
+        ]
+      );
+
+      // Leg 2: REAL CREDIT
+      await client.query(
+        `INSERT INTO ledger_entries (
+           id, wallet_id, user_id, transaction_id, reference_transaction_id,
+           type, balance_target, amount_minor, currency, before_balance_minor, after_balance_minor,
+           status, correlation_id, audit_metadata
+         )
+         VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14)`,
+        [
+          creditEntryId,
+          wallet.id,
+          normalizedUserId,
+          creditTxId,
+          rootTxId,
+          'CREDIT',
+          'REAL',
+          amountMinor.toString(),
+          currency,
+          beforeRealMinor.toString(),
+          afterRealMinor.toString(),
+          'COMMITTED',
+          correlationId,
+          JSON.stringify({
+            ...sanitizedAudit,
+            leg: 'REAL_CREDIT',
+            targetBalance: 'REAL',
+            transferType: 'BONUS_TO_REAL',
+            wageringRequirementId: req.wageringRequirementId
+          })
+        ]
+      );
+
+      // 8. Construct Result & Record Single Idempotency Authority
+      const result: BonusToRealTransferResult = {
+        success: true,
+        isIdempotent: false,
+        transactionId: rootTxId,
+        userId: normalizedUserId,
+        currency,
+        amountMinor: amountMinor.toString(),
+        amountMajor: formatMinorUnits(amountMinor, currency),
+        debitEntryId,
+        creditEntryId,
+        beforeBonusBalanceMinor: beforeBonusMinor.toString(),
+        afterBonusBalanceMinor: afterBonusMinor.toString(),
+        beforeRealBalanceMinor: beforeRealMinor.toString(),
+        afterRealBalanceMinor: afterRealMinor.toString(),
+        bonusBalanceMajor: formattedAfterBonus,
+        realBalanceMajor: formattedAfterReal,
+        correlationId,
+        timestamp: new Date().toISOString()
+      };
+
+      await client.query(
+        `INSERT INTO idempotency_records (
+           idempotency_key, transaction_id, status_code, response_payload
+         )
+         VALUES ($1, $2, $3, $4)`,
+        [idempotencyKey, rootTxId, 200, JSON.stringify(result)]
+      );
+
+      // 9. COMMIT Transaction
+      await client.query('COMMIT');
+
+      safeLog('info', correlationId, `[Ledger] Bonus-to-real transfer committed successfully: ${rootTxId}`, {
+        debitEntryId,
+        creditEntryId,
+        bonusAfter: formattedAfterBonus,
+        realAfter: formattedAfterReal
+      });
+
+      return result;
+    } catch (err: any) {
+      await client.query('ROLLBACK').catch(() => {});
+
+      if (err.code === '23505') {
+        const recovery = await this.db.query<{ response_payload: BonusToRealTransferResult }>(
+          `SELECT response_payload FROM idempotency_records WHERE idempotency_key = $1 LIMIT 1`,
+          [idempotencyKey]
+        );
+        if (recovery.rows.length > 0) {
+          const rawRec = recovery.rows[0].response_payload;
+          const cachedRec = typeof rawRec === 'string' ? JSON.parse(rawRec) : rawRec;
+          return {
+            ...cachedRec,
+            isIdempotent: true
+          };
+        }
+      }
+
+      safeLog('error', correlationId, `[Ledger] Bonus-to-real transfer failed: ${err.message}`, {
         code: err.code,
         name: err.name
       });

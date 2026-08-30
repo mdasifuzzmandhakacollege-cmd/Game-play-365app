@@ -144,6 +144,8 @@ export interface WageringReleaseResult {
   userId: number;
   status: 'ACTIVE' | 'COMPLETED' | 'EXPIRED';
   releaseAmount?: string;
+  debitEntryId?: string;
+  creditEntryId?: string;
   ledgerEntryId?: string;
   transactionId?: string;
   reason?: string;
@@ -812,7 +814,7 @@ export class WageringService {
         };
       }
 
-      // 6. Settle via Canonical WalletLedgerService (REAL CREDIT)
+      // 6. Settle via Canonical WalletLedgerService (Atomic BONUS DEBIT -> REAL CREDIT)
       const effectiveLedger = params.customLedgerService || WageringService.ledgerService;
       if (!effectiveLedger) {
         throw new Error('FATAL_LEDGER_UNAVAILABLE: Production WalletLedgerService is not configured. Wagering bonus conversion failed closed.');
@@ -820,29 +822,49 @@ export class WageringService {
       const bonusAmountScale4 = toScale4(reqRecord.bonusAmountGranted);
       const bonusAmountStr = fromScale4(bonusAmountScale4);
 
-      const ledgerResult = await effectiveLedger.executeTransaction({
-        userId: String(userId),
-        transactionId: deterministicTrxId,
-        type: 'CREDIT',
-        targetBalance: 'REAL',
-        amountMajor: bonusAmountStr,
-        currency: currency as any,
-        auditMetadata: {
+      let transferResult: any;
+      try {
+        transferResult = await effectiveLedger.executeBonusToRealTransfer({
+          userId: String(userId),
+          transactionId: deterministicTrxId,
           wageringRequirementId: requirementId,
-          gatingDecision: 'APPROVED',
-          releaseReason: 'WAGERING_REQUIREMENT_COMPLETED',
-          settlementTarget: 'REAL',
-          promoName: reqRecord.promoName
+          amountMajor: bonusAmountStr,
+          currency: currency as any,
+          auditMetadata: {
+            wageringRequirementId: requirementId,
+            gatingDecision: 'APPROVED',
+            releaseReason: 'WAGERING_REQUIREMENT_COMPLETED',
+            promoName: reqRecord.promoName
+          }
+        });
+      } catch (err: any) {
+        if (err.code === 'INSUFFICIENT_FUNDS' || err.name === 'InsufficientFundsError') {
+          return {
+            success: false,
+            duplicate: false,
+            requirementId,
+            userId,
+            status: reqRecord.status as any,
+            reason: 'INSUFFICIENT_BONUS_BALANCE',
+            auditMetadata: {
+              gatingDecision: 'REJECTED',
+              reason: 'INSUFFICIENT_BONUS_BALANCE',
+              error: err.message
+            }
+          };
         }
-      });
+        throw err;
+      }
 
-      // 7. Update Wagering Requirement row to IS_RELEASED
+      // 7. Update Wagering Requirement row to IS_RELEASED (ONLY AFTER successful atomic wallet transfer)
       const auditPayload = {
         wageringRequirementId: requirementId,
         gatingDecision: 'APPROVED',
         releaseReason: 'WAGERING_REQUIREMENT_COMPLETED',
         settlementTarget: 'REAL',
-        ledgerEntryId: ledgerResult.ledgerEntryId,
+        debitEntryId: transferResult.debitEntryId,
+        creditEntryId: transferResult.creditEntryId,
+        ledgerEntryId: transferResult.creditEntryId,
         releasedAt: now.toISOString(),
         transactionId: deterministicTrxId
       };
@@ -859,12 +881,14 @@ export class WageringService {
 
       return {
         success: true,
-        duplicate: false,
+        duplicate: transferResult.isIdempotent || false,
         requirementId,
         userId,
         status: 'COMPLETED',
         releaseAmount: bonusAmountStr,
-        ledgerEntryId: ledgerResult.ledgerEntryId,
+        debitEntryId: transferResult.debitEntryId,
+        creditEntryId: transferResult.creditEntryId,
+        ledgerEntryId: transferResult.creditEntryId,
         transactionId: deterministicTrxId,
         auditMetadata: auditPayload
       };
