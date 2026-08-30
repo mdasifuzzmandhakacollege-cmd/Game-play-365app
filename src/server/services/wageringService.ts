@@ -21,6 +21,7 @@
 import { eq, and, sql, lte, gt } from 'drizzle-orm';
 import { db } from '../../db/index.js';
 import { wageringRequirements, wageringProgressEvents, transactions, users } from '../../db/schema.js';
+import { WalletLedgerService } from '../ledger/walletLedgerService.js';
 
 /**
  * Pure integer minor-units decimal arithmetic (scale 4, 1.0000 = 10000n)
@@ -108,12 +109,57 @@ export interface WageringRequirementRecord {
   targetTurnoverAmount: string;
   completedTurnoverAmount: string;
   status: 'ACTIVE' | 'COMPLETED' | 'EXPIRED';
+  isReleased?: boolean;
+  releasedAt?: Date | null;
+  releaseTransactionId?: string | null;
+  auditMetadata?: Record<string, any> | null;
   expiresAt: Date;
   createdAt: Date;
   completedAt: Date | null;
 }
 
+export interface WageringWithdrawalGateResult {
+  allowed: boolean;
+  reason: 'WAGERING_CLEAR' | 'ACTIVE_WAGERING_REQUIREMENT_INCOMPLETE' | 'WAGERING_GATE_DEPENDENCY_ERROR';
+  userId: number;
+  hasActiveWagering: boolean;
+  activeRequirementsCount: number;
+  activeRequirements: WageringRequirementRecord[];
+  auditMetadata?: Record<string, any>;
+}
+
+export interface ConvertOrReleaseBonusParams {
+  userId: number;
+  requirementId: number;
+  currency?: string;
+  idempotencyKey?: string;
+  customLedgerService?: WalletLedgerService;
+  tx?: any;
+}
+
+export interface WageringReleaseResult {
+  success: boolean;
+  duplicate: boolean;
+  requirementId: number;
+  userId: number;
+  status: 'ACTIVE' | 'COMPLETED' | 'EXPIRED';
+  releaseAmount?: string;
+  ledgerEntryId?: string;
+  transactionId?: string;
+  reason?: string;
+  auditMetadata?: Record<string, any>;
+}
+
 export class WageringService {
+  private static ledgerService: WalletLedgerService | null = null;
+
+  public static setLedgerService(service: WalletLedgerService) {
+    WageringService.ledgerService = service;
+  }
+
+  public static getLedgerService(): WalletLedgerService | null {
+    return WageringService.ledgerService;
+  }
   /**
    * Processes an authoritative BET transaction toward the user's active wagering requirement.
    * Executes entirely within a single PostgreSQL ACID transaction with row-level locks.
@@ -551,5 +597,282 @@ export class WageringService {
       .where(eq(wageringRequirements.id, id));
 
     return (record as WageringRequirementRecord) || null;
+  }
+
+  /**
+   * Evaluates authoritative wagering gate for withdrawal or cashout requests.
+   * Fails closed by default.
+   * Blocks withdrawal if the user has any incomplete ACTIVE wagering requirement.
+   */
+  public static async enforceWithdrawalWageringGate(params: {
+    userId: number;
+    requestedAmount?: string | bigint;
+    currency?: string;
+    tx?: any;
+  }): Promise<WageringWithdrawalGateResult> {
+    const { userId, tx } = params;
+    if (!userId || typeof userId !== 'number' || userId <= 0) {
+      throw new Error('Valid numeric userId is required');
+    }
+
+    try {
+      const now = new Date();
+      const executor = tx || db;
+
+      // 1. Check and mark stale active requirements as EXPIRED
+      await executor
+        .update(wageringRequirements)
+        .set({ status: 'EXPIRED' })
+        .where(
+          and(
+            eq(wageringRequirements.userId, userId),
+            eq(wageringRequirements.status, 'ACTIVE'),
+            lte(wageringRequirements.expiresAt, now)
+          )
+        );
+
+      // 2. Fetch all active requirements
+      const activeList = await executor
+        .select()
+        .from(wageringRequirements)
+        .where(
+          and(
+            eq(wageringRequirements.userId, userId),
+            eq(wageringRequirements.status, 'ACTIVE')
+          )
+        )
+        .orderBy(wageringRequirements.createdAt, wageringRequirements.id);
+
+      if (activeList.length > 0) {
+        return {
+          allowed: false,
+          reason: 'ACTIVE_WAGERING_REQUIREMENT_INCOMPLETE',
+          userId,
+          hasActiveWagering: true,
+          activeRequirementsCount: activeList.length,
+          activeRequirements: activeList as WageringRequirementRecord[],
+          auditMetadata: {
+            gatingDecision: 'BLOCKED',
+            reason: 'ACTIVE_WAGERING_REQUIREMENT_INCOMPLETE',
+            activeCount: activeList.length,
+            requirementIds: activeList.map((r: any) => r.id)
+          }
+        };
+      }
+
+      return {
+        allowed: true,
+        reason: 'WAGERING_CLEAR',
+        userId,
+        hasActiveWagering: false,
+        activeRequirementsCount: 0,
+        activeRequirements: [],
+        auditMetadata: {
+          gatingDecision: 'ALLOWED',
+          reason: 'NO_ACTIVE_WAGERING_REQUIREMENT'
+        }
+      };
+    } catch (err: any) {
+      console.error(`[WageringService] enforceWithdrawalWageringGate error for user ${userId}:`, err);
+      // Fail closed
+      return {
+        allowed: false,
+        reason: 'WAGERING_GATE_DEPENDENCY_ERROR',
+        userId,
+        hasActiveWagering: true,
+        activeRequirementsCount: 0,
+        activeRequirements: [],
+        auditMetadata: {
+          gatingDecision: 'BLOCKED_FAIL_CLOSED',
+          error: err.message
+        }
+      };
+    }
+  }
+
+  /**
+   * Authoritatively converts or releases a completed bonus requirement to REAL balance.
+   * Operates strictly through WalletLedgerService.
+   * Enforces row-level locks, ownership validation, state-machine verification, and deterministic idempotency.
+   */
+  public static async convertOrReleaseBonus(
+    params: ConvertOrReleaseBonusParams
+  ): Promise<WageringReleaseResult> {
+    const { userId, requirementId, currency = 'BDT', idempotencyKey } = params;
+
+    if (!userId || typeof userId !== 'number' || userId <= 0) {
+      throw new Error('Valid numeric userId is required');
+    }
+    if (!requirementId || typeof requirementId !== 'number' || requirementId <= 0) {
+      throw new Error('Valid numeric requirementId is required');
+    }
+
+    const runner = async (tx: any): Promise<WageringReleaseResult> => {
+      const now = new Date();
+
+      // 1. Fetch Requirement with Row Lock
+      const [reqRecord] = await tx
+        .select()
+        .from(wageringRequirements)
+        .where(eq(wageringRequirements.id, requirementId))
+        .for('update');
+
+      if (!reqRecord) {
+        return {
+          success: false,
+          duplicate: false,
+          requirementId,
+          userId,
+          status: 'ACTIVE',
+          reason: 'WAGERING_REQUIREMENT_NOT_FOUND'
+        };
+      }
+
+      // 2. Authoritative Ownership Validation
+      if (reqRecord.userId !== userId) {
+        return {
+          success: false,
+          duplicate: false,
+          requirementId,
+          userId,
+          status: reqRecord.status as any,
+          reason: 'TRANSACTION_USER_MISMATCH'
+        };
+      }
+
+      // 3. Check Expiry
+      if (reqRecord.status === 'ACTIVE' && reqRecord.expiresAt <= now) {
+        await tx
+          .update(wageringRequirements)
+          .set({ status: 'EXPIRED' })
+          .where(eq(wageringRequirements.id, requirementId));
+
+        return {
+          success: false,
+          duplicate: false,
+          requirementId,
+          userId,
+          status: 'EXPIRED',
+          reason: 'WAGERING_REQUIREMENT_EXPIRED'
+        };
+      }
+
+      // 4. Status Machine Validation
+      if (reqRecord.status === 'EXPIRED') {
+        return {
+          success: false,
+          duplicate: false,
+          requirementId,
+          userId,
+          status: 'EXPIRED',
+          reason: 'WAGERING_REQUIREMENT_EXPIRED'
+        };
+      }
+
+      if (reqRecord.status === 'ACTIVE') {
+        const completedScale4 = toScale4(reqRecord.completedTurnoverAmount);
+        const targetScale4 = toScale4(reqRecord.targetTurnoverAmount);
+        if (completedScale4 < targetScale4) {
+          return {
+            success: false,
+            duplicate: false,
+            requirementId,
+            userId,
+            status: 'ACTIVE',
+            reason: 'WAGERING_REQUIREMENT_INCOMPLETE'
+          };
+        }
+        // If completedTurnover >= targetTurnover, mark COMPLETED
+        await tx
+          .update(wageringRequirements)
+          .set({ status: 'COMPLETED', completedAt: now })
+          .where(eq(wageringRequirements.id, requirementId));
+        reqRecord.status = 'COMPLETED';
+        reqRecord.completedAt = now;
+      }
+
+      // 5. Idempotency Check: Check if already released
+      const deterministicTrxId = idempotencyKey || `WAGERING_RELEASE_${userId}_${requirementId}`;
+
+      if (reqRecord.isReleased) {
+        return {
+          success: true,
+          duplicate: true,
+          requirementId,
+          userId,
+          status: 'COMPLETED',
+          releaseAmount: reqRecord.bonusAmountGranted,
+          transactionId: reqRecord.releaseTransactionId || deterministicTrxId,
+          reason: 'ALREADY_RELEASED',
+          auditMetadata: {
+            gatingDecision: 'IDEMPOTENT_REPLAY',
+            wageringRequirementId: requirementId,
+            releasedAt: reqRecord.releasedAt
+          }
+        };
+      }
+
+      // 6. Settle via Canonical WalletLedgerService (REAL CREDIT)
+      const effectiveLedger = params.customLedgerService || WageringService.ledgerService;
+      if (!effectiveLedger) {
+        throw new Error('FATAL_LEDGER_UNAVAILABLE: Production WalletLedgerService is not configured. Wagering bonus conversion failed closed.');
+      }
+      const bonusAmountScale4 = toScale4(reqRecord.bonusAmountGranted);
+      const bonusAmountStr = fromScale4(bonusAmountScale4);
+
+      const ledgerResult = await effectiveLedger.executeTransaction({
+        userId: String(userId),
+        transactionId: deterministicTrxId,
+        type: 'CREDIT',
+        targetBalance: 'REAL',
+        amountMajor: bonusAmountStr,
+        currency: currency as any,
+        auditMetadata: {
+          wageringRequirementId: requirementId,
+          gatingDecision: 'APPROVED',
+          releaseReason: 'WAGERING_REQUIREMENT_COMPLETED',
+          settlementTarget: 'REAL',
+          promoName: reqRecord.promoName
+        }
+      });
+
+      // 7. Update Wagering Requirement row to IS_RELEASED
+      const auditPayload = {
+        wageringRequirementId: requirementId,
+        gatingDecision: 'APPROVED',
+        releaseReason: 'WAGERING_REQUIREMENT_COMPLETED',
+        settlementTarget: 'REAL',
+        ledgerEntryId: ledgerResult.ledgerEntryId,
+        releasedAt: now.toISOString(),
+        transactionId: deterministicTrxId
+      };
+
+      await tx
+        .update(wageringRequirements)
+        .set({
+          isReleased: true,
+          releasedAt: now,
+          releaseTransactionId: deterministicTrxId,
+          auditMetadata: auditPayload
+        })
+        .where(eq(wageringRequirements.id, requirementId));
+
+      return {
+        success: true,
+        duplicate: false,
+        requirementId,
+        userId,
+        status: 'COMPLETED',
+        releaseAmount: bonusAmountStr,
+        ledgerEntryId: ledgerResult.ledgerEntryId,
+        transactionId: deterministicTrxId,
+        auditMetadata: auditPayload
+      };
+    };
+
+    if (params.tx) {
+      return await runner(params.tx);
+    }
+    return await db.transaction(runner);
   }
 }

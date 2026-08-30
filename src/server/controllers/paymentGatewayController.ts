@@ -6,6 +6,7 @@
 import { Request, Response } from 'express';
 import { paymentGatewayEngine } from '../../services/paymentGatewayEngine';
 import { PaymentProviderId, PaymentMethod } from '../types/paymentGateway';
+import { WageringService } from '../services/wageringService';
 
 export class PaymentGatewayController {
   /**
@@ -104,6 +105,19 @@ export class PaymentGatewayController {
 
       if (!userId || !provider || !amount || !recipientAccount) {
         res.status(400).json({ error: 'Missing required parameters: userId, provider, amount, recipientAccount' });
+        return;
+      }
+
+      // Authoritative Server-Side Wagering Gate Check (PLAY369 Task 5.2)
+      const gate = await WageringService.enforceWithdrawalWageringGate({ userId: Number(userId) });
+      if (!gate.allowed) {
+        res.status(403).json({
+          success: false,
+          error: `Withdrawal blocked: active wagering requirement is not completed (${gate.reason}).`,
+          code: 'WAGERING_REQUIREMENT_INCOMPLETE',
+          activeRequirementsCount: gate.activeRequirementsCount,
+          activeRequirements: gate.activeRequirements
+        });
         return;
       }
 

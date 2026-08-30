@@ -384,11 +384,15 @@ CREATE TABLE IF NOT EXISTS wagering_requirements (
     target_turnover_amount NUMERIC(18, 4) NOT NULL,
     completed_turnover_amount NUMERIC(18, 4) NOT NULL DEFAULT 0.0000,
     status VARCHAR(32) NOT NULL DEFAULT 'ACTIVE', -- 'ACTIVE', 'COMPLETED', 'EXPIRED'
+    is_released BOOLEAN NOT NULL DEFAULT FALSE,
+    released_at TIMESTAMPTZ,
+    release_transaction_id VARCHAR(128),
+    audit_metadata JSONB DEFAULT '{}',
     expires_at TIMESTAMPTZ NOT NULL,
     created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
     completed_at TIMESTAMPTZ,
 
-    -- Database Integrity Constraints (Task 5.1)
+    -- Database Integrity Constraints (Task 5.1 & 5.2)
     CONSTRAINT chk_wagering_requirements_bonus_positive CHECK (bonus_amount_granted > 0),
     CONSTRAINT chk_wagering_requirements_target_positive CHECK (target_turnover_amount > 0),
     CONSTRAINT chk_wagering_requirements_completed_non_negative CHECK (completed_turnover_amount >= 0),
@@ -397,6 +401,9 @@ CREATE TABLE IF NOT EXISTS wagering_requirements (
 
 CREATE INDEX IF NOT EXISTS wagering_requirements_user_status_idx
 ON wagering_requirements (user_id, status);
+
+CREATE INDEX IF NOT EXISTS wagering_requirements_released_idx
+ON wagering_requirements (user_id, is_released);
 
 CREATE INDEX IF NOT EXISTS wagering_requirements_expires_at_idx
 ON wagering_requirements (expires_at);

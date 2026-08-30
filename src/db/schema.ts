@@ -357,11 +357,16 @@ export const wageringRequirements = pgTable('wagering_requirements', {
   targetTurnoverAmount: numeric('target_turnover_amount', { precision: 18, scale: 4 }).notNull(),
   completedTurnoverAmount: numeric('completed_turnover_amount', { precision: 18, scale: 4 }).default('0.0000').notNull(),
   status: varchar('status', { length: 32 }).default('ACTIVE').notNull(), // 'ACTIVE', 'COMPLETED', 'EXPIRED'
+  isReleased: boolean('is_released').default(false).notNull(),
+  releasedAt: timestamp('released_at', { withTimezone: true }),
+  releaseTransactionId: varchar('release_transaction_id', { length: 128 }),
+  auditMetadata: jsonb('audit_metadata').default({}),
   expiresAt: timestamp('expires_at', { withTimezone: true }).notNull(),
   createdAt: timestamp('created_at', { withTimezone: true }).defaultNow().notNull(),
   completedAt: timestamp('completed_at', { withTimezone: true }),
 }, (table) => ({
   userStatusIdx: index('wagering_requirements_user_status_idx').on(table.userId, table.status),
+  userReleasedIdx: index('wagering_requirements_released_idx').on(table.userId, table.isReleased),
   expiresAtIdx: index('wagering_requirements_expires_at_idx').on(table.expiresAt),
   chkBonusPositive: check('chk_wagering_requirements_bonus_positive', sql`${table.bonusAmountGranted} > 0`),
   chkTargetPositive: check('chk_wagering_requirements_target_positive', sql`${table.targetTurnoverAmount} > 0`),

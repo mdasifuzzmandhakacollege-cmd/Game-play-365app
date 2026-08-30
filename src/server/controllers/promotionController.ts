@@ -14,6 +14,7 @@ import { AuthRequest } from '../../middleware/auth.js';
 import { WalletLedgerService } from '../ledger/walletLedgerService.js';
 import { WheelRngService, CustomRngFunction } from '../services/wheelRngService.js';
 import { FreeSpinService } from '../services/freeSpinService.js';
+import { WageringService } from '../services/wageringService.js';
 
 /**
  * Pure integer minor-units decimal arithmetic (scale 4, 1.0000 = 10000n)
@@ -618,3 +619,66 @@ export const spinWheelHandler = async (req: Request, res: Response): Promise<voi
     res.status(statusCode).json({ status: 'ERROR', message: err.message });
   }
 };
+
+export const convertBonusHandler = async (req: Request, res: Response): Promise<void> => {
+  try {
+    const { userId } = await resolveAuthUser(req, req.body?.userId);
+    const requirementId = Number(req.body?.requirementId);
+    if (!requirementId || isNaN(requirementId)) {
+      res.status(400).json({ status: 'ERROR', message: 'Valid requirementId is required' });
+      return;
+    }
+    const currency = req.body?.currency || 'BDT';
+    const idempotencyKey = req.body?.idempotencyKey || (req.headers['idempotency-key'] as string);
+
+    const result = await WageringService.convertOrReleaseBonus({
+      userId,
+      requirementId,
+      currency,
+      idempotencyKey
+    });
+
+    if (!result.success) {
+      const statusCode = result.reason === 'TRANSACTION_USER_MISMATCH' ? 403 : 400;
+      res.status(statusCode).json({
+        status: 'ERROR',
+        message: `Bonus conversion blocked: ${result.reason}`,
+        data: result
+      });
+      return;
+    }
+
+    res.json({
+      status: 'SUCCESS',
+      data: result,
+      message: result.duplicate
+        ? 'Bonus requirement already released'
+        : 'Bonus successfully converted and credited to REAL balance'
+    });
+  } catch (err: any) {
+    const statusCode = err.statusCode || (err.message?.includes('not found') ? 404 : 400);
+    res.status(statusCode).json({ status: 'ERROR', message: err.message });
+  }
+};
+
+export const getWageringStatusHandler = async (req: Request, res: Response): Promise<void> => {
+  try {
+    const { userId } = await resolveAuthUser(req, req.query?.userId);
+    const activeReqs = await WageringService.getUserActiveRequirements(userId);
+    const gate = await WageringService.enforceWithdrawalWageringGate({ userId });
+    res.json({
+      status: 'SUCCESS',
+      data: {
+        userId,
+        canWithdraw: gate.allowed,
+        gateReason: gate.reason,
+        activeRequirementsCount: gate.activeRequirementsCount,
+        activeRequirements: activeReqs
+      }
+    });
+  } catch (err: any) {
+    const statusCode = err.statusCode || (err.message?.includes('not found') ? 404 : 400);
+    res.status(statusCode).json({ status: 'ERROR', message: err.message });
+  }
+};
+

@@ -9,6 +9,7 @@ import { db } from '../../db/index';
 import { paymentRequests, wallets, transactions, users } from '../../db/schema';
 import { eq, desc, sql } from 'drizzle-orm';
 import { PaymentMethodType } from '../types/seamless';
+import { WageringService } from '../services/wageringService';
 
 export class PaymentController {
   /**
@@ -141,6 +142,19 @@ export class PaymentController {
 
       if (!userId || !method || !amount || !receiverNumber) {
         res.status(400).json({ error: 'Missing required withdrawal parameters' });
+        return;
+      }
+
+      // Authoritative Server-Side Wagering Gate Check (PLAY369 Task 5.2)
+      const gate = await WageringService.enforceWithdrawalWageringGate({ userId: Number(userId) });
+      if (!gate.allowed) {
+        res.status(403).json({
+          success: false,
+          error: `Withdrawal blocked: active wagering requirement is not completed (${gate.reason}).`,
+          code: 'WAGERING_REQUIREMENT_INCOMPLETE',
+          activeRequirementsCount: gate.activeRequirementsCount,
+          activeRequirements: gate.activeRequirements
+        });
         return;
       }
 
