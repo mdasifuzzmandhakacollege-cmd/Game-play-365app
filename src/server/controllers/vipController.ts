@@ -10,6 +10,7 @@ import { db } from '../../db/index.js';
 import { vipLevels, userVipProgress, users, wallets, transactions } from '../../db/schema.js';
 import { eq, sql } from 'drizzle-orm';
 import { VIP_TIER_CONFIG } from '../../shared/gameplayConfig.js';
+import { resolveAuthUser } from './promotionController.js';
 
 export class VipService {
   /**
@@ -162,12 +163,7 @@ export class VipService {
 // ----------------------------------------------------------------------------
 export const getVipDetailsHandler = async (req: Request, res: Response): Promise<void> => {
   try {
-    const rawUserId = req.query.userId;
-    if (!rawUserId || isNaN(Number(rawUserId))) {
-      res.status(400).json({ status: 'ERROR', message: 'Valid userId query parameter is required' });
-      return;
-    }
-    const userId = Number(rawUserId);
+    const { userId } = await resolveAuthUser(req, req.query?.userId);
     const [progress] = await db
       .select()
       .from(userVipProgress)
@@ -187,16 +183,24 @@ export const getVipDetailsHandler = async (req: Request, res: Response): Promise
       }
     });
   } catch (err: any) {
-    res.status(500).json({ status: 'ERROR', message: err.message });
+    const statusCode = err.statusCode || (err.message?.includes('not found') ? 404 : 500);
+    res.status(statusCode).json({ status: 'ERROR', message: err.message });
   }
 };
 
 export const claimVipBonusHandler = async (req: Request, res: Response): Promise<void> => {
   try {
-    const { userId, level } = req.body;
-    const result = await VipService.claimLevelUpBonus(Number(userId), Number(level));
+    const { userId } = await resolveAuthUser(req, req.body?.userId);
+    const rawLevel = req.body?.level;
+    if (rawLevel === undefined || rawLevel === null || isNaN(Number(rawLevel))) {
+      res.status(400).json({ status: 'ERROR', message: 'Valid level is required' });
+      return;
+    }
+    const level = Number(rawLevel);
+    const result = await VipService.claimLevelUpBonus(userId, level);
     res.json({ status: 'SUCCESS', data: result });
   } catch (err: any) {
-    res.status(400).json({ status: 'ERROR', message: err.message });
+    const statusCode = err.statusCode || (err.message?.includes('not found') ? 404 : 400);
+    res.status(statusCode).json({ status: 'ERROR', message: err.message });
   }
 };

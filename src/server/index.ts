@@ -155,6 +155,7 @@ affiliateRouter.post('/bind', bindReferralHandler);
 app.use('/api/affiliate', affiliateRouter);
 
 const vipRouter = express.Router();
+vipRouter.use(requireAuth);
 vipRouter.get('/details', getVipDetailsHandler);
 vipRouter.post('/claim-bonus', claimVipBonusHandler);
 app.use('/api/vip', vipRouter);
