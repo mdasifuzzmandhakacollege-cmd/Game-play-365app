@@ -7,12 +7,23 @@
 
 import { Request, Response } from 'express';
 import { db } from '../../db/index.js';
-import { vipLevels, userVipProgress, users, wallets, transactions } from '../../db/schema.js';
-import { eq, sql } from 'drizzle-orm';
+import { vipLevels, userVipProgress, users, vipRewardClaims } from '../../db/schema.js';
+import { and, eq, sql } from 'drizzle-orm';
 import { VIP_TIER_CONFIG } from '../../shared/gameplayConfig.js';
-import { resolveAuthUser } from './promotionController.js';
+import { resolveAuthUser, toScale4, fromScale4 } from './promotionController.js';
+import { WalletLedgerService } from '../ledger/walletLedgerService.js';
 
 export class VipService {
+  private static ledgerService: WalletLedgerService | null = null;
+
+  public static setLedgerService(service: WalletLedgerService) {
+    VipService.ledgerService = service;
+  }
+
+  public static getLedgerService(): WalletLedgerService | null {
+    return VipService.ledgerService;
+  }
+
   /**
    * Cron / Background Evaluator: Check cumulative deposits and bets to trigger tier upgrades
    */
@@ -74,85 +85,166 @@ export class VipService {
 
   /**
    * Claim VIP Level-Up Reward
+   * 
+   * [FINANCIAL LEDGER & IDEMPOTENCY INVARIANTS]:
+   * 1. Zero Direct Wallet Mutation: Balance changes are strictly executed by production WalletLedgerService.
+   * 2. Canonical Scale-4 Money Arithmetic: Exact integer minor units (1 BDT = 10000 minor units).
+   * 3. Deterministic Transaction ID: 'VIP_LEVELUP_<userId>_<level>' for exactly-once ledger credit idempotency.
+   * 4. Crash-Safe State Machine:
+   *    - Row lock on user_vip_progress via SELECT ... FOR UPDATE.
+   *    - Row lock & reserve claim in vip_reward_claims with status 'PENDING'.
+   *    - Idempotent execution via WalletLedgerService.
+   *    - Synchronous transition of vip_reward_claims to 'CREDITED' and update of levelUpBonusClaimed.
+   * 5. Fail Closed: Rejects immediately if production WalletLedgerService is unavailable.
    */
-  public static async claimLevelUpBonus(userId: number, levelToClaim: number) {
+  public static async claimLevelUpBonus(
+    userId: number,
+    levelToClaim: number,
+    customLedgerService?: WalletLedgerService
+  ) {
+    if (!userId || typeof userId !== 'number') {
+      throw new Error('Valid userId is required');
+    }
+    if (!levelToClaim || typeof levelToClaim !== 'number' || levelToClaim < 1 || levelToClaim > 10) {
+      throw new Error('Valid VIP level is required');
+    }
+
+    const effectiveLedger = customLedgerService || VipService.ledgerService;
+    if (!effectiveLedger) {
+      throw new Error('FATAL_LEDGER_UNAVAILABLE: Production WalletLedgerService is not configured. VIP reward claim failed closed.');
+    }
+
+    const tierConfig = VIP_TIER_CONFIG.find((t) => t.level === levelToClaim);
+    if (!tierConfig || tierConfig.bonus <= 0) {
+      throw new Error('No bonus configured for this level');
+    }
+
+    const deterministicClaimTxId = `VIP_LEVELUP_${userId}_${levelToClaim}`;
+    const rewardAmountScale4 = toScale4(tierConfig.bonus);
+    const rewardAmountStr = fromScale4(rewardAmountScale4);
+
     return await db.transaction(async (tx) => {
+      // 1. Lock user VIP progress row with SELECT ... FOR UPDATE
       const [progress] = await tx
         .select()
         .from(userVipProgress)
-        .where(eq(userVipProgress.userId, userId));
+        .where(eq(userVipProgress.userId, userId))
+        .for('update');
 
-      if (!progress) throw new Error('VIP progress profile not found');
+      if (!progress) {
+        throw new Error('VIP progress profile not found');
+      }
+
       if (progress.currentLevel < levelToClaim) {
         throw new Error(`You have not reached VIP Level ${levelToClaim} yet`);
       }
 
-      const claimed = (progress.levelUpBonusClaimed as number[]) || [];
-      if (claimed.includes(levelToClaim)) {
+      // 2. Lock & check existing claim record in vip_reward_claims
+      const [existingClaim] = await tx
+        .select()
+        .from(vipRewardClaims)
+        .where(
+          and(
+            eq(vipRewardClaims.userId, userId),
+            eq(vipRewardClaims.vipLevel, levelToClaim)
+          )
+        )
+        .for('update');
+
+      if (existingClaim && existingClaim.status === 'CREDITED') {
         throw new Error(`Level ${levelToClaim} bonus has already been claimed`);
       }
 
-      const tierConfig = VIP_TIER_CONFIG.find((t) => t.level === levelToClaim);
-      if (!tierConfig || tierConfig.bonus <= 0) {
-        throw new Error('No bonus configured for this level');
+      const claimedList = ((progress.levelUpBonusClaimed as number[]) || []).slice();
+      if (existingClaim?.status === 'CREDITED' || (claimedList.includes(levelToClaim) && !existingClaim)) {
+        throw new Error(`Level ${levelToClaim} bonus has already been claimed`);
       }
 
-      // Credit player wallet
-      const [wallet] = await tx
-        .select()
-        .from(wallets)
-        .where(eq(wallets.userId, userId));
+      // 3. Reserve or find claim record
+      let claimRecord = existingClaim;
+      if (!claimRecord) {
+        const [inserted] = await tx
+          .insert(vipRewardClaims)
+          .values({
+            userId,
+            vipLevel: levelToClaim,
+            transactionId: deterministicClaimTxId,
+            rewardAmount: rewardAmountStr,
+            currency: 'BDT',
+            status: 'PENDING',
+            createdAt: new Date()
+          })
+          .onConflictDoNothing()
+          .returning();
 
-      if (!wallet) throw new Error('Player wallet not found');
+        if (!inserted) {
+          const [fetched] = await tx
+            .select()
+            .from(vipRewardClaims)
+            .where(
+              and(
+                eq(vipRewardClaims.userId, userId),
+                eq(vipRewardClaims.vipLevel, levelToClaim)
+              )
+            )
+            .for('update');
+          claimRecord = fetched;
+        } else {
+          claimRecord = inserted;
+        }
+      }
 
-      const beforeBalance = Number(wallet.realBalance);
-      const afterBalance = Number((beforeBalance + tierConfig.bonus).toFixed(4));
+      if (claimRecord && claimRecord.status === 'CREDITED') {
+        throw new Error(`Level ${levelToClaim} bonus has already been claimed`);
+      }
 
-      await tx
-        .update(wallets)
-        .set({
-          realBalance: afterBalance.toString(),
-          version: sql`${wallets.version} + 1`,
-          updatedAt: new Date()
-        })
-        .where(eq(wallets.id, wallet.id));
+      // 4. Authoritative Wallet Ledger Credit (Zero direct wallets balance mutation)
+      const ledgerResult = await effectiveLedger.executeTransaction({
+        userId: String(userId),
+        currency: 'BDT',
+        type: 'CREDIT',
+        targetBalance: 'REAL',
+        amountMinor: rewardAmountStr,
+        transactionId: deterministicClaimTxId,
+        auditMetadata: {
+          providerId: 'GAMEPLAY365_VIP',
+          type: 'VIP_LEVEL_UP_REWARD',
+          userId,
+          levelClaimed: levelToClaim,
+          tierName: tierConfig.name,
+          rewardAmount: rewardAmountStr
+        }
+      });
 
-      // Record in claimed list
-      claimed.push(levelToClaim);
+      // 5. Update claim record status to CREDITED
+      if (claimRecord) {
+        await tx
+          .update(vipRewardClaims)
+          .set({
+            status: 'CREDITED',
+            creditedAt: new Date()
+          })
+          .where(eq(vipRewardClaims.id, claimRecord.id));
+      }
+
+      // 6. Update levelUpBonusClaimed array on userVipProgress for compatibility/UI
+      if (!claimedList.includes(levelToClaim)) {
+        claimedList.push(levelToClaim);
+      }
       await tx
         .update(userVipProgress)
         .set({
-          levelUpBonusClaimed: claimed,
+          levelUpBonusClaimed: claimedList,
           updatedAt: new Date()
         })
         .where(eq(userVipProgress.userId, userId));
 
-      // Ledger entry
-      const txId = `VIP_BONUS_${Date.now()}`;
-      await tx.insert(transactions).values({
-        providerId: 'GAMEPLAY365_VIP',
-        transactionId: txId,
-        userId: userId,
-        walletId: wallet.id,
-        gameId: 'VIP_LEVEL_UP_REWARD',
-        type: 'PROMO',
-        amount: tierConfig.bonus.toString(),
-        currency: wallet.currency,
-        beforeBalance: beforeBalance.toString(),
-        afterBalance: afterBalance.toString(),
-        status: 'COMPLETED',
-        metadata: {
-          levelClaimed: levelToClaim,
-          tierName: tierConfig.name
-        },
-        createdAt: new Date()
-      });
-
       return {
         levelClaimed: levelToClaim,
         bonusAmount: tierConfig.bonus,
-        newRealBalance: afterBalance,
-        transactionId: txId
+        newRealBalance: ledgerResult.afterBalanceMajor,
+        transactionId: deterministicClaimTxId,
+        status: 'CREDITED'
       };
     });
   }

@@ -272,6 +272,27 @@ export const userVipProgress = pgTable('user_vip_progress', {
   updatedAt: timestamp('updated_at', { withTimezone: true }).defaultNow().notNull(),
 });
 
+export const vipRewardClaims = pgTable('vip_reward_claims', {
+  id: serial('id').primaryKey(),
+  userId: integer('user_id')
+    .references(() => users.id, { onDelete: 'cascade' })
+    .notNull(),
+  vipLevel: integer('vip_level').notNull(),
+  transactionId: varchar('transaction_id', { length: 128 }).notNull(),
+  rewardAmount: numeric('reward_amount', { precision: 18, scale: 4 }).notNull(),
+  currency: varchar('currency', { length: 3 }).default('BDT').notNull(),
+  status: varchar('status', { length: 32 }).default('PENDING').notNull(), // 'PENDING', 'CREDITED'
+  createdAt: timestamp('created_at', { withTimezone: true }).defaultNow().notNull(),
+  creditedAt: timestamp('credited_at', { withTimezone: true }),
+}, (table) => ({
+  userLevelIdx: uniqueIndex('vip_reward_claims_user_level_idx').on(table.userId, table.vipLevel),
+  transactionIdIdx: uniqueIndex('vip_reward_claims_transaction_id_idx').on(table.transactionId),
+  userStatusIdx: index('vip_reward_claims_user_status_idx').on(table.userId, table.status),
+  chkAmountPositive: check('chk_vip_reward_claims_amount_positive', sql`${table.rewardAmount} > 0`),
+  chkStatusValid: check('chk_vip_reward_claims_status_valid', sql`${table.status} IN ('PENDING', 'CREDITED')`),
+  chkLevelRange: check('chk_vip_reward_claims_level_range', sql`${table.vipLevel} >= 1 AND ${table.vipLevel} <= 10`),
+}));
+
 // ----------------------------------------------------------------------------
 // MODULE 3: Promotion & Event Engine Tables
 // ----------------------------------------------------------------------------
@@ -367,6 +388,7 @@ export const usersRelations = relations(users, ({ one, many }) => ({
   wheelSpins: many(wheelSpins),
   freeSpinEntitlements: many(freeSpinEntitlements),
   wageringRequirements: many(wageringRequirements),
+  vipRewardClaims: many(vipRewardClaims),
 }));
 
 export const walletsRelations = relations(wallets, ({ one, many }) => ({
@@ -424,3 +446,11 @@ export const paymentRequestsRelations = relations(paymentRequests, ({ one }) => 
     references: [wallets.id],
   }),
 }));
+
+export const vipRewardClaimsRelations = relations(vipRewardClaims, ({ one }) => ({
+  user: one(users, {
+    fields: [vipRewardClaims.userId],
+    references: [users.id],
+  }),
+}));
+
