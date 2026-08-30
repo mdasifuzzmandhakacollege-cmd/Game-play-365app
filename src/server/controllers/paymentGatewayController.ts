@@ -83,7 +83,7 @@ export class PaymentGatewayController {
       });
     } catch (err: any) {
       console.error('[PaymentGatewayController.verifyTrxId error]:', err);
-      const isUnconfigured = err.code === 'PROVIDER_NOT_CONFIGURED' || err.status === 'PENDING_INTEGRATION';
+      const isUnconfigured = err.code === 'PROVIDER_NOT_CONFIGURED' || err.code === 'PROVIDER_INTEGRATION_INCOMPLETE' || err.status === 'PENDING_INTEGRATION';
       res.status(isUnconfigured ? 503 : 400).json({
         success: false,
         code: err.code || 'VERIFICATION_FAILED',
@@ -152,7 +152,7 @@ export class PaymentGatewayController {
       });
     } catch (err: any) {
       console.error('[PaymentGatewayController.requestWithdrawal error]:', err);
-      const isUnconfigured = err.code === 'PROVIDER_NOT_CONFIGURED' || err.status === 'PENDING_INTEGRATION';
+      const isUnconfigured = err.code === 'PROVIDER_NOT_CONFIGURED' || err.code === 'PROVIDER_INTEGRATION_INCOMPLETE' || err.status === 'PENDING_INTEGRATION';
       res.status(isUnconfigured ? 503 : 400).json({
         success: false,
         code: err.code || 'WITHDRAWAL_FAILED',
