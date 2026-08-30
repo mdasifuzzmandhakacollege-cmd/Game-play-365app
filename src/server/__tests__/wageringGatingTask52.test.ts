@@ -119,13 +119,17 @@ class MockWageringGatingHarness {
   public enforceWithdrawalGate(userId: number): WageringWithdrawalGateResult {
     const now = new Date();
     const activeList: WageringRequirementRecord[] = [];
+    const unresolvedExpiredList: WageringRequirementRecord[] = [];
 
     for (const req of this.requirements.values()) {
       if (req.userId === userId) {
         if (req.status === 'ACTIVE' && req.expiresAt <= now) {
           req.status = 'EXPIRED';
-        } else if (req.status === 'ACTIVE') {
+        }
+        if (req.status === 'ACTIVE') {
           activeList.push(req);
+        } else if (req.status === 'EXPIRED' && !req.isReleased) {
+          unresolvedExpiredList.push(req);
         }
       }
     }
@@ -145,6 +149,23 @@ class MockWageringGatingHarness {
       };
     }
 
+    if (unresolvedExpiredList.length > 0) {
+      return {
+        allowed: false,
+        reason: 'EXPIRED_WAGERING_REQUIREMENT_UNRESOLVED',
+        userId,
+        hasActiveWagering: true,
+        activeRequirementsCount: 0,
+        activeRequirements: [],
+        expiredRequirementsCount: unresolvedExpiredList.length,
+        expiredRequirements: unresolvedExpiredList,
+        auditMetadata: {
+          gatingDecision: 'BLOCKED',
+          reason: 'EXPIRED_WAGERING_REQUIREMENT_UNRESOLVED'
+        }
+      };
+    }
+
     return {
       allowed: true,
       reason: 'WAGERING_CLEAR',
@@ -154,7 +175,7 @@ class MockWageringGatingHarness {
       activeRequirements: [],
       auditMetadata: {
         gatingDecision: 'ALLOWED',
-        reason: 'NO_ACTIVE_WAGERING_REQUIREMENT'
+        reason: 'NO_ACTIVE_OR_UNRESOLVED_EXPIRED_WAGERING_REQUIREMENT'
       }
     };
   }
@@ -340,8 +361,8 @@ async function runTests() {
     if (gate.activeRequirementsCount !== 0) throw new Error('Expected activeRequirementsCount to be 0');
   });
 
-  // Test 3: Withdrawal Gating - Expired active requirements transition to EXPIRED and allow withdrawal
-  await assert('Expired active requirement transitions to EXPIRED on gate check', () => {
+  // Test 3: Withdrawal Gating - Expired active requirements transition to EXPIRED and block withdrawal until resolved
+  await assert('Expired active requirement transitions to EXPIRED on gate check and blocks withdrawal', () => {
     const harness = new MockWageringGatingHarness();
     harness.createRequirement({
       userId: 103,
@@ -354,8 +375,8 @@ async function runTests() {
     });
 
     const gate = harness.enforceWithdrawalGate(103);
-    if (gate.allowed !== true) throw new Error('Expected gate to allow withdrawal after expiry');
-    if (gate.reason !== 'WAGERING_CLEAR') throw new Error(`Unexpected reason: ${gate.reason}`);
+    if (gate.allowed !== false) throw new Error('Expected gate to block withdrawal for unresolved expired requirement');
+    if (gate.reason !== 'EXPIRED_WAGERING_REQUIREMENT_UNRESOLVED') throw new Error(`Unexpected reason: ${gate.reason}`);
     const req = harness.requirements.get(1);
     if (req?.status !== 'EXPIRED') throw new Error(`Expected req status to be EXPIRED, got: ${req?.status}`);
   });

@@ -120,11 +120,13 @@ export interface WageringRequirementRecord {
 
 export interface WageringWithdrawalGateResult {
   allowed: boolean;
-  reason: 'WAGERING_CLEAR' | 'ACTIVE_WAGERING_REQUIREMENT_INCOMPLETE' | 'WAGERING_GATE_DEPENDENCY_ERROR';
+  reason: 'WAGERING_CLEAR' | 'ACTIVE_WAGERING_REQUIREMENT_INCOMPLETE' | 'EXPIRED_WAGERING_REQUIREMENT_UNRESOLVED' | 'WAGERING_GATE_DEPENDENCY_ERROR' | string;
   userId: number;
   hasActiveWagering: boolean;
   activeRequirementsCount: number;
   activeRequirements: WageringRequirementRecord[];
+  expiredRequirementsCount?: number;
+  expiredRequirements?: WageringRequirementRecord[];
   auditMetadata?: Record<string, any>;
 }
 
@@ -604,7 +606,9 @@ export class WageringService {
   /**
    * Evaluates authoritative wagering gate for withdrawal or cashout requests.
    * Fails closed by default.
-   * Blocks withdrawal if the user has any incomplete ACTIVE wagering requirement.
+   * Blocks withdrawal if the user has:
+   * - any incomplete ACTIVE wagering requirement, OR
+   * - any unresolved EXPIRED wagering requirement (where isReleased is false).
    */
   public static async enforceWithdrawalWageringGate(params: {
     userId: number;
@@ -662,6 +666,38 @@ export class WageringService {
         };
       }
 
+      // 3. Check for unresolved EXPIRED requirements (where isReleased is false)
+      const unresolvedExpiredList = await executor
+        .select()
+        .from(wageringRequirements)
+        .where(
+          and(
+            eq(wageringRequirements.userId, userId),
+            eq(wageringRequirements.status, 'EXPIRED'),
+            eq(wageringRequirements.isReleased, false)
+          )
+        )
+        .orderBy(wageringRequirements.createdAt, wageringRequirements.id);
+
+      if (unresolvedExpiredList.length > 0) {
+        return {
+          allowed: false,
+          reason: 'EXPIRED_WAGERING_REQUIREMENT_UNRESOLVED',
+          userId,
+          hasActiveWagering: true,
+          activeRequirementsCount: 0,
+          activeRequirements: [],
+          expiredRequirementsCount: unresolvedExpiredList.length,
+          expiredRequirements: unresolvedExpiredList as WageringRequirementRecord[],
+          auditMetadata: {
+            gatingDecision: 'BLOCKED',
+            reason: 'EXPIRED_WAGERING_REQUIREMENT_UNRESOLVED',
+            expiredCount: unresolvedExpiredList.length,
+            requirementIds: unresolvedExpiredList.map((r: any) => r.id)
+          }
+        };
+      }
+
       return {
         allowed: true,
         reason: 'WAGERING_CLEAR',
@@ -671,7 +707,7 @@ export class WageringService {
         activeRequirements: [],
         auditMetadata: {
           gatingDecision: 'ALLOWED',
-          reason: 'NO_ACTIVE_WAGERING_REQUIREMENT'
+          reason: 'NO_ACTIVE_OR_UNRESOLVED_EXPIRED_WAGERING_REQUIREMENT'
         }
       };
     } catch (err: any) {
