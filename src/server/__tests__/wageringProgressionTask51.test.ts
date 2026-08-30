@@ -963,6 +963,32 @@ async function runTests() {
     }
   });
 
+  // Test 15: Task 5.1.2 Reject over-precision decimal strings (>4 fractional digits)
+  await assert('15. Task 5.1.2: Reject over-precision decimal strings (>4 decimals)', async () => {
+    // Valid tests
+    if (toScale4('1') !== 10000n) throw new Error('Failed parsing "1"');
+    if (toScale4('1.2') !== 12000n) throw new Error('Failed parsing "1.2"');
+    if (toScale4('1.2345') !== 12345n) throw new Error('Failed parsing "1.2345"');
+    if (toScale4('0.0516') !== 516n) throw new Error('Failed parsing "0.0516"');
+
+    // Over-precision rejection tests
+    const overPrecisionCases = ['1.23456', '0.05161', '100.00001', '0.123456789'];
+    for (const val of overPrecisionCases) {
+      let rejected = false;
+      try {
+        toScale4(val);
+      } catch (err: any) {
+        rejected = true;
+        if (!err.message.includes('Over-precision monetary input rejected')) {
+          throw new Error(`Unexpected error message for "${val}": ${err.message}`);
+        }
+      }
+      if (!rejected) {
+        throw new Error(`Expected over-precision input "${val}" to be rejected`);
+      }
+    }
+  });
+
   console.log(`\n========================================`);
   console.log(`Summary: ${passed} passed, ${failed} failed`);
   console.log(`========================================\n`);

@@ -42,7 +42,10 @@ export const toScale4 = (val: string | bigint): bigint => {
   }
 
   const [intPart = '0', fracPart = ''] = s.split('.');
-  const paddedFrac = fracPart.padEnd(4, '0').slice(0, 4);
+  if (fracPart.length > 4) {
+    throw new Error(`Over-precision monetary input rejected: "${val}" has ${fracPart.length} decimal places (maximum 4 allowed).`);
+  }
+  const paddedFrac = fracPart.padEnd(4, '0');
   const isNeg = intPart.startsWith('-');
   const cleanInt = isNeg ? intPart.slice(1) : intPart;
   const combined = BigInt((cleanInt || '0') + paddedFrac);
