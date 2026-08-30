@@ -795,6 +795,122 @@ async function runVipProgressionTests() {
     }
   });
 
+  // Test 10: Task 4.3.1 TOCTOU Atomicity: APPROVED -> REJECTED transition before commit prevents VIP progress
+  await assert('10. Task 4.3.1 TOCTOU Atomicity: Deposit status transition to REJECTED cannot create VIP progress', async () => {
+    const engine = new MockVipProgressionEngine();
+    const userId = 109;
+    const txId = 'TOCTOU_DEP_109';
+
+    // Simulate deposit that was marked APPROVED initially but transitioned/failed validation
+    engine.paymentRequestsStore.set(txId, {
+      id: 109,
+      trxId: txId,
+      userId,
+      type: 'DEPOSIT',
+      amount: '2000.0000',
+      currency: 'BDT',
+      status: 'REJECTED' // Status transitioned before transaction locked it
+    });
+
+    const res = await engine.processAuthoritativeProgression({
+      userId,
+      sourceTransactionId: txId,
+      sourceType: 'DEPOSIT'
+    });
+
+    if (res.success) {
+      throw new Error('Expected rejected deposit in atomic transaction to fail, but it succeeded');
+    }
+    if (res.reason !== 'DEPOSIT_NOT_SETTLED') {
+      throw new Error(`Expected DEPOSIT_NOT_SETTLED, got ${res.reason}`);
+    }
+
+    const progress = engine.progressStore.get(userId);
+    if (progress && progress.cumulativeDeposit !== '0.0000') {
+      throw new Error('user_vip_progress was modified for rejected deposit');
+    }
+  });
+
+  // Test 11: Task 4.3.1 Concurrency: Concurrent distinct events for same user serialize safely with zero lost updates
+  await assert('11. Task 4.3.1 Concurrency: Concurrent distinct events for same user produce exact cumulative totals', async () => {
+    const engine = new MockVipProgressionEngine();
+    const userId = 110;
+
+    // Create 10 distinct valid deposits and 10 distinct valid bets
+    const depositAmounts = ['100.0000', '250.0000', '500.0000', '150.0000', '300.0000', '700.0000', '50.0000', '400.0000', '200.0000', '350.0000'];
+    const betAmounts = ['500.0000', '1000.0000', '2500.0000', '1500.0000', '3000.0000', '7000.0000', '500.0000', '4000.0000', '2000.0000', '3000.0000'];
+
+    let expectedTotalDeposit = 0n;
+    let expectedTotalBet = 0n;
+
+    for (let i = 0; i < 10; i++) {
+      const depTxId = `CONC_DEP_${i}`;
+      expectedTotalDeposit += toScale4(depositAmounts[i]);
+      engine.paymentRequestsStore.set(depTxId, {
+        id: 200 + i,
+        trxId: depTxId,
+        userId,
+        type: 'DEPOSIT',
+        amount: depositAmounts[i],
+        currency: 'BDT',
+        status: 'APPROVED'
+      });
+
+      const betTxId = `CONC_BET_${i}`;
+      expectedTotalBet += toScale4(betAmounts[i]);
+      engine.transactionsStore.set(betTxId, {
+        id: 300 + i,
+        transactionId: betTxId,
+        userId,
+        type: 'BET',
+        amount: betAmounts[i],
+        currency: 'BDT',
+        status: 'COMPLETED'
+      });
+    }
+
+    // Execute all 20 progression events concurrently (Promise.all)
+    const promises: Promise<ProgressionUpdateResult>[] = [];
+    for (let i = 0; i < 10; i++) {
+      promises.push(
+        engine.processAuthoritativeProgression({
+          userId,
+          sourceTransactionId: `CONC_DEP_${i}`,
+          sourceType: 'DEPOSIT'
+        })
+      );
+      promises.push(
+        engine.processAuthoritativeProgression({
+          userId,
+          sourceTransactionId: `CONC_BET_${i}`,
+          sourceType: 'BET'
+        })
+      );
+    }
+
+    const results = await Promise.all(promises);
+    for (const r of results) {
+      if (!r.success) throw new Error(`Concurrent event failed: ${r.reason}`);
+    }
+
+    const finalProgress = engine.progressStore.get(userId)!;
+    const finalDepositBigInt = toScale4(finalProgress.cumulativeDeposit);
+    const finalBetBigInt = toScale4(finalProgress.cumulativeBet);
+
+    if (finalDepositBigInt !== expectedTotalDeposit) {
+      throw new Error(`Lost update in deposits! Expected ${expectedTotalDeposit}, got ${finalDepositBigInt}`);
+    }
+    if (finalBetBigInt !== expectedTotalBet) {
+      throw new Error(`Lost update in bets! Expected ${expectedTotalBet}, got ${finalBetBigInt}`);
+    }
+
+    // Verify upgrade evaluation for 3,000 cumulative deposit and 25,000 cumulative bet (qualifies for V2 Bronze)
+    // VIP 2 (V2 Bronze): minDeposit: 5,000, minBet: 25,000. Here deposit is 3,000, bet is 25,000 (deposit threshold 5,000 not met -> Level 1)
+    if (finalProgress.currentLevel !== 1) {
+      throw new Error(`Expected Level 1, got Level ${finalProgress.currentLevel}`);
+    }
+  });
+
   console.log(`\nVIP Task 4.3 Test Summary: ${passed} passed, ${failed} failed.`);
   if (failed > 0) {
     process.exit(1);

@@ -126,14 +126,18 @@ export class VipService {
   }
 
   /**
-   * Authoritative VIP Progression Event Processor
+   * Authoritative VIP Progression Event Processor (Task 4.3 & 4.3.1 Atomic TOCTOU Fix)
    * 
-   * [SOURCE AUTHORITY & FINANCIAL INTEGRITY INVARIANTS]:
-   * 1. Authoritative Source Validation: Only settled/approved REAL deposits and committed BET transactions.
-   * 2. Exclusions: Rejects failed, pending, rejected, reversed, promo, bonus, commission, admin adjustment, and free-spin stakes.
-   * 3. Pure Scale-4 BigInt Arithmetic: Zero Number(), parseFloat(), or floating-point math in financial path.
-   * 4. Strict Idempotency: Enforced by PostgreSQL unique constraint on vip_progression_events (user_id, source_transaction_id, source_type).
-   * 5. ACID Transaction & Row Locking: SELECT ... FOR UPDATE on user_vip_progress.
+   * [SOURCE AUTHORITY, ATOMICITY & FINANCIAL INTEGRITY INVARIANTS]:
+   * 1. Transactional Atomicity (TOCTOU Proof):
+   *    All source lookup (SELECT ... FOR UPDATE on paymentRequests / transactions),
+   *    validation, vip_progression_events idempotency, user_vip_progress locking & increment,
+   *    and tier upgrade evaluation occur inside the SAME ACID transaction.
+   * 2. Authoritative Source Validation: Only settled/approved REAL deposits and committed BET transactions.
+   * 3. Exclusions: Rejects failed, pending, rejected, reversed, promo, bonus, commission, admin adjustment, and free-spin stakes.
+   * 4. Pure Scale-4 BigInt Arithmetic: Zero Number(), parseFloat(), or floating-point math in financial path.
+   * 5. Strict Idempotency: Enforced by PostgreSQL unique constraint on vip_progression_events (user_id, source_transaction_id, source_type).
+   * 6. Concurrent Safety: Locks user_vip_progress with FOR UPDATE to eliminate lost updates on parallel events.
    */
   public static async processAuthoritativeProgression(
     params: ProcessProgressionEventParams
@@ -154,31 +158,101 @@ export class VipService {
       };
     }
 
-    // 1. Authoritatively look up source activity from database
-    let authoritativeAmount: string = '0.0000';
-    let authoritativeCurrency: string = 'BDT';
+    // Atomic ACID Transaction enclosing source verification, locking, event logging, and progression update
+    return await db.transaction(async (tx) => {
+      // 1. Authoritative Source Lookup inside the transaction with row locks
+      let authoritativeAmount: string = '0.0000';
+      let authoritativeCurrency: string = 'BDT';
 
-    if (params.sourceType === 'DEPOSIT') {
-      const [req] = await db
-        .select()
-        .from(paymentRequests)
-        .where(
-          and(
-            eq(paymentRequests.userId, params.userId),
-            or(
-              eq(paymentRequests.trxId, params.sourceTransactionId),
-              sql`${paymentRequests.id}::varchar = ${params.sourceTransactionId}`
+      if (params.sourceType === 'DEPOSIT') {
+        const [req] = await tx
+          .select()
+          .from(paymentRequests)
+          .where(
+            and(
+              eq(paymentRequests.userId, params.userId),
+              or(
+                eq(paymentRequests.trxId, params.sourceTransactionId),
+                sql`${paymentRequests.id}::varchar = ${params.sourceTransactionId}`
+              )
             )
           )
-        )
-        .limit(1);
+          .for('update')
+          .limit(1);
 
-      let depositRecord: { amount: string; currency: string; status: string; type: string; userId: number } | null = req
-        ? { amount: String(req.amount), currency: req.currency || 'BDT', status: req.status, type: req.type, userId: req.userId }
-        : null;
+        let depositRecord: { amount: string; currency: string; status: string; type: string; userId: number } | null = req
+          ? { amount: String(req.amount), currency: req.currency || 'BDT', status: req.status, type: req.type, userId: req.userId }
+          : null;
 
-      if (!depositRecord) {
-        const [tx] = await db
+        if (!depositRecord) {
+          const [depositTx] = await tx
+            .select()
+            .from(transactions)
+            .where(
+              and(
+                eq(transactions.userId, params.userId),
+                eq(transactions.transactionId, params.sourceTransactionId)
+              )
+            )
+            .for('update')
+            .limit(1);
+
+          if (depositTx) {
+            depositRecord = {
+              amount: String(depositTx.amount),
+              currency: depositTx.currency || 'BDT',
+              status: depositTx.status,
+              type: depositTx.type,
+              userId: depositTx.userId
+            };
+          }
+        }
+
+        if (!depositRecord) {
+          return {
+            success: false,
+            reason: 'SOURCE_TRANSACTION_NOT_FOUND',
+            userId: params.userId,
+            sourceTransactionId: params.sourceTransactionId,
+            sourceType: 'DEPOSIT'
+          };
+        }
+
+        if (depositRecord.userId !== params.userId) {
+          return {
+            success: false,
+            reason: 'TRANSACTION_USER_MISMATCH',
+            userId: params.userId,
+            sourceTransactionId: params.sourceTransactionId,
+            sourceType: 'DEPOSIT'
+          };
+        }
+
+        if (depositRecord.type !== 'DEPOSIT') {
+          return {
+            success: false,
+            reason: 'INVALID_TRANSACTION_TYPE',
+            userId: params.userId,
+            sourceTransactionId: params.sourceTransactionId,
+            sourceType: 'DEPOSIT'
+          };
+        }
+
+        const isApprovedDeposit = depositRecord.status === 'APPROVED' || depositRecord.status === 'COMPLETED' || depositRecord.status === 'SETTLED';
+        if (!isApprovedDeposit) {
+          return {
+            success: false,
+            reason: 'DEPOSIT_NOT_SETTLED',
+            userId: params.userId,
+            sourceTransactionId: params.sourceTransactionId,
+            sourceType: 'DEPOSIT'
+          };
+        }
+
+        authoritativeAmount = depositRecord.amount;
+        authoritativeCurrency = depositRecord.currency;
+      } else if (params.sourceType === 'BET') {
+        const [betTx] = await tx
           .select()
           .from(transactions)
           .where(
@@ -187,166 +261,105 @@ export class VipService {
               eq(transactions.transactionId, params.sourceTransactionId)
             )
           )
+          .for('update')
           .limit(1);
 
-        if (tx) {
-          depositRecord = { amount: String(tx.amount), currency: tx.currency || 'BDT', status: tx.status, type: tx.type, userId: tx.userId };
+        if (!betTx) {
+          return {
+            success: false,
+            reason: 'SOURCE_TRANSACTION_NOT_FOUND',
+            userId: params.userId,
+            sourceTransactionId: params.sourceTransactionId,
+            sourceType: 'BET'
+          };
+        }
+
+        if (betTx.userId !== params.userId) {
+          return {
+            success: false,
+            reason: 'TRANSACTION_USER_MISMATCH',
+            userId: params.userId,
+            sourceTransactionId: params.sourceTransactionId,
+            sourceType: 'BET'
+          };
+        }
+
+        if (betTx.type !== 'BET') {
+          return {
+            success: false,
+            reason: 'INVALID_TRANSACTION_TYPE',
+            userId: params.userId,
+            sourceTransactionId: params.sourceTransactionId,
+            sourceType: 'BET'
+          };
+        }
+
+        const isCommittedBet = betTx.status === 'COMPLETED' || betTx.status === 'SETTLED';
+        if (!isCommittedBet) {
+          return {
+            success: false,
+            reason: 'TRANSACTION_NOT_SETTLED',
+            userId: params.userId,
+            sourceTransactionId: params.sourceTransactionId,
+            sourceType: 'BET'
+          };
+        }
+
+        const meta = betTx.metadata as any;
+        if (meta && (meta.freeSpin === true || meta.isFreeSpin === true || meta.source === 'FREE_SPIN')) {
+          return {
+            success: false,
+            reason: 'EXCLUDED_PROMOTIONAL_STAKE',
+            userId: params.userId,
+            sourceTransactionId: params.sourceTransactionId,
+            sourceType: 'BET'
+          };
+        }
+
+        authoritativeAmount = String(betTx.amount);
+        authoritativeCurrency = betTx.currency || 'BDT';
+      }
+
+      // 2. Validate scale-4 amount and check callers' context if provided
+      const amountScale4 = toScale4(authoritativeAmount);
+      if (amountScale4 <= 0n) {
+        return {
+          success: false,
+          reason: 'INVALID_AMOUNT',
+          userId: params.userId,
+          sourceTransactionId: params.sourceTransactionId,
+          sourceType: params.sourceType
+        };
+      }
+
+      if (params.amount !== undefined && params.amount !== null) {
+        const callerAmountScale4 = typeof params.amount === 'bigint' ? params.amount : toScale4(params.amount);
+        if (callerAmountScale4 !== amountScale4) {
+          return {
+            success: false,
+            reason: params.sourceType === 'BET' ? 'BET_AMOUNT_MISMATCH' : 'AMOUNT_MISMATCH',
+            userId: params.userId,
+            sourceTransactionId: params.sourceTransactionId,
+            sourceType: params.sourceType
+          };
         }
       }
 
-      if (!depositRecord) {
-        return {
-          success: false,
-          reason: 'SOURCE_TRANSACTION_NOT_FOUND',
-          userId: params.userId,
-          sourceTransactionId: params.sourceTransactionId,
-          sourceType: 'DEPOSIT'
-        };
+      if (params.currency && typeof params.currency === 'string' && params.currency.trim() !== '') {
+        if (params.currency.trim().toUpperCase() !== authoritativeCurrency.trim().toUpperCase()) {
+          return {
+            success: false,
+            reason: 'CURRENCY_MISMATCH',
+            userId: params.userId,
+            sourceTransactionId: params.sourceTransactionId,
+            sourceType: params.sourceType
+          };
+        }
       }
 
-      if (depositRecord.userId !== params.userId) {
-        return {
-          success: false,
-          reason: 'TRANSACTION_USER_MISMATCH',
-          userId: params.userId,
-          sourceTransactionId: params.sourceTransactionId,
-          sourceType: 'DEPOSIT'
-        };
-      }
+      const amountStr = fromScale4(amountScale4);
 
-      if (depositRecord.type !== 'DEPOSIT') {
-        return {
-          success: false,
-          reason: 'INVALID_TRANSACTION_TYPE',
-          userId: params.userId,
-          sourceTransactionId: params.sourceTransactionId,
-          sourceType: 'DEPOSIT'
-        };
-      }
-
-      const isApprovedDeposit = depositRecord.status === 'APPROVED' || depositRecord.status === 'COMPLETED' || depositRecord.status === 'SETTLED';
-      if (!isApprovedDeposit) {
-        return {
-          success: false,
-          reason: 'DEPOSIT_NOT_SETTLED',
-          userId: params.userId,
-          sourceTransactionId: params.sourceTransactionId,
-          sourceType: 'DEPOSIT'
-        };
-      }
-
-      authoritativeAmount = depositRecord.amount;
-      authoritativeCurrency = depositRecord.currency;
-    } else if (params.sourceType === 'BET') {
-      const [betTx] = await db
-        .select()
-        .from(transactions)
-        .where(
-          and(
-            eq(transactions.userId, params.userId),
-            eq(transactions.transactionId, params.sourceTransactionId)
-          )
-        )
-        .limit(1);
-
-      if (!betTx) {
-        return {
-          success: false,
-          reason: 'SOURCE_TRANSACTION_NOT_FOUND',
-          userId: params.userId,
-          sourceTransactionId: params.sourceTransactionId,
-          sourceType: 'BET'
-        };
-      }
-
-      if (betTx.userId !== params.userId) {
-        return {
-          success: false,
-          reason: 'TRANSACTION_USER_MISMATCH',
-          userId: params.userId,
-          sourceTransactionId: params.sourceTransactionId,
-          sourceType: 'BET'
-        };
-      }
-
-      if (betTx.type !== 'BET') {
-        return {
-          success: false,
-          reason: 'INVALID_TRANSACTION_TYPE',
-          userId: params.userId,
-          sourceTransactionId: params.sourceTransactionId,
-          sourceType: 'BET'
-        };
-      }
-
-      const isCommittedBet = betTx.status === 'COMPLETED' || betTx.status === 'SETTLED';
-      if (!isCommittedBet) {
-        return {
-          success: false,
-          reason: 'TRANSACTION_NOT_SETTLED',
-          userId: params.userId,
-          sourceTransactionId: params.sourceTransactionId,
-          sourceType: 'BET'
-        };
-      }
-
-      const meta = betTx.metadata as any;
-      if (meta && (meta.freeSpin === true || meta.isFreeSpin === true || meta.source === 'FREE_SPIN')) {
-        return {
-          success: false,
-          reason: 'EXCLUDED_PROMOTIONAL_STAKE',
-          userId: params.userId,
-          sourceTransactionId: params.sourceTransactionId,
-          sourceType: 'BET'
-        };
-      }
-
-      authoritativeAmount = String(betTx.amount);
-      authoritativeCurrency = betTx.currency || 'BDT';
-    }
-
-    // 2. Validate scale-4 amount and check callers' context if provided
-    const amountScale4 = toScale4(authoritativeAmount);
-    if (amountScale4 <= 0n) {
-      return {
-        success: false,
-        reason: 'INVALID_AMOUNT',
-        userId: params.userId,
-        sourceTransactionId: params.sourceTransactionId,
-        sourceType: params.sourceType
-      };
-    }
-
-    if (params.amount !== undefined && params.amount !== null) {
-      const callerAmountScale4 = typeof params.amount === 'bigint' ? params.amount : toScale4(params.amount);
-      if (callerAmountScale4 !== amountScale4) {
-        return {
-          success: false,
-          reason: params.sourceType === 'BET' ? 'BET_AMOUNT_MISMATCH' : 'AMOUNT_MISMATCH',
-          userId: params.userId,
-          sourceTransactionId: params.sourceTransactionId,
-          sourceType: params.sourceType
-        };
-      }
-    }
-
-    if (params.currency && typeof params.currency === 'string' && params.currency.trim() !== '') {
-      if (params.currency.trim().toUpperCase() !== authoritativeCurrency.trim().toUpperCase()) {
-        return {
-          success: false,
-          reason: 'CURRENCY_MISMATCH',
-          userId: params.userId,
-          sourceTransactionId: params.sourceTransactionId,
-          sourceType: params.sourceType
-        };
-      }
-    }
-
-    const amountStr = fromScale4(amountScale4);
-
-    // 3. ACID Transaction with row-level locking
-    return await db.transaction(async (tx) => {
-      // Check idempotency in vip_progression_events
+      // 3. Check idempotency in vip_progression_events inside same transaction
       const [existingEvent] = await tx
         .select()
         .from(vipProgressionEvents)
@@ -378,7 +391,7 @@ export class VipService {
         };
       }
 
-      // Insert event into vip_progression_events
+      // 4. Insert event into vip_progression_events
       const [insertedEvent] = await tx
         .insert(vipProgressionEvents)
         .values({
@@ -411,7 +424,7 @@ export class VipService {
         };
       }
 
-      // Lock user_vip_progress row
+      // 5. Lock user_vip_progress row to prevent lost updates under concurrency
       let [progress] = await tx
         .select()
         .from(userVipProgress)
@@ -435,7 +448,7 @@ export class VipService {
         progress = created;
       }
 
-      // Compute new cumulative totals with pure Scale-4 BigInt arithmetic
+      // 6. Compute new cumulative totals with pure Scale-4 BigInt arithmetic
       const prevDepositScale4 = toScale4(progress.cumulativeDeposit || '0.0000');
       const prevBetScale4 = toScale4(progress.cumulativeBet || '0.0000');
 
@@ -451,7 +464,7 @@ export class VipService {
       const newDepositStr = fromScale4(newDepositScale4);
       const newBetStr = fromScale4(newBetScale4);
 
-      // Evaluate VIP upgrade with pure BigInt comparisons
+      // 7. Evaluate VIP upgrade with pure BigInt comparisons
       let qualifiedLevel = 1;
       for (const tier of VIP_TIER_CONFIG) {
         const minDepositScale4 = toScale4(tier.minDeposit);
@@ -514,6 +527,8 @@ export class VipService {
         newDeposit: newDepositStr,
         previousBet: fromScale4(prevBetScale4),
         newBet: newBetStr,
+        cumulativeDeposit: newDepositStr,
+        cumulativeBet: newBetStr,
         previousLevel: currentLvl,
         currentLevel: upgraded ? qualifiedLevel : currentLvl,
         upgraded,
