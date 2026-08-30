@@ -2,6 +2,7 @@ import { relations } from 'drizzle-orm';
 import {
   bigint,
   boolean,
+  index,
   integer,
   jsonb,
   numeric,
@@ -321,6 +322,26 @@ export const wageringRequirements = pgTable('wagering_requirements', {
   completedAt: timestamp('completed_at', { withTimezone: true }),
 });
 
+export const freeSpinEntitlements = pgTable('free_spin_entitlements', {
+  id: serial('id').primaryKey(),
+  userId: integer('user_id')
+    .references(() => users.id, { onDelete: 'cascade' })
+    .notNull(),
+  source: varchar('source', { length: 32 }).default('LUCKY_WHEEL').notNull(),
+  sourceReference: varchar('source_reference', { length: 128 }).notNull(),
+  quantity: integer('quantity').notNull(),
+  remainingQuantity: integer('remaining_quantity').notNull(),
+  status: varchar('status', { length: 32 }).default('ACTIVE').notNull(), // 'ACTIVE', 'CONSUMED', 'EXPIRED', 'REVOKED'
+  spinDateUtc: varchar('spin_date_utc', { length: 10 }).notNull(), // 'YYYY-MM-DD'
+  expiresAt: timestamp('expires_at', { withTimezone: true }),
+  grantedAt: timestamp('granted_at', { withTimezone: true }).defaultNow().notNull(),
+  createdAt: timestamp('created_at', { withTimezone: true }).defaultNow().notNull(),
+}, (table) => ({
+  sourceRefIdx: uniqueIndex('free_spin_entitlements_source_ref_idx').on(table.sourceReference),
+  userSourceDateIdx: uniqueIndex('free_spin_entitlements_user_source_date_idx').on(table.userId, table.source, table.spinDateUtc),
+  userStatusIdx: index('free_spin_entitlements_user_status_idx').on(table.userId, table.status),
+}));
+
 // ----------------------------------------------------------------------------
 // Relations
 // ----------------------------------------------------------------------------
@@ -339,6 +360,7 @@ export const usersRelations = relations(users, ({ one, many }) => ({
   }),
   checkIns: many(dailyCheckIns),
   wheelSpins: many(wheelSpins),
+  freeSpinEntitlements: many(freeSpinEntitlements),
   wageringRequirements: many(wageringRequirements),
 }));
 

@@ -7,12 +7,13 @@
 
 import { Request, Response } from 'express';
 import { db } from '../../db/index.js';
-import { users, dailyCheckIns, wheelSpins, wageringRequirements } from '../../db/schema.js';
+import { users, dailyCheckIns, wheelSpins, wageringRequirements, freeSpinEntitlements } from '../../db/schema.js';
 import { and, eq, sql } from 'drizzle-orm';
 import { DAILY_CHECKIN_REWARDS, WHEEL_PRIZES } from '../../shared/gameplayConfig.js';
 import { AuthRequest } from '../../middleware/auth.js';
 import { WalletLedgerService } from '../ledger/walletLedgerService.js';
 import { WheelRngService, CustomRngFunction } from '../services/wheelRngService.js';
+import { FreeSpinService } from '../services/freeSpinService.js';
 
 /**
  * Pure integer minor-units decimal arithmetic (scale 4, 1.0000 = 10000n)
@@ -314,7 +315,14 @@ export class PromotionService {
     userId: number,
     spinTimestamp: Date = new Date(),
     customLedgerService?: WalletLedgerService,
-    customRng?: CustomRngFunction
+    customRng?: CustomRngFunction,
+    customEntitlementCreator?: (params: {
+      userId: number;
+      spinDateUtc: string;
+      quantity: number;
+      spinTimestamp: Date;
+      tx: any;
+    }) => Promise<any>
   ) {
     if (!userId || typeof userId !== 'number') {
       throw new Error('Valid userId is required to execute wheel spin');
@@ -360,30 +368,78 @@ export class PromotionService {
         );
 
         let ledgerResult: any = null;
+        let entitlementResult: any = null;
+        let isClaimFulfilled = false;
 
-        // 4. Authoritative Wallet Ledger Credit for monetary prizes (NO direct wallets balance mutation)
-        if (prizeBigInt > 0n) {
-          if (winningPrize.type === 'REAL_CASH') {
-            ledgerResult = await effectiveLedger.executeTransaction({
-              userId: String(userId),
-              currency: 'BDT',
-              type: 'CREDIT',
-              targetBalance: 'REAL',
-              amountMinor: prizeValueStr,
-              transactionId: deterministicSpinTxId,
-              auditMetadata: spinAuditMetadata
+        // 4. Authoritative Reward Fulfillment by Prize Type
+        if (winningPrize.type === 'REAL_CASH' || winningPrize.type === 'BONUS_CASH') {
+          // Monetary prizes routed strictly through WalletLedgerService (NO direct wallet mutations)
+          if (prizeBigInt > 0n) {
+            if (winningPrize.type === 'REAL_CASH') {
+              ledgerResult = await effectiveLedger.executeTransaction({
+                userId: String(userId),
+                currency: 'BDT',
+                type: 'CREDIT',
+                targetBalance: 'REAL',
+                amountMinor: prizeValueStr,
+                transactionId: deterministicSpinTxId,
+                auditMetadata: spinAuditMetadata
+              });
+              isClaimFulfilled = !!ledgerResult?.ledgerEntryId || !!ledgerResult?.isIdempotent;
+            } else if (winningPrize.type === 'BONUS_CASH') {
+              ledgerResult = await effectiveLedger.executeTransaction({
+                userId: String(userId),
+                currency: 'BDT',
+                type: 'CREDIT',
+                targetBalance: 'BONUS',
+                amountMinor: prizeValueStr,
+                transactionId: deterministicSpinTxId,
+                auditMetadata: spinAuditMetadata
+              });
+              isClaimFulfilled = !!ledgerResult?.ledgerEntryId || !!ledgerResult?.isIdempotent;
+            }
+          } else {
+            isClaimFulfilled = true;
+          }
+        } else if (winningPrize.type === 'FREE_SPINS') {
+          // Non-monetary Free Spins Entitlement Fulfillment (Task 3.4)
+          // MUST NOT alter real or bonus wallet balances!
+          const spinQuantity = Math.floor(winningPrize.value);
+          if (spinQuantity <= 0) {
+            throw new Error(`Invalid free spin prize quantity: ${winningPrize.value}`);
+          }
+
+          if (customEntitlementCreator) {
+            entitlementResult = await customEntitlementCreator({
+              userId,
+              spinDateUtc: todayUtc,
+              quantity: spinQuantity,
+              spinTimestamp,
+              tx
             });
-          } else if (winningPrize.type === 'BONUS_CASH') {
-            ledgerResult = await effectiveLedger.executeTransaction({
-              userId: String(userId),
-              currency: 'BDT',
-              type: 'CREDIT',
-              targetBalance: 'BONUS',
-              amountMinor: prizeValueStr,
-              transactionId: deterministicSpinTxId,
-              auditMetadata: spinAuditMetadata
+          } else {
+            entitlementResult = await FreeSpinService.grantWheelEntitlement({
+              userId,
+              spinDateUtc: todayUtc,
+              quantity: spinQuantity,
+              spinTimestamp,
+              expiryDays: 7,
+              tx
             });
           }
+
+          if (!entitlementResult) {
+            throw new Error(`FATAL_ENTITLEMENT_FAILED: Free spin entitlement creation returned empty. Wheel reward not claimed.`);
+          }
+          isClaimFulfilled = true;
+        } else {
+          // Other non-monetary awards (e.g. JACKPOT_TICKET)
+          isClaimFulfilled = true;
+        }
+
+        // Fail closed if claim was not fulfilled
+        if (!isClaimFulfilled) {
+          throw new Error(`FATAL_FULFILLMENT_FAILED: Wheel reward fulfillment failed for prize ${winningPrize.label}. Spin failed closed.`);
         }
 
         // 5. Immutable wheel spin audit log with authoritative UTC spin date and audit metadata
@@ -394,7 +450,7 @@ export class PromotionService {
           prizeLabel: winningPrize.label,
           prizeValue: prizeValueStr,
           currency: 'BDT',
-          isClaimed: true,
+          isClaimed: isClaimFulfilled,
           auditMetadata: {
             prizeId: selection.prizeId,
             prizeType: selection.prizeType,
@@ -402,7 +458,9 @@ export class PromotionService {
             prizeWeight: selection.prizeWeight,
             totalWeight: selection.totalWeight,
             algorithm: selection.algorithm,
-            spinDateUtc: todayUtc
+            spinDateUtc: todayUtc,
+            entitlementId: entitlementResult?.id || null,
+            entitlementReference: entitlementResult?.sourceReference || null
           },
           createdAt: spinTimestamp
         });
@@ -413,6 +471,14 @@ export class PromotionService {
           transactionId: deterministicSpinTxId,
           ledgerEntryId: ledgerResult?.ledgerEntryId || null,
           isIdempotent: ledgerResult?.isIdempotent || false,
+          entitlement: entitlementResult ? {
+            id: entitlementResult.id,
+            sourceReference: entitlementResult.sourceReference,
+            quantity: entitlementResult.quantity,
+            remainingQuantity: entitlementResult.remainingQuantity,
+            status: entitlementResult.status,
+            expiresAt: entitlementResult.expiresAt
+          } : null,
           audit: {
             prizeId: selection.prizeId,
             prizeType: selection.prizeType,
@@ -425,7 +491,12 @@ export class PromotionService {
       });
     } catch (err: any) {
       // Catch DB-level uniqueness constraint collision (code 23505) if concurrent race occurred
-      if (err.code === '23505' || err.message?.includes('wheel_spins_user_spin_date_utc_idx') || err.message?.includes('duplicate key')) {
+      if (
+        err.code === '23505' ||
+        err.message?.includes('wheel_spins_user_spin_date_utc_idx') ||
+        err.message?.includes('free_spin_entitlements_') ||
+        err.message?.includes('duplicate key')
+      ) {
         throw new Error('You have already used your daily free wheel spin for today. Come back tomorrow!');
       }
       throw err;
@@ -466,6 +537,25 @@ export const getPromotionDetailsHandler = async (req: Request, res: Response): P
       )
       .limit(1);
 
+    const activeFreeSpins = await db
+      .select({
+        id: freeSpinEntitlements.id,
+        quantity: freeSpinEntitlements.quantity,
+        remainingQuantity: freeSpinEntitlements.remainingQuantity,
+        status: freeSpinEntitlements.status,
+        expiresAt: freeSpinEntitlements.expiresAt,
+        spinDateUtc: freeSpinEntitlements.spinDateUtc
+      })
+      .from(freeSpinEntitlements)
+      .where(
+        and(
+          eq(freeSpinEntitlements.userId, userId),
+          eq(freeSpinEntitlements.status, 'ACTIVE')
+        )
+      );
+
+    const totalActiveFreeSpins = activeFreeSpins.reduce((sum, e) => sum + (e.remainingQuantity || 0), 0);
+
     let streak = 0;
     let canCheckInToday = true;
 
@@ -494,6 +584,8 @@ export const getPromotionDetailsHandler = async (req: Request, res: Response): P
         checkInStreak: streak,
         canCheckInToday,
         availableSpins,
+        activeFreeSpinsCount: totalActiveFreeSpins,
+        freeSpinEntitlements: activeFreeSpins || [],
         dailyRewards: DAILY_CHECKIN_REWARDS,
         wheelPrizes: WHEEL_PRIZES,
         activeWageringRequirements: activeWagering || []
