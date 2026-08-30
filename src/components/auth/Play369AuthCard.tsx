@@ -805,17 +805,16 @@ export const Play369AuthCard: React.FC<Play369AuthCardProps> = ({
                 <InternationalPhoneInput
                   id="play369-phone-input"
                   value={phoneRaw}
-                  defaultCountryCode="BD"
                   onChange={(raw, e164, isValid) => {
                     setPhoneRaw(raw);
                     setPhoneE164(e164);
                     setPhoneValid(isValid);
                   }}
-                  placeholder="e.g. 1712345678"
+                  placeholder="e.g. 1712345678 or +8801712345678"
                   disabled={isSubmitting}
                 />
                 <p className="text-[10px] text-emerald-400/70 font-mono">
-                  Supported: Bangladesh (+880), India (+91), SG (+65), UK (+44), US (+1), and all countries.
+                  Global coverage: 240+ countries supported with auto-detected international prefix (+) or country selector.
                 </p>
               </div>
 

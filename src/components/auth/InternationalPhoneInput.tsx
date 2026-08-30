@@ -5,7 +5,8 @@ import {
   Phone,
   CheckCircle2,
   AlertCircle,
-  X
+  X,
+  Globe
 } from 'lucide-react';
 import { motion, AnimatePresence } from 'motion/react';
 import {
@@ -14,6 +15,8 @@ import {
   validateAndNormalizePhoneNumber,
   formatPhoneNumberAsYouType,
   getCountryByCode,
+  detectBrowserCountryCode,
+  detectCountryFromPhoneNumber,
   searchCountries
 } from '../../lib/phoneUtils';
 import { CountryCode } from 'libphonenumber-js';
@@ -22,7 +25,7 @@ interface InternationalPhoneInputProps {
   id?: string;
   value: string;
   onChange: (value: string, e164: string | null, isValid: boolean) => void;
-  defaultCountryCode?: CountryCode;
+  defaultCountryCode?: CountryCode | null;
   placeholder?: string;
   disabled?: boolean;
   autoFocus?: boolean;
@@ -32,14 +35,25 @@ export const InternationalPhoneInput: React.FC<InternationalPhoneInputProps> = (
   id = 'play369-phone-input',
   value,
   onChange,
-  defaultCountryCode = 'BD',
-  placeholder = 'Enter mobile number',
+  defaultCountryCode,
+  placeholder = 'e.g. 1712345678 or +8801712345678',
   disabled = false,
   autoFocus = false
 }) => {
-  const [selectedCountry, setSelectedCountry] = useState<CountryInfo>(() =>
-    getCountryByCode(defaultCountryCode)
-  );
+  // Determine initial country: (A) explicit prop, (B) detected browser locale, (C) neutral (null)
+  const [selectedCountry, setSelectedCountry] = useState<CountryInfo | null>(() => {
+    if (defaultCountryCode) {
+      const explicit = getCountryByCode(defaultCountryCode);
+      if (explicit) return explicit;
+    }
+    const detected = detectBrowserCountryCode();
+    if (detected) {
+      const detectedInfo = getCountryByCode(detected);
+      if (detectedInfo) return detectedInfo;
+    }
+    return null;
+  });
+
   const [isDropdownOpen, setIsDropdownOpen] = useState<boolean>(false);
   const [searchQuery, setSearchQuery] = useState<string>('');
   const [localNumber, setLocalNumber] = useState<string>(value || '');
@@ -66,33 +80,45 @@ export const InternationalPhoneInput: React.FC<InternationalPhoneInputProps> = (
     };
   }, [isDropdownOpen]);
 
-  // Compute validation
+  // Compute current validation
   const validationResult = validateAndNormalizePhoneNumber(
-    localNumber.startsWith('+') ? localNumber : `${selectedCountry.dialCode}${localNumber}`,
-    selectedCountry.code
+    localNumber,
+    selectedCountry ? selectedCountry.code : null
   );
 
   const handleCountrySelect = (country: CountryInfo) => {
     setSelectedCountry(country);
     setIsDropdownOpen(false);
     setSearchQuery('');
+    setTouched(true);
 
-    // Re-validate with new country code
-    const newValidation = validateAndNormalizePhoneNumber(
-      localNumber.startsWith('+') ? localNumber : `${country.dialCode}${localNumber}`,
-      country.code
-    );
+    // Re-validate with newly selected country
+    const newValidation = validateAndNormalizePhoneNumber(localNumber, country.code);
     onChange(localNumber, newValidation.isValid ? newValidation.e164 : null, newValidation.isValid);
   };
 
   const handleInputChange = (e: React.ChangeEvent<HTMLInputElement>) => {
     const rawVal = e.target.value;
-    const formatted = formatPhoneNumberAsYouType(rawVal, selectedCountry.code);
-    setLocalNumber(formatted);
     setTouched(true);
 
-    const fullVal = formatted.startsWith('+') ? formatted : `${selectedCountry.dialCode}${formatted}`;
-    const result = validateAndNormalizePhoneNumber(fullVal, selectedCountry.code);
+    // If typing starts with '+', attempt auto-detecting the country
+    if (rawVal.trim().startsWith('+')) {
+      const detected = detectCountryFromPhoneNumber(rawVal);
+      if (detected && (!selectedCountry || selectedCountry.code !== detected.code)) {
+        setSelectedCountry(detected);
+      }
+    }
+
+    const formatted = formatPhoneNumberAsYouType(
+      rawVal,
+      selectedCountry ? selectedCountry.code : null
+    );
+    setLocalNumber(formatted);
+
+    const result = validateAndNormalizePhoneNumber(
+      formatted,
+      selectedCountry ? selectedCountry.code : null
+    );
     onChange(formatted, result.isValid ? result.e164 : null, result.isValid);
   };
 
@@ -109,11 +135,20 @@ export const InternationalPhoneInput: React.FC<InternationalPhoneInputProps> = (
           onClick={() => setIsDropdownOpen(!isDropdownOpen)}
           aria-haspopup="listbox"
           aria-expanded={isDropdownOpen}
-          aria-label="Select Country Calling Code"
+          aria-label={selectedCountry ? `Selected ${selectedCountry.name} (${selectedCountry.dialCode})` : 'Select Country Calling Code'}
           className="min-h-[48px] px-3 sm:px-3.5 flex items-center space-x-1.5 bg-emerald-950/60 hover:bg-emerald-900/60 border-r border-emerald-800/60 rounded-l-xl text-emerald-200 text-xs sm:text-sm font-semibold transition-colors cursor-pointer shrink-0 disabled:opacity-50"
         >
-          <span className="text-base select-none">{selectedCountry.flag}</span>
-          <span className="font-mono font-bold text-amber-300 text-xs">{selectedCountry.dialCode}</span>
+          {selectedCountry ? (
+            <>
+              <span className="text-base select-none">{selectedCountry.flag}</span>
+              <span className="font-mono font-bold text-amber-300 text-xs">{selectedCountry.dialCode}</span>
+            </>
+          ) : (
+            <>
+              <Globe className="w-4 h-4 text-emerald-400" />
+              <span className="font-sans font-semibold text-emerald-300 text-xs">Select Country</span>
+            </>
+          )}
           <ChevronDown className={`w-3.5 h-3.5 text-emerald-400/80 transition-transform ${isDropdownOpen ? 'rotate-180' : ''}`} />
         </button>
 
@@ -129,7 +164,11 @@ export const InternationalPhoneInput: React.FC<InternationalPhoneInputProps> = (
             value={localNumber}
             onChange={handleInputChange}
             onBlur={() => setTouched(true)}
-            placeholder={placeholder}
+            placeholder={
+              selectedCountry
+                ? `e.g. mobile number for ${selectedCountry.name}`
+                : placeholder
+            }
             className="w-full min-h-[48px] px-3.5 bg-transparent text-white placeholder-emerald-700/60 text-sm font-mono focus:outline-none disabled:opacity-50"
           />
 
@@ -154,7 +193,7 @@ export const InternationalPhoneInput: React.FC<InternationalPhoneInputProps> = (
             animate={{ opacity: 1, y: 0, scale: 1 }}
             exit={{ opacity: 0, y: 4, scale: 0.98 }}
             transition={{ duration: 0.15 }}
-            className="absolute left-0 top-full mt-1.5 w-full sm:w-80 max-w-[calc(100vw-32px)] z-50 rounded-2xl bg-[#02180e] border border-amber-500/40 shadow-2xl shadow-black/90 backdrop-blur-xl overflow-hidden"
+            className="absolute left-0 top-full mt-1.5 w-full sm:w-84 max-w-[calc(100vw-32px)] z-50 rounded-2xl bg-[#02180e] border border-amber-500/40 shadow-2xl shadow-black/90 backdrop-blur-xl overflow-hidden"
           >
             {/* Search Country Header */}
             <div className="p-2.5 border-b border-emerald-800/60 bg-[#01140b]">
@@ -165,7 +204,7 @@ export const InternationalPhoneInput: React.FC<InternationalPhoneInputProps> = (
                   type="text"
                   value={searchQuery}
                   onChange={(e) => setSearchQuery(e.target.value)}
-                  placeholder="Search country or code..."
+                  placeholder="Search by country, code (+880, +1, +81), ISO..."
                   className="w-full min-h-[38px] pl-9 pr-8 rounded-lg bg-[#02180e] border border-emerald-800/80 text-white placeholder-emerald-700 text-xs focus:outline-none focus:border-amber-400 font-sans"
                 />
                 {searchQuery && (
@@ -180,15 +219,15 @@ export const InternationalPhoneInput: React.FC<InternationalPhoneInputProps> = (
               </div>
             </div>
 
-            {/* Country List (Accessible with scroll) */}
+            {/* Country List (Complete libphonenumber-js directory) */}
             <div className="max-h-60 overflow-y-auto divide-y divide-emerald-900/30 font-sans">
               {filteredCountries.length === 0 ? (
                 <div className="p-4 text-center text-xs text-emerald-400/60">
-                  No countries match &quot;{searchQuery}&quot;
+                  No country found matching &quot;{searchQuery}&quot;
                 </div>
               ) : (
                 filteredCountries.map((country) => {
-                  const isSelected = country.code === selectedCountry.code;
+                  const isSelected = selectedCountry?.code === country.code;
                   return (
                     <button
                       key={country.code}
@@ -219,3 +258,4 @@ export const InternationalPhoneInput: React.FC<InternationalPhoneInputProps> = (
     </div>
   );
 };
+
