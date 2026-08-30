@@ -42,6 +42,8 @@ export interface ProgressionUpdateResult {
   newDeposit?: string;
   previousBet?: string;
   newBet?: string;
+  cumulativeDeposit?: string;
+  cumulativeBet?: string;
   previousLevel?: number;
   currentLevel?: number;
   upgraded?: boolean;
