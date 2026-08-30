@@ -43,25 +43,41 @@ CREATE INDEX IF NOT EXISTS free_spin_entitlements_user_status_idx
 DO $$
 BEGIN
   IF NOT EXISTS (
-    SELECT 1 FROM pg_constraint WHERE conname = 'chk_free_spin_quantity_positive'
+    SELECT 1 
+    FROM pg_constraint c
+    JOIN pg_class t ON c.conrelid = t.oid
+    WHERE t.relname = 'free_spin_entitlements'
+      AND c.conname = 'chk_free_spin_quantity_positive'
   ) THEN
     ALTER TABLE free_spin_entitlements ADD CONSTRAINT chk_free_spin_quantity_positive CHECK (quantity > 0);
   END IF;
 
   IF NOT EXISTS (
-    SELECT 1 FROM pg_constraint WHERE conname = 'chk_free_spin_remaining_non_negative'
+    SELECT 1 
+    FROM pg_constraint c
+    JOIN pg_class t ON c.conrelid = t.oid
+    WHERE t.relname = 'free_spin_entitlements'
+      AND c.conname = 'chk_free_spin_remaining_non_negative'
   ) THEN
     ALTER TABLE free_spin_entitlements ADD CONSTRAINT chk_free_spin_remaining_non_negative CHECK (remaining_quantity >= 0);
   END IF;
 
   IF NOT EXISTS (
-    SELECT 1 FROM pg_constraint WHERE conname = 'chk_free_spin_remaining_lte_quantity'
+    SELECT 1 
+    FROM pg_constraint c
+    JOIN pg_class t ON c.conrelid = t.oid
+    WHERE t.relname = 'free_spin_entitlements'
+      AND c.conname = 'chk_free_spin_remaining_lte_quantity'
   ) THEN
     ALTER TABLE free_spin_entitlements ADD CONSTRAINT chk_free_spin_remaining_lte_quantity CHECK (remaining_quantity <= quantity);
   END IF;
 
   IF NOT EXISTS (
-    SELECT 1 FROM pg_constraint WHERE conname = 'chk_free_spin_status_valid'
+    SELECT 1 
+    FROM pg_constraint c
+    JOIN pg_class t ON c.conrelid = t.oid
+    WHERE t.relname = 'free_spin_entitlements'
+      AND c.conname = 'chk_free_spin_status_valid'
   ) THEN
     ALTER TABLE free_spin_entitlements ADD CONSTRAINT chk_free_spin_status_valid CHECK (status IN ('ACTIVE', 'CONSUMED', 'EXPIRED', 'REVOKED'));
   END IF;

@@ -1,7 +1,8 @@
-import { relations } from 'drizzle-orm';
+import { relations, sql } from 'drizzle-orm';
 import {
   bigint,
   boolean,
+  check,
   index,
   integer,
   jsonb,
@@ -340,6 +341,10 @@ export const freeSpinEntitlements = pgTable('free_spin_entitlements', {
   sourceRefIdx: uniqueIndex('free_spin_entitlements_source_ref_idx').on(table.sourceReference),
   userSourceDateIdx: uniqueIndex('free_spin_entitlements_user_source_date_idx').on(table.userId, table.source, table.spinDateUtc),
   userStatusIdx: index('free_spin_entitlements_user_status_idx').on(table.userId, table.status),
+  chkQuantityPositive: check('chk_free_spin_quantity_positive', sql`${table.quantity} > 0`),
+  chkRemainingNonNegative: check('chk_free_spin_remaining_non_negative', sql`${table.remainingQuantity} >= 0`),
+  chkRemainingLteQuantity: check('chk_free_spin_remaining_lte_quantity', sql`${table.remainingQuantity} <= ${table.quantity}`),
+  chkStatusValid: check('chk_free_spin_status_valid', sql`${table.status} IN ('ACTIVE', 'CONSUMED', 'EXPIRED', 'REVOKED')`),
 }));
 
 // ----------------------------------------------------------------------------
