@@ -23,6 +23,7 @@ import {
 } from 'lucide-react';
 import { pwaService } from '../services/pwaService';
 import { soundEngine } from '../services/soundEngine';
+import { Play369BrandLogo } from './Play369BrandLogo';
 import confetti from 'canvas-confetti';
 
 interface InstallPwaButtonProps {
@@ -102,23 +103,19 @@ export const InstallPwaButton: React.FC<InstallPwaButtonProps> = ({ isFloating =
                   onClick={handleInstallClick}
                   className="flex items-center space-x-2.5 flex-1 min-w-0 cursor-pointer"
                 >
-                  <div className="w-9 h-9 rounded-xl bg-gradient-to-tr from-amber-400 to-yellow-400 p-[1.5px] shrink-0 shadow-md shadow-amber-500/30">
-                    <div className="w-full h-full bg-slate-950 rounded-[10px] flex items-center justify-center text-amber-400">
-                      <Smartphone className="w-5 h-5" />
-                    </div>
-                  </div>
+                  <Play369BrandLogo size="xs" glow={false} />
 
                   <div className="min-w-0">
                     <div className="flex items-center space-x-1.5">
                       <span className="text-xs font-black text-white font-sans truncate">
-                        GamePlay365 শর্টকাট
+                        PLAY369 অ্যাপ
                       </span>
-                      <span className="px-1.5 py-0.2 rounded bg-[#54D62C] text-slate-950 font-black text-[9px] font-mono">
+                      <span className="px-1.5 py-0.2 rounded bg-amber-400 text-slate-950 font-black text-[9px] font-mono">
                         APP
                       </span>
                     </div>
-                    <p className="text-[10px] text-slate-300 font-sans truncate">
-                      হোম স্ক্রিনে সেভ করুন • ফাস্ট লোডিং
+                    <p className="text-[10px] text-emerald-200/80 font-sans truncate">
+                      হোম স্ক্রিনে সেভ করুন • ফুলস্ক্রিন গেমিং
                     </p>
                   </div>
                 </div>
@@ -127,7 +124,7 @@ export const InstallPwaButton: React.FC<InstallPwaButtonProps> = ({ isFloating =
                 <div className="flex items-center space-x-1.5 shrink-0">
                   <button
                     onClick={handleInstallClick}
-                    className="px-3 py-1.5 rounded-xl bg-[#54D62C] hover:bg-[#47be23] text-slate-950 font-black text-[11px] font-mono shadow-md active:scale-95 transition-all flex items-center space-x-1 cursor-pointer"
+                    className="px-3 py-1.5 rounded-xl bg-gradient-to-r from-amber-400 to-yellow-400 hover:from-amber-300 hover:to-yellow-300 text-slate-950 font-black text-[11px] font-mono shadow-md active:scale-95 transition-all flex items-center space-x-1 cursor-pointer"
                   >
                     <Download className="w-3.5 h-3.5 stroke-[2.5]" />
                     <span>সেভ করুন</span>
@@ -151,8 +148,8 @@ export const InstallPwaButton: React.FC<InstallPwaButtonProps> = ({ isFloating =
         /* Desktop / Tablet Navbar Button */
         <button
           onClick={handleInstallClick}
-          className="hidden sm:flex items-center space-x-1.5 px-3 py-1.5 rounded-xl bg-gradient-to-r from-cyan-500/20 via-slate-900 to-amber-500/20 border border-amber-500/40 hover:border-amber-400 text-slate-200 hover:text-white font-mono text-xs font-bold transition-all hover:scale-[1.02] active:scale-95 shadow-md shadow-amber-500/10 cursor-pointer"
-          title="Install Playall 365 Mobile PWA App"
+          className="hidden sm:flex items-center space-x-1.5 px-3 py-1.5 rounded-xl bg-gradient-to-r from-emerald-500/20 via-slate-900 to-amber-500/20 border border-amber-500/40 hover:border-amber-400 text-slate-200 hover:text-white font-mono text-xs font-bold transition-all hover:scale-[1.02] active:scale-95 shadow-md shadow-amber-500/10 cursor-pointer"
+          title="Install PLAY369 Mobile PWA App"
         >
           <Smartphone className="w-3.5 h-3.5 text-amber-400" />
           <span className="hidden md:inline">Install App</span>
@@ -175,11 +172,11 @@ export const InstallPwaButton: React.FC<InstallPwaButtonProps> = ({ isFloating =
               animate={{ scale: 1, opacity: 1, y: 0 }}
               exit={{ scale: 0.9, opacity: 0, y: 20 }}
               onClick={(e) => e.stopPropagation()}
-              className="relative w-full max-w-md bg-[#090d16] border border-amber-500/40 rounded-[28px] p-6 shadow-2xl space-y-5 overflow-hidden text-slate-100"
+              className="relative w-full max-w-md bg-[#021b10] border border-amber-500/40 rounded-[28px] p-6 shadow-2xl space-y-5 overflow-hidden text-slate-100"
             >
               {/* Ambient Glow */}
               <div className="absolute -top-16 -right-16 w-48 h-48 bg-amber-500/20 rounded-full blur-3xl pointer-events-none" />
-              <div className="absolute -bottom-16 -left-16 w-48 h-48 bg-cyan-500/20 rounded-full blur-3xl pointer-events-none" />
+              <div className="absolute -bottom-16 -left-16 w-48 h-48 bg-emerald-500/20 rounded-full blur-3xl pointer-events-none" />
 
               {/* Close Button */}
               <button
@@ -191,22 +188,18 @@ export const InstallPwaButton: React.FC<InstallPwaButtonProps> = ({ isFloating =
 
               {/* Header */}
               <div className="flex items-center space-x-3.5">
-                <div className="w-12 h-12 rounded-2xl bg-gradient-to-tr from-amber-400 via-yellow-400 to-amber-500 p-0.5 shadow-lg shadow-amber-500/30 shrink-0">
-                  <div className="w-full h-full bg-[#0b0f19] rounded-[14px] flex items-center justify-center text-amber-400">
-                    <Smartphone className="w-6 h-6" />
-                  </div>
-                </div>
+                <Play369BrandLogo size="md" glow={true} />
                 <div>
                   <div className="flex items-center space-x-2">
                     <h3 className="text-base font-black text-white font-sans uppercase">
-                      Playall 365 Mobile App
+                      PLAY369 Mobile App
                     </h3>
                     <span className="px-2 py-0.5 rounded bg-emerald-500/20 text-emerald-300 text-[10px] font-bold border border-emerald-500/30 font-mono">
                       PWA
                     </span>
                   </div>
-                  <p className="text-xs text-slate-400 font-sans mt-0.5">
-                    সরাসরি আপনার মোবাইল হোম স্ক্রিনে ইনস্টল করুন।
+                  <p className="text-xs text-emerald-200/70 font-sans mt-0.5">
+                    সরাসরি আপনার মোবাইল হোম স্ক্রিনে ফুলস্ক্রিনে সেভ করুন।
                   </p>
                 </div>
               </div>

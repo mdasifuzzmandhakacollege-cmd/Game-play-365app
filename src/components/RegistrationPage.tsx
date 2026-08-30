@@ -12,6 +12,7 @@ import {
   Globe
 } from 'lucide-react';
 import { Play369AuthCard } from './auth/Play369AuthCard';
+import { Play369BrandLogo } from './Play369BrandLogo';
 
 interface RegistrationPageProps {
   onBackToHome?: () => void;
@@ -63,20 +64,7 @@ export const RegistrationPage: React.FC<RegistrationPageProps> = ({
             </button>
           )}
 
-          <div className="flex items-center space-x-2">
-            <div className="h-9 w-9 rounded-xl bg-gradient-to-tr from-amber-500 to-yellow-300 flex items-center justify-center text-slate-950 font-black shadow-lg shadow-amber-500/20">
-              <Crown className="w-5 h-5" />
-            </div>
-            <div>
-              <div className="text-base sm:text-lg font-black tracking-tight text-white flex items-center gap-1.5">
-                <span>PLAY</span>
-                <span className="text-amber-400">369</span>
-              </div>
-              <div className="text-[9px] uppercase tracking-widest text-emerald-400 font-bold">
-                Next-Gen Seamless Casino
-              </div>
-            </div>
-          </div>
+          <Play369BrandLogo size="sm" variant="horizontal" />
         </div>
 
         {/* Live Safety Badge */}
@@ -96,11 +84,8 @@ export const RegistrationPage: React.FC<RegistrationPageProps> = ({
             transition={{ duration: 0.5, delay: 0.1 }}
             className="hidden lg:flex lg:col-span-5 flex-col space-y-6"
           >
-            <div className="space-y-3">
-              <div className="inline-flex items-center space-x-2 px-3.5 py-1.5 rounded-full bg-amber-500/10 border border-amber-400/30 text-amber-300 text-xs font-black uppercase tracking-wider">
-                <Crown className="w-4 h-4 text-amber-400" />
-                <span>Seamless Gaming Platform</span>
-              </div>
+            <div className="flex flex-col items-start space-y-4">
+              <Play369BrandLogo size="xl" glow={true} className="self-start" />
 
               <h1 className="text-3xl xl:text-4xl font-black text-white leading-tight tracking-tight">
                 Unified Player Vault with <span className="text-amber-400">Dual Currency</span> Support

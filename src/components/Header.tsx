@@ -20,6 +20,7 @@ import {
 import { UserEntity, WalletEntity } from '../server/types/seamless';
 import { useAuth } from '../contexts/AuthContext';
 import { useTheme } from '../contexts/ThemeContext';
+import { Play369BrandLogo } from './Play369BrandLogo';
 
 interface HeaderProps {
   activeTab: 'simulator' | 'concurrency' | 'ledger' | 'code' | 'architecture' | 'hmac';
@@ -58,22 +59,10 @@ export const Header: React.FC<HeaderProps> = ({
       <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-4 flex flex-wrap items-center justify-between gap-4">
         {/* Brand */}
         <div className="flex items-center space-x-3.5">
-          <div className="h-12 w-12 rounded-2xl bg-gradient-to-tr from-amber-500 via-yellow-400 to-amber-600 flex items-center justify-center shadow-lg shadow-amber-500/25">
-            <Crown className="w-6 h-6 text-slate-950" />
-          </div>
-          <div>
-            <div className="flex items-center space-x-2">
-              <h1 className="text-xl font-extrabold text-white tracking-tight">
-                GamePlay<span className="text-amber-400">365</span>
-              </h1>
-              <span className="px-2 py-0.5 text-xs font-bold bg-emerald-500/20 text-emerald-400 border border-emerald-500/30 rounded-md">
-                ACID Core
-              </span>
-            </div>
-            <p className="text-xs text-slate-400">
-              B2B Seamless Wallet • PostgreSQL Row-Locking • SLA &lt;4s
-            </p>
-          </div>
+          <Play369BrandLogo size="md" variant="horizontal" glow={true} />
+          <span className="hidden md:inline-block px-2 py-0.5 text-xs font-bold bg-emerald-500/20 text-emerald-400 border border-emerald-500/30 rounded-md">
+            ACID Core
+          </span>
         </div>
 
         {/* Player & Wallet Quick Actions */}

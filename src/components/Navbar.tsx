@@ -34,6 +34,7 @@ import { useAuth } from '../contexts/AuthContext';
 import { useTheme } from '../contexts/ThemeContext';
 import { useWalletGame, MainNavTab } from '../contexts/WalletGameContext';
 import { NotificationBell } from './NotificationBell';
+import { Play369BrandLogo } from './Play369BrandLogo';
 
 interface NavbarProps {
   onOpenCashier: () => void;
@@ -81,27 +82,10 @@ export const Navbar: React.FC<NavbarProps> = ({
                 audioEngine.playClick();
                 setActiveTab('lobby');
               }}
-              className="flex items-center space-x-2 sm:space-x-3 group text-left focus:outline-none min-h-[48px] min-w-[48px] cursor-pointer shrink-0 rounded-xl px-1"
+              className="flex items-center group text-left focus:outline-none min-h-[48px] min-w-[48px] cursor-pointer shrink-0 rounded-xl px-1"
               aria-label="PLAY369 Home"
             >
-              <div className="relative shrink-0">
-                <div className="w-9 h-9 sm:w-11 sm:h-11 rounded-xl bg-gradient-to-br from-amber-400 via-yellow-500 to-amber-600 p-[1.5px] shadow-md shadow-amber-500/25 group-hover:shadow-amber-500/50 transition-all duration-300">
-                  <div className="w-full h-full bg-[#02180e] rounded-[10px] sm:rounded-[12px] flex items-center justify-center">
-                    <Crown className="w-5 h-5 sm:w-6 sm:h-6 text-amber-400 group-hover:scale-110 transition-transform duration-300" />
-                  </div>
-                </div>
-              </div>
-
-              <div className="min-w-0">
-                <div className="flex items-center space-x-1.5">
-                  <span className="text-base sm:text-2xl font-black tracking-tight text-white truncate font-sans">
-                    PLAY<span className="text-transparent bg-gradient-to-r from-amber-400 via-yellow-300 to-amber-500 bg-clip-text">369</span>
-                  </span>
-                  <span className="hidden sm:inline-block px-1.5 py-0.5 text-[10px] font-black rounded-md bg-amber-400/20 text-amber-300 border border-amber-400/40 uppercase tracking-wider">
-                    CASINO
-                  </span>
-                </div>
-              </div>
+              <Play369BrandLogo size="sm" variant="horizontal" glow={true} />
             </button>
 
             {/* Desktop Navigation Tabs */}

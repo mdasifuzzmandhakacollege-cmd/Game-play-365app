@@ -75,8 +75,8 @@ export const AuthModal: React.FC<AuthModalProps> = ({
             isModal={true}
           />
 
-          {/* Quick Dev/Demo User Switcher (For local testing & seamless demo) */}
-          {allUsers && allUsers.length > 0 && onSelectUser && (
+          {/* Quick Dev/Demo User Switcher (For local dev testing only - NEVER rendered in production) */}
+          {Boolean((import.meta as any)?.env?.DEV) && allUsers && allUsers.length > 0 && onSelectUser && (
             <div className="mt-3 text-center">
               <button
                 type="button"

@@ -5,6 +5,7 @@ import {
   googleSignIn as libGoogleSignIn,
   registerWithEmail as libRegisterWithEmail,
   loginWithEmail as libLoginWithEmail,
+  sendPasswordReset as libSendPasswordReset,
   logout as libLogout,
   initAuth,
   createRecaptchaVerifier as libCreateRecaptchaVerifier,
@@ -32,6 +33,7 @@ interface AuthContextType {
   signInWithGoogle: () => Promise<User | null>;
   registerWithEmail: (email: string, pass: string, displayName: string, preferredCurrency?: 'BDT' | 'USD') => Promise<User | null>;
   loginWithEmail: (email: string, pass: string) => Promise<User | null>;
+  sendPasswordReset: (email: string) => Promise<void>;
   createRecaptchaVerifier: (container: string | HTMLElement, invisible?: boolean) => RecaptchaVerifier;
   sendPhoneOtp: (phoneNumberE164: string, appVerifierOrContainer?: string | HTMLElement | RecaptchaVerifier) => Promise<ConfirmationResult>;
   verifyPhoneOtp: (confirmationResult: ConfirmationResult, otpCode: string, registrationMeta?: PhoneRegistrationMeta) => Promise<User | null>;
@@ -51,6 +53,7 @@ const AuthContext = createContext<AuthContextType>({
   signInWithGoogle: async () => null,
   registerWithEmail: async () => null,
   loginWithEmail: async () => null,
+  sendPasswordReset: async () => {},
   createRecaptchaVerifier: () => { throw new Error('AuthContext uninitialized'); },
   sendPhoneOtp: async () => { throw new Error('AuthContext uninitialized'); },
   verifyPhoneOtp: async () => null,
@@ -337,6 +340,18 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
     }
   };
 
+  const sendPasswordReset = async (email: string): Promise<void> => {
+    try {
+      setLoading(true);
+      await libSendPasswordReset(email);
+    } catch (error: any) {
+      console.warn('[AuthContext] sendPasswordReset notice:', error?.code || error?.message);
+      throw error;
+    } finally {
+      setLoading(false);
+    }
+  };
+
   const createRecaptchaVerifier = useCallback(
     (container: string | HTMLElement, invisible: boolean = true): RecaptchaVerifier => {
       return libCreateRecaptchaVerifier(container, invisible);
@@ -463,6 +478,7 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
         signInWithGoogle,
         registerWithEmail,
         loginWithEmail,
+        sendPasswordReset,
         createRecaptchaVerifier,
         sendPhoneOtp,
         verifyPhoneOtp,

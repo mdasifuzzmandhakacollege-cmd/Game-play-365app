@@ -241,7 +241,7 @@ export const ProfileDashboard: React.FC<ProfileDashboardProps> = ({
       badgeColor: 'bg-emerald-500 text-white font-bold',
       action: () => {
         soundEngine.playClick(900);
-        showToast('GamePlay365 লাইভ চ্যাট সাপোর্ট সক্রিয় রয়েছে');
+        showToast('PLAY369 লাইভ চ্যাট সাপোর্ট সক্রিয় রয়েছে');
       }
     },
     ...(isAdmin ? [{

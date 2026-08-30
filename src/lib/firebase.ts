@@ -6,6 +6,7 @@ import {
   onAuthStateChanged,
   signInWithEmailAndPassword,
   createUserWithEmailAndPassword,
+  sendPasswordResetEmail,
   updateProfile,
   signOut,
   setPersistence,
@@ -146,6 +147,25 @@ export const loginWithEmail = async (
     throw error;
   } finally {
     isSigningIn = false;
+  }
+};
+
+// Real Firebase Email Password Reset Request
+export const sendPasswordReset = async (email: string): Promise<void> => {
+  if (!email || !email.trim()) {
+    const err = new Error('Please enter your email address.');
+    (err as any).code = 'auth/invalid-email';
+    throw err;
+  }
+
+  try {
+    await sendPasswordResetEmail(auth, email.trim());
+  } catch (error: any) {
+    console.warn('Firebase Password Reset request notice:', error?.code || error?.message);
+    // Throw network/fatal errors so context can present them if needed
+    if (error?.code === 'auth/network-request-failed') {
+      throw error;
+    }
   }
 };
 
