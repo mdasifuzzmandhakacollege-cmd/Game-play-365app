@@ -360,7 +360,37 @@ export const wageringRequirements = pgTable('wagering_requirements', {
   expiresAt: timestamp('expires_at', { withTimezone: true }).notNull(),
   createdAt: timestamp('created_at', { withTimezone: true }).defaultNow().notNull(),
   completedAt: timestamp('completed_at', { withTimezone: true }),
-});
+}, (table) => ({
+  userStatusIdx: index('wagering_requirements_user_status_idx').on(table.userId, table.status),
+  expiresAtIdx: index('wagering_requirements_expires_at_idx').on(table.expiresAt),
+  chkBonusPositive: check('chk_wagering_requirements_bonus_positive', sql`${table.bonusAmountGranted} > 0`),
+  chkTargetPositive: check('chk_wagering_requirements_target_positive', sql`${table.targetTurnoverAmount} > 0`),
+  chkCompletedNonNegative: check('chk_wagering_requirements_completed_non_negative', sql`${table.completedTurnoverAmount} >= 0`),
+  chkStatusValid: check('chk_wagering_requirements_status_valid', sql`${table.status} IN ('ACTIVE', 'COMPLETED', 'EXPIRED')`),
+}));
+
+export const wageringProgressEvents = pgTable('wagering_progress_events', {
+  id: serial('id').primaryKey(),
+  wageringRequirementId: integer('wagering_requirement_id')
+    .references(() => wageringRequirements.id, { onDelete: 'cascade' })
+    .notNull(),
+  userId: integer('user_id')
+    .references(() => users.id, { onDelete: 'cascade' })
+    .notNull(),
+  sourceTransactionId: varchar('source_transaction_id', { length: 128 }).notNull(),
+  qualifiedAmount: numeric('qualified_amount', { precision: 18, scale: 4 }).notNull(),
+  currency: varchar('currency', { length: 3 }).default('BDT').notNull(),
+  processedAt: timestamp('processed_at', { withTimezone: true }).defaultNow().notNull(),
+}, (table) => ({
+  requirementSourceTxIdx: uniqueIndex('wagering_progress_events_req_source_idx').on(
+    table.wageringRequirementId,
+    table.sourceTransactionId
+  ),
+  userIdx: index('wagering_progress_events_user_idx').on(table.userId),
+  sourceTxIdx: index('wagering_progress_events_source_tx_idx').on(table.sourceTransactionId),
+  requirementIdx: index('wagering_progress_events_requirement_idx').on(table.wageringRequirementId),
+  chkAmountPositive: check('chk_wagering_progress_events_amount_positive', sql`${table.qualifiedAmount} > 0`),
+}));
 
 export const freeSpinEntitlements = pgTable('free_spin_entitlements', {
   id: serial('id').primaryKey(),
@@ -408,6 +438,7 @@ export const usersRelations = relations(users, ({ one, many }) => ({
   wageringRequirements: many(wageringRequirements),
   vipRewardClaims: many(vipRewardClaims),
   vipProgressionEvents: many(vipProgressionEvents),
+  wageringProgressEvents: many(wageringProgressEvents),
 }));
 
 export const walletsRelations = relations(wallets, ({ one, many }) => ({
@@ -479,4 +510,24 @@ export const vipProgressionEventsRelations = relations(vipProgressionEvents, ({ 
     references: [users.id],
   }),
 }));
+
+export const wageringRequirementsRelations = relations(wageringRequirements, ({ one, many }) => ({
+  user: one(users, {
+    fields: [wageringRequirements.userId],
+    references: [users.id],
+  }),
+  progressEvents: many(wageringProgressEvents),
+}));
+
+export const wageringProgressEventsRelations = relations(wageringProgressEvents, ({ one }) => ({
+  user: one(users, {
+    fields: [wageringProgressEvents.userId],
+    references: [users.id],
+  }),
+  wageringRequirement: one(wageringRequirements, {
+    fields: [wageringProgressEvents.wageringRequirementId],
+    references: [wageringRequirements.id],
+  }),
+}));
+
 

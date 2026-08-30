@@ -371,4 +371,64 @@ ON vip_progression_events (source_transaction_id);
 CREATE INDEX IF NOT EXISTS vip_progression_events_user_type_idx
 ON vip_progression_events (user_id, source_type);
 
+-- ----------------------------------------------------------------------------
+-- 13. Wagering Requirements Table (PLAY369 Task 5.1)
+-- Authoritative PostgreSQL store for bonus turnover rollover requirements.
+-- ----------------------------------------------------------------------------
+CREATE TABLE IF NOT EXISTS wagering_requirements (
+    id SERIAL PRIMARY KEY,
+    user_id INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+    promo_name VARCHAR(128) NOT NULL,
+    bonus_amount_granted NUMERIC(18, 4) NOT NULL,
+    required_multiplier INTEGER NOT NULL DEFAULT 10,
+    target_turnover_amount NUMERIC(18, 4) NOT NULL,
+    completed_turnover_amount NUMERIC(18, 4) NOT NULL DEFAULT 0.0000,
+    status VARCHAR(32) NOT NULL DEFAULT 'ACTIVE', -- 'ACTIVE', 'COMPLETED', 'EXPIRED'
+    expires_at TIMESTAMPTZ NOT NULL,
+    created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+    completed_at TIMESTAMPTZ,
+
+    -- Database Integrity Constraints (Task 5.1)
+    CONSTRAINT chk_wagering_requirements_bonus_positive CHECK (bonus_amount_granted > 0),
+    CONSTRAINT chk_wagering_requirements_target_positive CHECK (target_turnover_amount > 0),
+    CONSTRAINT chk_wagering_requirements_completed_non_negative CHECK (completed_turnover_amount >= 0),
+    CONSTRAINT chk_wagering_requirements_status_valid CHECK (status IN ('ACTIVE', 'COMPLETED', 'EXPIRED'))
+);
+
+CREATE INDEX IF NOT EXISTS wagering_requirements_user_status_idx
+ON wagering_requirements (user_id, status);
+
+CREATE INDEX IF NOT EXISTS wagering_requirements_expires_at_idx
+ON wagering_requirements (expires_at);
+
+-- ----------------------------------------------------------------------------
+-- 14. Wagering Progress Events Table (PLAY369 Task 5.1)
+-- Authoritative PostgreSQL store for verified bet progression events.
+-- ----------------------------------------------------------------------------
+CREATE TABLE IF NOT EXISTS wagering_progress_events (
+    id SERIAL PRIMARY KEY,
+    wagering_requirement_id INTEGER NOT NULL REFERENCES wagering_requirements(id) ON DELETE CASCADE,
+    user_id INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+    source_transaction_id VARCHAR(128) NOT NULL,
+    qualified_amount NUMERIC(18, 4) NOT NULL,
+    currency VARCHAR(3) NOT NULL DEFAULT 'BDT',
+    processed_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+
+    -- Database Integrity Constraints (Task 5.1)
+    CONSTRAINT chk_wagering_progress_events_amount_positive CHECK (qualified_amount > 0)
+);
+
+CREATE UNIQUE INDEX IF NOT EXISTS wagering_progress_events_req_source_idx
+ON wagering_progress_events (wagering_requirement_id, source_transaction_id);
+
+CREATE INDEX IF NOT EXISTS wagering_progress_events_user_idx
+ON wagering_progress_events (user_id);
+
+CREATE INDEX IF NOT EXISTS wagering_progress_events_source_tx_idx
+ON wagering_progress_events (source_transaction_id);
+
+CREATE INDEX IF NOT EXISTS wagering_progress_events_requirement_idx
+ON wagering_progress_events (wagering_requirement_id);
+
+
 
