@@ -71,26 +71,26 @@ export const PasswordStrengthIndicator: React.FC<PasswordStrengthProps> = ({
         />
       </div>
 
-      {/* Requirement Pills (Compact, high contrast) */}
-      <div className="grid grid-cols-2 gap-1.5 pt-1 text-[11px]">
-        <div className={`flex items-center space-x-1.5 ${hasLength ? 'text-emerald-400 font-medium' : 'text-slate-500'}`}>
+      {/* Requirement Pills (Compact, high contrast, non-overflowing) */}
+      <div className="grid grid-cols-2 gap-1.5 pt-1 text-[10px] sm:text-[11px]">
+        <div className={`flex items-center space-x-1.5 min-w-0 ${hasLength ? 'text-emerald-400 font-medium' : 'text-slate-500'}`}>
           {hasLength ? <Check className="w-3 h-3 text-emerald-400 shrink-0" /> : <X className="w-3 h-3 text-slate-600 shrink-0" />}
-          <span>8+ characters</span>
+          <span className="truncate">8+ characters</span>
         </div>
 
-        <div className={`flex items-center space-x-1.5 ${hasNumber ? 'text-emerald-400 font-medium' : 'text-slate-500'}`}>
+        <div className={`flex items-center space-x-1.5 min-w-0 ${hasNumber ? 'text-emerald-400 font-medium' : 'text-slate-500'}`}>
           {hasNumber ? <Check className="w-3 h-3 text-emerald-400 shrink-0" /> : <X className="w-3 h-3 text-slate-600 shrink-0" />}
-          <span>Includes number</span>
+          <span className="truncate">Includes number</span>
         </div>
 
-        <div className={`flex items-center space-x-1.5 ${hasUpper && hasLower ? 'text-emerald-400 font-medium' : 'text-slate-500'}`}>
+        <div className={`flex items-center space-x-1.5 min-w-0 ${hasUpper && hasLower ? 'text-emerald-400 font-medium' : 'text-slate-500'}`}>
           {hasUpper && hasLower ? <Check className="w-3 h-3 text-emerald-400 shrink-0" /> : <X className="w-3 h-3 text-slate-600 shrink-0" />}
-          <span>Upper &amp; lowercase</span>
+          <span className="truncate">Upper &amp; lowercase</span>
         </div>
 
-        <div className={`flex items-center space-x-1.5 ${hasSpecial ? 'text-emerald-400 font-medium' : 'text-slate-500'}`}>
+        <div className={`flex items-center space-x-1.5 min-w-0 ${hasSpecial ? 'text-emerald-400 font-medium' : 'text-slate-500'}`}>
           {hasSpecial ? <Check className="w-3 h-3 text-emerald-400 shrink-0" /> : <X className="w-3 h-3 text-slate-600 shrink-0" />}
-          <span>Special symbol (!@#$)</span>
+          <span className="truncate">Special symbol</span>
         </div>
       </div>
 

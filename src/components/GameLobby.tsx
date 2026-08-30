@@ -1,21 +1,24 @@
 /**
  * @file GameLobby.tsx
- * @description Master Authenticated Home & Game Lobby interface for PLAY369.
+ * @description Master Authenticated Home & Mobile Lobby interface for PLAY369.
  * 
- * Structural Hierarchy:
- * 1. Lobby Header (Live Announcement Marquee & Progressive Mega Jackpot bar)
- * 2. Featured Games Showcase (Hero promotional carousel from GameService)
- * 3. Game Category Navigation (All, Hot, Slots, Crash, Live Casino, Table, Fishing, Sports)
- * 4. Provider Filter UI (PG Soft, Pragmatic Play, JILI, Spribe, Evolution, Fa Chai, Nolimit)
- * 5. Popular & Hot Games Spotlight Section
- * 6. Responsive Game Grid with Empty and Loading skeleton states
- * 7. Live Activity / Winner Ticker
- * 8. Search Games Modal with instant autocomplete via GameService
+ * Precision Hierarchy:
+ * 1. Notice Marquee & Search Header
+ * 2. Wallet / Balance Hero Card + Deposit
+ * 3. Jackpot / Highlighted Feature Spotlight
+ * 4. VIP Progression Strip
+ * 5. Category Icon Row (Live Casino, Slots, Crash, Table, Sports, etc.)
+ * 6. Live Casino Section (Horizontal swipe)
+ * 7. Trending Games Section (Horizontal rail)
+ * 8. Top Providers Section (Brand badge chips)
+ * 9. Responsive Game Grid (with loading & empty states)
+ * 10. Live Activity Ticker
+ * 11. Consolidated Floating Rewards Action Hub
  * 
  * [ARCHITECTURAL CONTRACT]:
- * - Reads all games, categories, and provider data exclusively through `gameService` & `GameProviderAdapter`.
- * - Provider implementations remain completely decoupled from this UI layer.
- * - No wallet balance or transaction logic is modified here.
+ * - Strictly uses authoritative data via `WalletGameContext` and `gameService`.
+ * - Zero fabricated balances or fake jackpot amounts.
+ * - Mobile responsive from 320px to 430px+ and desktop.
  */
 
 import React, { useState, useEffect, useCallback } from 'react';
@@ -30,13 +33,18 @@ import {
   MOCK_PROVIDERS,
   MOCK_FEATURED_SLIDES
 } from '../data/mockGamesData';
+import { useWalletGame } from '../contexts/WalletGameContext';
 import { LobbyHeader } from './lobby/LobbyHeader';
-import { FeaturedGamesSection } from './lobby/FeaturedGamesSection';
+import { WalletHeroCard } from './lobby/WalletHeroCard';
+import { JackpotFeatureCard } from './lobby/JackpotFeatureCard';
+import { VipProgressionStrip } from './lobby/VipProgressionStrip';
 import { GameCategoryNav } from './lobby/GameCategoryNav';
-import { ProviderFilter } from './lobby/ProviderFilter';
-import { PopularHotSection } from './lobby/PopularHotSection';
+import { LiveCasinoSection } from './lobby/LiveCasinoSection';
+import { TrendingGamesSection } from './lobby/TrendingGamesSection';
+import { TopProvidersSection } from './lobby/TopProvidersSection';
 import { GameGrid } from './lobby/GameGrid';
 import { GameSearchModal } from './lobby/GameSearchModal';
+import { FloatingActionHub } from './lobby/FloatingActionHub';
 import { LiveActivityTicker } from './LiveActivityTicker';
 import { TreasureChestModal } from './TreasureChestModal';
 import { DailyUnclaimedRewardsModal } from './DailyUnclaimedRewardsModal';
@@ -44,7 +52,6 @@ import { ShareWheelModal } from './ShareWheelModal';
 import { InboxMailModal } from './InboxMailModal';
 import { SupportModal } from './SupportModal';
 import { soundEngine } from '../services/soundEngine';
-import { Sparkles } from 'lucide-react';
 
 export interface GameLobbyProps {
   currentUser?: UserEntity;
@@ -56,27 +63,40 @@ export interface GameLobbyProps {
 }
 
 export const GameLobby: React.FC<GameLobbyProps> = ({
-  currentUser,
-  currentWallet,
-  currency = 'BDT',
+  currentUser: propUser,
+  currentWallet: propWallet,
+  currency: propCurrency = 'BDT',
   onLaunchGame,
   onOpenCashier,
   onNavigateTab
 }) => {
+  const {
+    currentUser: contextUser,
+    currentWallet: contextWallet,
+    currency: contextCurrency,
+    formattedBalance,
+    balanceFlash,
+    refreshState
+  } = useWalletGame();
+
+  const currentUser = propUser || contextUser;
+  const currentWallet = propWallet || contextWallet;
+  const currency = propCurrency || contextCurrency;
+
   // Navigation & Filter States
   const [activeCategory, setActiveCategory] = useState<string>('all');
   const [selectedProvider, setSelectedProvider] = useState<string>('all');
   const [isSearchOpen, setIsSearchOpen] = useState<boolean>(false);
   const [isLoading, setIsLoading] = useState<boolean>(false);
 
-  // Catalog State loaded via GameService & Provider Adapters
+  // Catalog State loaded via GameService
   const [games, setGames] = useState<GameItem[]>([]);
   const [allCatalogGames, setAllCatalogGames] = useState<GameItem[]>([]);
   const [categories, setCategories] = useState<MockCategory[]>(MOCK_CATEGORIES);
   const [providers, setProviders] = useState<MockProvider[]>(MOCK_PROVIDERS);
   const [featuredSlides, setFeaturedSlides] = useState<MockFeaturedHeroSlide[]>(MOCK_FEATURED_SLIDES);
 
-  // Favorite Games State (Local player preference)
+  // Favorite Games State
   const [favorites, setFavorites] = useState<string[]>(['spribe_aviator', 'vs20olympgate']);
 
   // Modals for gamification widgets
@@ -165,7 +185,6 @@ export const GameLobby: React.FC<GameLobbyProps> = ({
     soundEngine.playClick(1050);
     try {
       if (currentUser) {
-        // Authorize launch session through Provider Adapter
         await gameService.launchGame({
           userId: currentUser.id,
           username: currentUser.username,
@@ -174,64 +193,78 @@ export const GameLobby: React.FC<GameLobbyProps> = ({
         });
       }
     } catch (err) {
-      console.warn('Game launch session pre-flight note:', err);
+      console.warn('Game launch session note:', err);
     }
-    // Delegate to primary app router
     onLaunchGame(gameId);
   };
 
   return (
     <div
       id="play369-authenticated-game-lobby"
-      className="max-w-7xl mx-auto px-2 sm:px-4 lg:px-6 py-2.5 sm:py-4 space-y-4 sm:space-y-6 text-slate-100 font-sans pb-24 lg:pb-12"
+      className="max-w-7xl mx-auto px-2.5 sm:px-4 lg:px-6 py-2 sm:py-4 space-y-3.5 sm:space-y-5 text-slate-100 font-sans pb-28 lg:pb-12"
     >
-      {/* 1. Lobby Header (Speaker Marquee + Progressive Jackpot + Quick Actions) */}
-      <LobbyHeader
-        onOpenSearch={() => setIsSearchOpen(true)}
-        onLaunchGame={handleLaunchGame}
+      {/* 1. Header: Marquee Announcements & Quick Search */}
+      <LobbyHeader onOpenSearch={() => setIsSearchOpen(true)} />
+
+      {/* 2. Wallet / Balance Hero Card + Deposit Action */}
+      <WalletHeroCard
+        currentWallet={currentWallet}
+        formattedBalance={formattedBalance}
+        currency={currency}
+        balanceFlash={balanceFlash}
         onOpenCashier={onOpenCashier}
-        onOpenVip={() => onNavigateTab && onNavigateTab('vip')}
+        onRefresh={refreshState}
       />
 
-      {/* 2. Featured Game Hero Showcase (Golden Ratio Carousel via GameService) */}
-      <FeaturedGamesSection
+      {/* 3. Jackpot / Highlighted Feature Spotlight Card */}
+      <JackpotFeatureCard
+        slide={featuredSlides[0]}
         onLaunchGame={handleLaunchGame}
         onOpenCashier={onOpenCashier}
-        slides={featuredSlides}
       />
 
-      {/* 3. Game Category Navigation Bar (Minimum 48px touch targets) */}
-      <div className="space-y-2.5">
-        <GameCategoryNav
-          activeCategory={activeCategory}
-          onSelectCategory={(catId) => {
-            setActiveCategory(catId);
-          }}
-          categories={categories}
-        />
+      {/* 4. VIP Progression Strip */}
+      <VipProgressionStrip
+        currentUser={currentUser}
+        onNavigateVip={() => onNavigateTab && onNavigateTab('vip')}
+      />
 
-        {/* 4. Provider Filter UI */}
-        <ProviderFilter
-          selectedProvider={selectedProvider}
-          onSelectProvider={(provId) => {
-            setSelectedProvider(provId);
-          }}
-          providers={providers}
-        />
-      </div>
+      {/* 5. Main Game Category Icons */}
+      <GameCategoryNav
+        activeCategory={activeCategory}
+        onSelectCategory={(catId) => setActiveCategory(catId)}
+        categories={categories}
+      />
 
-      {/* 5. Popular / Hot Games Spotlight (Displayed when on "All" or "Hot" category) */}
-      {(activeCategory === 'all' || activeCategory === 'hot') && selectedProvider === 'all' && (
-        <PopularHotSection
+      {/* 6. Live Casino Section (Horizontal Swipe Cards) */}
+      {(activeCategory === 'all' || activeCategory === 'casino') && (
+        <LiveCasinoSection
           games={allCatalogGames}
           onLaunchGame={handleLaunchGame}
-          onViewAllHot={() => setActiveCategory('hot')}
+          onViewAllCasino={() => setActiveCategory('casino')}
+        />
+      )}
+
+      {/* 7. Trending Games Section (Horizontal Rail) */}
+      {(activeCategory === 'all' || activeCategory === 'hot') && (
+        <TrendingGamesSection
+          games={allCatalogGames}
+          onLaunchGame={handleLaunchGame}
+          onViewAllTrending={() => setActiveCategory('hot')}
           favorites={favorites}
           onToggleFavorite={handleToggleFavorite}
         />
       )}
 
-      {/* 6. Responsive Game Grid (with Empty and Loading states from GameService) */}
+      {/* 8. Top Providers Section */}
+      <TopProvidersSection
+        providers={providers}
+        selectedProvider={selectedProvider}
+        onSelectProvider={(provId) => setSelectedProvider(provId)}
+        onViewAllProviders={() => setSelectedProvider('all')}
+      />
+
+      {/* 9. Main Game Grid (Filtered or All) */}
       <GameGrid
         games={games}
         isLoading={isLoading}
@@ -247,67 +280,19 @@ export const GameLobby: React.FC<GameLobbyProps> = ({
         totalCount={allCatalogGames.length}
       />
 
-      {/* 7. Live Activity / Winners Ticker */}
+      {/* 10. Live Activity Ticker */}
       <div className="pt-2">
         <LiveActivityTicker onLaunchGame={handleLaunchGame} />
       </div>
 
-      {/* 8. Floating Gamified Badges (VIP Rewards, Lucky Wheel, Treasure Chest) */}
-      <div className="fixed bottom-20 right-3.5 sm:right-6 z-40 flex flex-col items-end space-y-2">
-        {/* VIP Rewards ৳999 */}
-        <button
-          id="play369-float-vip-reward"
-          onClick={() => {
-            soundEngine.playClick(1000);
-            setIsRewardsOpen(true);
-          }}
-          className="group flex items-center bg-[#02180e]/95 border border-emerald-500/70 hover:border-amber-400 p-1.5 pr-3 rounded-full shadow-[0_4px_18px_rgba(0,0,0,0.8)] backdrop-blur-md transition-all hover:scale-105 active:scale-95 cursor-pointer min-h-[48px]"
-          title="Daily VIP Bonus ৳999"
-        >
-          <div className="w-9 h-9 rounded-full bg-gradient-to-tr from-amber-400 to-yellow-400 text-slate-950 flex items-center justify-center font-black text-sm shadow-md">
-            🎁
-          </div>
-          <div className="ml-2 text-left hidden sm:block">
-            <div className="text-[10px] text-emerald-300 font-bold leading-none font-sans">VIP Bonus</div>
-            <div className="text-[11px] font-black text-amber-400 font-mono leading-tight">৳ 999 Free</div>
-          </div>
-        </button>
+      {/* 11. Consolidated Non-Obstructive Floating Rewards Action Hub */}
+      <FloatingActionHub
+        onOpenVipRewards={() => setIsRewardsOpen(true)}
+        onOpenShareWheel={() => setIsShareWheelOpen(true)}
+        onOpenTreasure={() => setIsTreasureOpen(true)}
+      />
 
-        {/* Lucky Spin Wheel */}
-        <button
-          id="play369-float-wheel"
-          onClick={() => {
-            soundEngine.playClick(1000);
-            setIsShareWheelOpen(true);
-          }}
-          className="group flex items-center bg-[#02180e]/95 border border-amber-400/70 hover:border-amber-300 p-1.5 pr-3 rounded-full shadow-[0_4px_18px_rgba(0,0,0,0.8)] backdrop-blur-md transition-all hover:scale-105 active:scale-95 cursor-pointer min-h-[48px]"
-          title="Lucky Spin Wheel"
-        >
-          <div className="w-9 h-9 rounded-full bg-gradient-to-tr from-amber-400 to-yellow-400 text-slate-950 flex items-center justify-center font-black text-sm shadow-md">
-            🎡
-          </div>
-          <div className="ml-2 text-left hidden sm:block">
-            <div className="text-[10px] text-amber-300 font-bold leading-none font-sans">Lucky Wheel</div>
-            <div className="text-[11px] font-black text-amber-400 font-mono leading-tight">Spin & Win</div>
-          </div>
-        </button>
-
-        {/* Treasure Chest */}
-        <button
-          id="play369-float-treasure"
-          onClick={() => {
-            soundEngine.playClick(1000);
-            setIsTreasureOpen(true);
-          }}
-          className="min-h-[48px] min-w-[48px] w-12 h-12 rounded-2xl bg-gradient-to-tr from-amber-400 via-yellow-400 to-amber-500 text-slate-950 flex items-center justify-center shadow-xl hover:scale-110 active:scale-95 transition-all cursor-pointer font-black border border-amber-200"
-          title="Open Treasure Chest"
-          aria-label="Treasure Chest"
-        >
-          <Sparkles className="w-6 h-6 fill-slate-950 animate-pulse" />
-        </button>
-      </div>
-
-      {/* Search Modal (powered by GameService catalog) */}
+      {/* Search Modal */}
       <GameSearchModal
         isOpen={isSearchOpen}
         onClose={() => setIsSearchOpen(false)}

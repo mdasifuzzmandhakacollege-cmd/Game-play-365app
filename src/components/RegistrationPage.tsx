@@ -42,7 +42,13 @@ export const RegistrationPage: React.FC<RegistrationPageProps> = ({
   return (
     <div
       id="play369-registration-page"
-      className="min-h-screen w-full bg-[#021008] text-white flex flex-col justify-between relative overflow-hidden"
+      className="min-h-screen min-h-[100dvh] min-h-[100svh] w-full bg-[#021008] text-white flex flex-col justify-between relative overflow-x-hidden overflow-y-auto"
+      style={{
+        paddingTop: 'env(safe-area-inset-top, 0px)',
+        paddingBottom: 'env(safe-area-inset-bottom, 0px)',
+        paddingLeft: 'env(safe-area-inset-left, 0px)',
+        paddingRight: 'env(safe-area-inset-right, 0px)'
+      }}
     >
       {/* Background Ambience & Golden Flare Orbs */}
       <div className="fixed inset-0 pointer-events-none z-0">
@@ -52,12 +58,12 @@ export const RegistrationPage: React.FC<RegistrationPageProps> = ({
       </div>
 
       {/* Top Header Bar */}
-      <header className="relative z-20 w-full max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-4 sm:py-6 flex items-center justify-between">
-        <div className="flex items-center space-x-3">
+      <header className="relative z-20 w-full max-w-7xl mx-auto px-3 sm:px-6 lg:px-8 py-3.5 sm:py-6 flex items-center justify-between">
+        <div className="flex items-center space-x-2 sm:space-x-3">
           {handleExit && (
             <button
               onClick={handleExit}
-              className="min-h-[48px] px-3.5 rounded-xl bg-slate-900/80 hover:bg-emerald-950 border border-emerald-800/60 text-emerald-300 hover:text-white flex items-center space-x-1.5 text-xs sm:text-sm font-bold transition-all cursor-pointer shadow-md"
+              className="min-h-[48px] px-3 sm:px-3.5 rounded-xl bg-slate-900/80 hover:bg-emerald-950 border border-emerald-800/60 text-emerald-300 hover:text-white flex items-center space-x-1 sm:space-x-1.5 text-xs sm:text-sm font-bold transition-all cursor-pointer shadow-md select-none active:scale-[0.99]"
             >
               <ChevronLeft className="w-4 h-4" />
               <span>Back to Lobby</span>
@@ -75,7 +81,7 @@ export const RegistrationPage: React.FC<RegistrationPageProps> = ({
       </header>
 
       {/* Main Content: Responsive Split Layout */}
-      <main className="relative z-20 flex-1 w-full max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-6 sm:py-10 flex items-center justify-center">
+      <main className="relative z-20 flex-1 w-full max-w-7xl mx-auto px-3 sm:px-6 lg:px-8 py-4 sm:py-10 flex items-center justify-center">
         <div className="w-full grid grid-cols-1 lg:grid-cols-12 gap-8 lg:gap-12 items-center">
           {/* Left Column: Platform Features (5 cols on Desktop) */}
           <motion.div
@@ -167,15 +173,15 @@ export const RegistrationPage: React.FC<RegistrationPageProps> = ({
       </main>
 
       {/* Footer Legal & Responsibility Notice */}
-      <footer className="relative z-20 w-full max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-4 sm:py-6 text-center text-xs text-emerald-300/60 font-sans border-t border-emerald-900/40">
-        <div className="flex flex-col sm:flex-row items-center justify-between gap-2">
-          <span>&copy; {new Date().getFullYear()} PLAY369 Interactive Entertainment. All rights reserved.</span>
-          <div className="flex items-center space-x-4 text-[11px] text-emerald-300/80">
-            <span className="hover:text-white cursor-pointer">Fair Play Certification</span>
+      <footer className="relative z-20 w-full max-w-7xl mx-auto px-3 sm:px-6 lg:px-8 py-4 sm:py-6 text-center text-xs text-emerald-300/60 font-sans border-t border-emerald-900/40">
+        <div className="flex flex-col sm:flex-row items-center justify-between gap-2.5">
+          <span className="text-[11px] sm:text-xs">&copy; {new Date().getFullYear()} PLAY369 Interactive Entertainment. All rights reserved.</span>
+          <div className="flex flex-wrap items-center justify-center gap-x-3 gap-y-1 text-[10px] sm:text-[11px] text-emerald-300/80">
+            <span className="hover:text-white cursor-pointer select-none">Fair Play Certification</span>
             <span>•</span>
-            <span className="hover:text-white cursor-pointer">Privacy Policy</span>
+            <span className="hover:text-white cursor-pointer select-none">Privacy Policy</span>
             <span>•</span>
-            <span className="hover:text-white cursor-pointer">18+ Only</span>
+            <span className="hover:text-white cursor-pointer select-none">18+ Only</span>
           </div>
         </div>
       </footer>

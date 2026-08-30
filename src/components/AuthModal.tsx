@@ -46,6 +46,12 @@ export const AuthModal: React.FC<AuthModalProps> = ({
       <div
         id="play369-auth-modal-backdrop"
         className="fixed inset-0 z-50 flex items-center justify-center p-3 sm:p-4 md:p-6 bg-black/85 backdrop-blur-md overflow-y-auto"
+        style={{
+          paddingTop: 'calc(env(safe-area-inset-top, 0px) + 12px)',
+          paddingBottom: 'calc(env(safe-area-inset-bottom, 0px) + 12px)',
+          paddingLeft: 'calc(env(safe-area-inset-left, 0px) + 12px)',
+          paddingRight: 'calc(env(safe-area-inset-right, 0px) + 12px)'
+        }}
         onClick={handleClose}
       >
         <motion.div
@@ -62,7 +68,7 @@ export const AuthModal: React.FC<AuthModalProps> = ({
             id="play369-modal-close-btn"
             onClick={handleClose}
             aria-label="Close modal"
-            className="absolute -top-3 -right-3 z-30 min-h-[48px] min-w-[48px] p-2 rounded-full bg-[#02180e] border border-amber-500/40 text-amber-300 hover:text-white hover:bg-emerald-900 transition-all flex items-center justify-center shadow-xl cursor-pointer"
+            className="absolute -top-3 -right-2 sm:-top-3 sm:-right-3 z-30 min-h-[48px] min-w-[48px] p-2 rounded-full bg-[#02180e] border border-amber-500/40 text-amber-300 hover:text-white hover:bg-emerald-900 transition-all flex items-center justify-center shadow-xl cursor-pointer select-none active:scale-[0.99]"
           >
             <X className="w-5 h-5" />
           </button>

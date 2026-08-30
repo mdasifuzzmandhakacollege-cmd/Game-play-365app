@@ -417,7 +417,7 @@ export const Play369AuthCard: React.FC<Play369AuthCardProps> = ({
   return (
     <div
       id="play369-auth-card"
-      className={`relative w-full max-w-[460px] mx-auto overflow-hidden rounded-3xl border border-amber-500/30 bg-gradient-to-b from-[#063120] via-[#021b10] to-[#01120a] p-5 sm:p-7 shadow-2xl backdrop-blur-xl transition-all ${className}`}
+      className={`relative w-full max-w-[460px] mx-auto overflow-hidden rounded-3xl border border-amber-500/30 bg-gradient-to-b from-[#063120] via-[#021b10] to-[#01120a] p-3.5 sm:p-6 md:p-7 shadow-2xl backdrop-blur-xl transition-all ${className}`}
       style={{
         boxShadow: '0 25px 50px -12px rgba(0, 0, 0, 0.85), 0 0 35px rgba(245, 158, 11, 0.10)'
       }}
@@ -463,7 +463,7 @@ export const Play369AuthCard: React.FC<Play369AuthCardProps> = ({
               setErrorMessage(null);
               setSuccessMessage(null);
             }}
-            className={`min-h-[48px] rounded-xl font-bold text-xs sm:text-sm transition-all flex items-center justify-center space-x-2 cursor-pointer ${
+            className={`min-h-[48px] rounded-xl font-bold text-xs sm:text-sm transition-all flex items-center justify-center space-x-2 cursor-pointer select-none active:scale-[0.99] ${
               mode === 'login'
                 ? 'bg-gradient-to-r from-amber-400 via-amber-500 to-yellow-500 text-slate-950 font-black shadow-md shadow-amber-500/20'
                 : 'text-emerald-300/70 hover:text-white hover:bg-emerald-950/40'
@@ -483,7 +483,7 @@ export const Play369AuthCard: React.FC<Play369AuthCardProps> = ({
               setErrorMessage(null);
               setSuccessMessage(null);
             }}
-            className={`min-h-[48px] rounded-xl font-bold text-xs sm:text-sm transition-all flex items-center justify-center space-x-2 cursor-pointer ${
+            className={`min-h-[48px] rounded-xl font-bold text-xs sm:text-sm transition-all flex items-center justify-center space-x-2 cursor-pointer select-none active:scale-[0.99] ${
               mode === 'register'
                 ? 'bg-gradient-to-r from-amber-400 via-amber-500 to-yellow-500 text-slate-950 font-black shadow-md shadow-amber-500/20'
                 : 'text-emerald-300/70 hover:text-white hover:bg-emerald-950/40'
@@ -503,7 +503,7 @@ export const Play369AuthCard: React.FC<Play369AuthCardProps> = ({
               setErrorMessage(null);
               setSuccessMessage(null);
             }}
-            className="min-h-[44px] px-3 rounded-xl bg-emerald-950/60 hover:bg-emerald-900/60 border border-emerald-800/50 text-emerald-300 hover:text-white text-xs font-semibold flex items-center space-x-1.5 transition-all cursor-pointer"
+            className="min-h-[48px] px-3.5 rounded-xl bg-emerald-950/60 hover:bg-emerald-900/60 border border-emerald-800/50 text-emerald-300 hover:text-white text-xs sm:text-sm font-semibold flex items-center space-x-2 transition-all cursor-pointer select-none active:scale-[0.99]"
           >
             <ArrowLeft className="w-4 h-4" />
             <span>Back to Sign In</span>
@@ -527,14 +527,14 @@ export const Play369AuthCard: React.FC<Play369AuthCardProps> = ({
               setPhoneStep('input');
               setErrorMessage(null);
             }}
-            className={`flex-1 min-h-[44px] rounded-lg text-xs font-bold transition-all flex items-center justify-center space-x-2 cursor-pointer ${
+            className={`flex-1 min-h-[48px] rounded-lg text-xs sm:text-sm font-bold transition-all flex items-center justify-center space-x-1.5 sm:space-x-2 cursor-pointer select-none active:scale-[0.99] ${
               authMethod === 'email'
                 ? 'bg-emerald-900/80 text-amber-300 border border-amber-500/40 shadow-sm'
                 : 'text-emerald-400/70 hover:text-emerald-200'
             }`}
           >
-            <Mail className="w-3.5 h-3.5" />
-            <span>Email</span>
+            <Mail className="w-3.5 h-3.5 shrink-0" />
+            <span className="truncate">Email</span>
           </button>
 
           <button
@@ -546,14 +546,15 @@ export const Play369AuthCard: React.FC<Play369AuthCardProps> = ({
               setAuthMethod('phone');
               setErrorMessage(null);
             }}
-            className={`flex-1 min-h-[44px] rounded-lg text-xs font-bold transition-all flex items-center justify-center space-x-2 cursor-pointer ${
+            className={`flex-1 min-h-[48px] rounded-lg text-xs sm:text-sm font-bold transition-all flex items-center justify-center space-x-1.5 sm:space-x-2 cursor-pointer select-none active:scale-[0.99] ${
               authMethod === 'phone'
                 ? 'bg-emerald-900/80 text-amber-300 border border-amber-500/40 shadow-sm'
                 : 'text-emerald-400/70 hover:text-emerald-200'
             }`}
           >
-            <Phone className="w-3.5 h-3.5" />
-            <span>Mobile Phone (OTP)</span>
+            <Phone className="w-3.5 h-3.5 shrink-0" />
+            <span className="truncate hidden xs:inline">Mobile Phone (OTP)</span>
+            <span className="truncate xs:hidden">Mobile OTP</span>
           </button>
         </div>
       )}
@@ -663,7 +664,7 @@ export const Play369AuthCard: React.FC<Play369AuthCardProps> = ({
                     setErrorMessage(null);
                     setSuccessMessage(null);
                   }}
-                  className="text-[11px] text-amber-400/90 hover:text-amber-300 font-semibold cursor-pointer underline-offset-2 hover:underline min-h-[32px] flex items-center"
+                  className="text-xs text-amber-400/90 hover:text-amber-300 font-semibold cursor-pointer underline-offset-2 hover:underline min-h-[48px] inline-flex items-center select-none"
                 >
                   Forgot password?
                 </button>
@@ -688,7 +689,7 @@ export const Play369AuthCard: React.FC<Play369AuthCardProps> = ({
                 type="button"
                 aria-label={showPassword ? 'Hide password' : 'Show password'}
                 onClick={() => setShowPassword(!showPassword)}
-                className="absolute inset-y-0 right-0 pr-3.5 flex items-center text-emerald-400/70 hover:text-amber-300 transition-colors min-h-[48px] px-2 cursor-pointer"
+                className="absolute inset-y-0 right-0 pr-3.5 pl-2 flex items-center justify-center text-emerald-400/70 hover:text-amber-300 transition-colors min-h-[48px] min-w-[48px] cursor-pointer select-none"
               >
                 {showPassword ? <EyeOff className="w-4 h-4" /> : <Eye className="w-4 h-4" />}
               </button>
@@ -733,7 +734,7 @@ export const Play369AuthCard: React.FC<Play369AuthCardProps> = ({
                     type="button"
                     aria-label={showConfirmPassword ? 'Hide confirm password' : 'Show confirm password'}
                     onClick={() => setShowConfirmPassword(!showConfirmPassword)}
-                    className="absolute inset-y-0 right-0 pr-3.5 flex items-center text-emerald-400/70 hover:text-amber-300 transition-colors min-h-[48px] px-2 cursor-pointer"
+                    className="absolute inset-y-0 right-0 pr-3.5 pl-2 flex items-center justify-center text-emerald-400/70 hover:text-amber-300 transition-colors min-h-[48px] min-w-[48px] cursor-pointer select-none"
                   >
                     {showConfirmPassword ? <EyeOff className="w-4 h-4" /> : <Eye className="w-4 h-4" />}
                   </button>
@@ -749,27 +750,27 @@ export const Play369AuthCard: React.FC<Play369AuthCardProps> = ({
                   <button
                     type="button"
                     onClick={() => setPreferredCurrency('BDT')}
-                    className={`min-h-[48px] p-2.5 rounded-xl border font-bold text-xs flex items-center justify-center space-x-2 transition-all cursor-pointer ${
+                    className={`min-h-[48px] p-2.5 rounded-xl border font-bold text-xs flex items-center justify-center space-x-2 transition-all cursor-pointer select-none active:scale-[0.99] ${
                       preferredCurrency === 'BDT'
                         ? 'bg-emerald-500/20 border-amber-400 text-amber-300 shadow-md shadow-amber-500/10'
                         : 'bg-[#02180e] border-emerald-800/60 text-emerald-300/70 hover:border-emerald-700'
                     }`}
                   >
-                    <Coins className="w-4 h-4 text-emerald-400" />
-                    <span>BDT (৳ Taka)</span>
+                    <Coins className="w-4 h-4 text-emerald-400 shrink-0" />
+                    <span className="truncate">BDT (৳ Taka)</span>
                   </button>
 
                   <button
                     type="button"
                     onClick={() => setPreferredCurrency('USD')}
-                    className={`min-h-[48px] p-2.5 rounded-xl border font-bold text-xs flex items-center justify-center space-x-2 transition-all cursor-pointer ${
+                    className={`min-h-[48px] p-2.5 rounded-xl border font-bold text-xs flex items-center justify-center space-x-2 transition-all cursor-pointer select-none active:scale-[0.99] ${
                       preferredCurrency === 'USD'
                         ? 'bg-emerald-500/20 border-amber-400 text-amber-300 shadow-md shadow-amber-500/10'
                         : 'bg-[#02180e] border-emerald-800/60 text-emerald-300/70 hover:border-emerald-700'
                     }`}
                   >
-                    <Globe className="w-4 h-4 text-amber-400" />
-                    <span>USD ($ Dollar)</span>
+                    <Globe className="w-4 h-4 text-amber-400 shrink-0" />
+                    <span className="truncate">USD ($ Dollar)</span>
                   </button>
                 </div>
               </div>
@@ -780,7 +781,7 @@ export const Play369AuthCard: React.FC<Play369AuthCardProps> = ({
                   <button
                     type="button"
                     onClick={() => setShowReferralInput(true)}
-                    className="min-h-[36px] text-xs text-amber-400 hover:text-amber-300 font-semibold flex items-center space-x-1 cursor-pointer"
+                    className="min-h-[48px] text-xs text-amber-400 hover:text-amber-300 font-semibold flex items-center space-x-1 cursor-pointer select-none"
                   >
                     <span>+ Have an Agent / Promo code?</span>
                   </button>
@@ -804,7 +805,7 @@ export const Play369AuthCard: React.FC<Play369AuthCardProps> = ({
 
               {/* CRITICAL: Active Terms & 18+ Acknowledgement (Defaults to FALSE) */}
               <div className="pt-1">
-                <label className="flex items-start space-x-3 cursor-pointer min-h-[48px] py-1 select-none">
+                <label className="flex items-start space-x-3 cursor-pointer min-h-[48px] py-2 select-none">
                   <input
                     id="play369-email-terms-checkbox"
                     type="checkbox"
@@ -820,7 +821,7 @@ export const Play369AuthCard: React.FC<Play369AuthCardProps> = ({
                         e.preventDefault();
                         setLegalModalContent('terms');
                       }}
-                      className="text-amber-300 underline font-semibold hover:text-amber-200 inline p-0 bg-transparent border-0 cursor-pointer"
+                      className="text-amber-300 underline font-semibold hover:text-amber-200 inline py-0.5 px-0.5 bg-transparent border-0 cursor-pointer"
                     >
                       Terms of Service
                     </button>{' '}
@@ -831,7 +832,7 @@ export const Play369AuthCard: React.FC<Play369AuthCardProps> = ({
                         e.preventDefault();
                         setLegalModalContent('responsible');
                       }}
-                      className="text-amber-300 underline font-semibold hover:text-amber-200 inline p-0 bg-transparent border-0 cursor-pointer"
+                      className="text-amber-300 underline font-semibold hover:text-amber-200 inline py-0.5 px-0.5 bg-transparent border-0 cursor-pointer"
                     >
                       Responsible Gaming Policy
                     </button>.
@@ -937,27 +938,27 @@ export const Play369AuthCard: React.FC<Play369AuthCardProps> = ({
                       <button
                         type="button"
                         onClick={() => setPreferredCurrency('BDT')}
-                        className={`min-h-[48px] p-2.5 rounded-xl border font-bold text-xs flex items-center justify-center space-x-2 transition-all cursor-pointer ${
+                        className={`min-h-[48px] p-2.5 rounded-xl border font-bold text-xs flex items-center justify-center space-x-2 transition-all cursor-pointer select-none active:scale-[0.99] ${
                           preferredCurrency === 'BDT'
                             ? 'bg-emerald-500/20 border-amber-400 text-amber-300 shadow-md shadow-amber-500/10'
                             : 'bg-[#02180e] border-emerald-800/60 text-emerald-300/70 hover:border-emerald-700'
                         }`}
                       >
-                        <Coins className="w-4 h-4 text-emerald-400" />
-                        <span>BDT (৳ Taka)</span>
+                        <Coins className="w-4 h-4 text-emerald-400 shrink-0" />
+                        <span className="truncate">BDT (৳ Taka)</span>
                       </button>
 
                       <button
                         type="button"
                         onClick={() => setPreferredCurrency('USD')}
-                        className={`min-h-[48px] p-2.5 rounded-xl border font-bold text-xs flex items-center justify-center space-x-2 transition-all cursor-pointer ${
+                        className={`min-h-[48px] p-2.5 rounded-xl border font-bold text-xs flex items-center justify-center space-x-2 transition-all cursor-pointer select-none active:scale-[0.99] ${
                           preferredCurrency === 'USD'
                             ? 'bg-emerald-500/20 border-amber-400 text-amber-300 shadow-md shadow-amber-500/10'
                             : 'bg-[#02180e] border-emerald-800/60 text-emerald-300/70 hover:border-emerald-700'
                         }`}
                       >
-                        <Globe className="w-4 h-4 text-amber-400" />
-                        <span>USD ($ Dollar)</span>
+                        <Globe className="w-4 h-4 text-amber-400 shrink-0" />
+                        <span className="truncate">USD ($ Dollar)</span>
                       </button>
                     </div>
                   </div>
@@ -968,7 +969,7 @@ export const Play369AuthCard: React.FC<Play369AuthCardProps> = ({
                       <button
                         type="button"
                         onClick={() => setShowReferralInput(true)}
-                        className="min-h-[36px] text-xs text-amber-400 hover:text-amber-300 font-semibold flex items-center space-x-1 cursor-pointer"
+                        className="min-h-[48px] text-xs text-amber-400 hover:text-amber-300 font-semibold flex items-center space-x-1 cursor-pointer select-none"
                       >
                         <span>+ Have an Agent / Promo code?</span>
                       </button>
@@ -992,7 +993,7 @@ export const Play369AuthCard: React.FC<Play369AuthCardProps> = ({
 
                   {/* CRITICAL: Active Terms & 18+ Acknowledgement (Defaults to FALSE) */}
                   <div className="pt-1">
-                    <label className="flex items-start space-x-3 cursor-pointer min-h-[48px] py-1 select-none">
+                    <label className="flex items-start space-x-3 cursor-pointer min-h-[48px] py-2 select-none">
                       <input
                         id="play369-phone-terms-checkbox"
                         type="checkbox"
@@ -1008,7 +1009,7 @@ export const Play369AuthCard: React.FC<Play369AuthCardProps> = ({
                             e.preventDefault();
                             setLegalModalContent('terms');
                           }}
-                          className="text-amber-300 underline font-semibold hover:text-amber-200 inline p-0 bg-transparent border-0 cursor-pointer"
+                          className="text-amber-300 underline font-semibold hover:text-amber-200 inline py-0.5 px-0.5 bg-transparent border-0 cursor-pointer"
                         >
                           Terms of Service
                         </button>{' '}
@@ -1019,7 +1020,7 @@ export const Play369AuthCard: React.FC<Play369AuthCardProps> = ({
                             e.preventDefault();
                             setLegalModalContent('responsible');
                           }}
-                          className="text-amber-300 underline font-semibold hover:text-amber-200 inline p-0 bg-transparent border-0 cursor-pointer"
+                          className="text-amber-300 underline font-semibold hover:text-amber-200 inline py-0.5 px-0.5 bg-transparent border-0 cursor-pointer"
                         >
                           Responsible Gaming Policy
                         </button>.
@@ -1034,7 +1035,7 @@ export const Play369AuthCard: React.FC<Play369AuthCardProps> = ({
                 id="play369-send-otp-btn"
                 type="submit"
                 disabled={isSubmitting || !phoneValid || authLoading}
-                className="w-full min-h-[52px] rounded-2xl bg-gradient-to-r from-amber-400 via-amber-500 to-yellow-500 text-slate-950 font-black text-sm uppercase tracking-wider flex items-center justify-center space-x-2 shadow-xl shadow-amber-500/25 hover:brightness-110 active:scale-[0.99] transition-all cursor-pointer disabled:opacity-50 disabled:cursor-not-allowed mt-2"
+                className="w-full min-h-[52px] rounded-2xl bg-gradient-to-r from-amber-400 via-amber-500 to-yellow-500 text-slate-950 font-black text-sm uppercase tracking-wider flex items-center justify-center space-x-2 shadow-xl shadow-amber-500/25 hover:brightness-110 active:scale-[0.99] transition-all cursor-pointer disabled:opacity-50 disabled:cursor-not-allowed mt-2 select-none"
               >
                 {isSubmitting ? (
                   <>
@@ -1061,9 +1062,9 @@ export const Play369AuthCard: React.FC<Play369AuthCardProps> = ({
                     setPhoneStep('input');
                     setErrorMessage(null);
                   }}
-                  className="min-h-[44px] px-2 text-xs text-emerald-400 hover:text-amber-300 flex items-center space-x-1.5 cursor-pointer font-medium"
+                  className="min-h-[48px] px-2.5 text-xs text-emerald-400 hover:text-amber-300 flex items-center space-x-1.5 cursor-pointer font-semibold select-none active:scale-[0.99]"
                 >
-                  <ArrowLeft className="w-3.5 h-3.5" />
+                  <ArrowLeft className="w-4 h-4" />
                   <span>Change Number</span>
                 </button>
                 <span className="text-xs font-mono text-amber-400 font-bold px-2.5 py-1 rounded-lg bg-amber-500/10 border border-amber-400/20">
@@ -1095,11 +1096,11 @@ export const Play369AuthCard: React.FC<Play369AuthCardProps> = ({
                 </div>
               </div>
 
-              {/* Resend Cooldown Section */}
+              {/* Resend Cooldown Section (Zero layout shift with min-w & tabular nums) */}
               <div className="flex items-center justify-between text-xs text-emerald-300/80 pt-1">
                 <span>Didn&apos;t receive code?</span>
                 {resendCooldown > 0 ? (
-                  <span className="font-mono font-semibold text-amber-400/90 bg-amber-500/10 px-2 py-0.5 rounded">
+                  <span className="font-mono font-semibold text-amber-400/90 bg-amber-500/10 px-2.5 py-1.5 rounded-lg inline-flex items-center min-w-[110px] justify-center tabular-nums text-xs">
                     Resend in {resendCooldown}s
                   </span>
                 ) : (
@@ -1107,7 +1108,7 @@ export const Play369AuthCard: React.FC<Play369AuthCardProps> = ({
                     type="button"
                     onClick={handleResendPhoneOtp}
                     disabled={isSubmitting}
-                    className="min-h-[44px] px-2 text-amber-400 hover:text-amber-300 font-bold underline cursor-pointer disabled:opacity-50 flex items-center"
+                    className="min-h-[48px] px-3 text-amber-400 hover:text-amber-300 font-bold underline cursor-pointer disabled:opacity-50 inline-flex items-center select-none"
                   >
                     Resend Code
                   </button>
@@ -1119,7 +1120,7 @@ export const Play369AuthCard: React.FC<Play369AuthCardProps> = ({
                 id="play369-verify-otp-btn"
                 type="submit"
                 disabled={isSubmitting || otpCode.trim().length < 6 || authLoading}
-                className="w-full min-h-[52px] rounded-2xl bg-gradient-to-r from-amber-400 via-amber-500 to-yellow-500 text-slate-950 font-black text-sm uppercase tracking-wider flex items-center justify-center space-x-2 shadow-xl shadow-amber-500/25 hover:brightness-110 active:scale-[0.99] transition-all cursor-pointer disabled:opacity-50 disabled:cursor-not-allowed mt-2"
+                className="w-full min-h-[52px] rounded-2xl bg-gradient-to-r from-amber-400 via-amber-500 to-yellow-500 text-slate-950 font-black text-sm uppercase tracking-wider flex items-center justify-center space-x-2 shadow-xl shadow-amber-500/25 hover:brightness-110 active:scale-[0.99] transition-all cursor-pointer disabled:opacity-50 disabled:cursor-not-allowed mt-2 select-none"
               >
                 {isSubmitting ? (
                   <>
@@ -1201,7 +1202,7 @@ export const Play369AuthCard: React.FC<Play369AuthCardProps> = ({
                 setErrorMessage(null);
                 setSuccessMessage(null);
               }}
-              className="min-h-[44px] text-xs font-semibold text-emerald-300 hover:text-amber-300 transition-colors inline-flex items-center space-x-1 cursor-pointer"
+              className="min-h-[48px] text-xs font-semibold text-emerald-300 hover:text-amber-300 transition-colors inline-flex items-center space-x-1.5 cursor-pointer select-none"
             >
               <span>Remembered your password?</span>
               <span className="text-amber-400 font-bold underline">Sign In</span>
@@ -1229,7 +1230,7 @@ export const Play369AuthCard: React.FC<Play369AuthCardProps> = ({
             type="button"
             onClick={handleGoogleSignIn}
             disabled={isGoogleSubmitting || authLoading}
-            className="w-full min-h-[48px] rounded-2xl bg-[#02180e] hover:bg-[#032314] border border-emerald-700/50 hover:border-amber-400/60 text-white font-bold text-xs sm:text-sm flex items-center justify-center space-x-3 transition-all cursor-pointer disabled:opacity-50"
+            className="w-full min-h-[48px] rounded-2xl bg-[#02180e] hover:bg-[#032314] border border-emerald-700/50 hover:border-amber-400/60 text-white font-bold text-xs sm:text-sm flex items-center justify-center space-x-3 transition-all cursor-pointer disabled:opacity-50 select-none active:scale-[0.99]"
           >
             {isGoogleSubmitting ? (
               <Loader2 className="w-4 h-4 animate-spin text-amber-400" />
@@ -1270,7 +1271,7 @@ export const Play369AuthCard: React.FC<Play369AuthCardProps> = ({
       <AnimatePresence>
         {legalModalContent && (
           <div
-            className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/80 backdrop-blur-sm"
+            className="fixed inset-0 z-50 flex items-center justify-center p-3 sm:p-4 bg-black/80 backdrop-blur-sm"
             onClick={() => setLegalModalContent(null)}
           >
             <motion.div
@@ -1278,18 +1279,19 @@ export const Play369AuthCard: React.FC<Play369AuthCardProps> = ({
               animate={prefersReducedMotion ? { opacity: 1 } : { opacity: 1, scale: 1, y: 0 }}
               exit={prefersReducedMotion ? { opacity: 0 } : { opacity: 0, scale: 0.95, y: 10 }}
               onClick={(e) => e.stopPropagation()}
-              className="relative w-full max-w-lg bg-[#02180e] border border-amber-500/40 rounded-2xl p-6 shadow-2xl text-left font-sans max-h-[80vh] overflow-y-auto"
+              className="relative w-full max-w-lg bg-[#02180e] border border-amber-500/40 rounded-2xl p-4 sm:p-6 shadow-2xl text-left font-sans max-h-[85dvh] sm:max-h-[80vh] overflow-y-auto"
             >
               <div className="flex items-center justify-between pb-3 border-b border-emerald-800/60 mb-4">
-                <h3 className="text-base font-bold text-amber-300">
+                <h3 className="text-sm sm:text-base font-bold text-amber-300">
                   {legalModalContent === 'terms' && 'PLAY369 Terms of Service'}
                   {legalModalContent === 'responsible' && 'Responsible Gaming Policy'}
                   {legalModalContent === 'privacy' && 'Privacy Policy'}
                 </h3>
                 <button
                   type="button"
+                  aria-label="Close policy modal"
                   onClick={() => setLegalModalContent(null)}
-                  className="min-h-[44px] min-w-[44px] flex items-center justify-center text-emerald-400 hover:text-white rounded-lg cursor-pointer"
+                  className="min-h-[48px] min-w-[48px] flex items-center justify-center text-emerald-400 hover:text-white rounded-lg cursor-pointer select-none"
                 >
                   ✕
                 </button>
@@ -1324,7 +1326,7 @@ export const Play369AuthCard: React.FC<Play369AuthCardProps> = ({
                 <button
                   type="button"
                   onClick={() => setLegalModalContent(null)}
-                  className="min-h-[44px] px-4 rounded-xl bg-amber-500 hover:bg-amber-400 text-slate-950 font-bold text-xs cursor-pointer"
+                  className="min-h-[48px] px-5 rounded-xl bg-amber-500 hover:bg-amber-400 text-slate-950 font-bold text-xs sm:text-sm cursor-pointer select-none active:scale-[0.99]"
                 >
                   I Understand
                 </button>
