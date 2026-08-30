@@ -293,6 +293,24 @@ export const vipRewardClaims = pgTable('vip_reward_claims', {
   chkLevelRange: check('chk_vip_reward_claims_level_range', sql`${table.vipLevel} >= 1 AND ${table.vipLevel} <= 10`),
 }));
 
+export const vipProgressionEvents = pgTable('vip_progression_events', {
+  id: serial('id').primaryKey(),
+  userId: integer('user_id')
+    .references(() => users.id, { onDelete: 'cascade' })
+    .notNull(),
+  sourceTransactionId: varchar('source_transaction_id', { length: 128 }).notNull(),
+  sourceType: varchar('source_type', { length: 32 }).notNull(), // 'DEPOSIT' | 'BET'
+  amount: numeric('amount', { precision: 18, scale: 4 }).notNull(),
+  currency: varchar('currency', { length: 3 }).default('BDT').notNull(),
+  processedAt: timestamp('processed_at', { withTimezone: true }).defaultNow().notNull(),
+}, (table) => ({
+  userSourceIdx: uniqueIndex('vip_progression_events_user_source_idx').on(table.userId, table.sourceTransactionId, table.sourceType),
+  sourceTxIdx: index('vip_progression_events_source_tx_idx').on(table.sourceTransactionId),
+  userTypeIdx: index('vip_progression_events_user_type_idx').on(table.userId, table.sourceType),
+  chkAmountPositive: check('chk_vip_progression_events_amount_positive', sql`${table.amount} > 0`),
+  chkSourceTypeValid: check('chk_vip_progression_events_source_type_valid', sql`${table.sourceType} IN ('DEPOSIT', 'BET')`),
+}));
+
 // ----------------------------------------------------------------------------
 // MODULE 3: Promotion & Event Engine Tables
 // ----------------------------------------------------------------------------
@@ -389,6 +407,7 @@ export const usersRelations = relations(users, ({ one, many }) => ({
   freeSpinEntitlements: many(freeSpinEntitlements),
   wageringRequirements: many(wageringRequirements),
   vipRewardClaims: many(vipRewardClaims),
+  vipProgressionEvents: many(vipProgressionEvents),
 }));
 
 export const walletsRelations = relations(wallets, ({ one, many }) => ({
@@ -450,6 +469,13 @@ export const paymentRequestsRelations = relations(paymentRequests, ({ one }) => 
 export const vipRewardClaimsRelations = relations(vipRewardClaims, ({ one }) => ({
   user: one(users, {
     fields: [vipRewardClaims.userId],
+    references: [users.id],
+  }),
+}));
+
+export const vipProgressionEventsRelations = relations(vipProgressionEvents, ({ one }) => ({
+  user: one(users, {
+    fields: [vipProgressionEvents.userId],
     references: [users.id],
   }),
 }));

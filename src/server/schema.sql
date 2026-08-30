@@ -344,4 +344,31 @@ ON vip_reward_claims (transaction_id);
 CREATE INDEX IF NOT EXISTS vip_reward_claims_user_status_idx
 ON vip_reward_claims (user_id, status);
 
+-- ----------------------------------------------------------------------------
+-- 12. VIP Progression Events Table (PLAY369 Task 4.3)
+-- Authoritative PostgreSQL store for VIP cumulative deposit/bet source events.
+-- ----------------------------------------------------------------------------
+CREATE TABLE IF NOT EXISTS vip_progression_events (
+    id SERIAL PRIMARY KEY,
+    user_id INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+    source_transaction_id VARCHAR(128) NOT NULL,
+    source_type VARCHAR(32) NOT NULL,
+    amount NUMERIC(18, 4) NOT NULL,
+    currency VARCHAR(3) NOT NULL DEFAULT 'BDT',
+    processed_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+
+    -- Database Integrity Constraints (Task 4.3)
+    CONSTRAINT chk_vip_progression_events_amount_positive CHECK (amount > 0),
+    CONSTRAINT chk_vip_progression_events_source_type_valid CHECK (source_type IN ('DEPOSIT', 'BET'))
+);
+
+CREATE UNIQUE INDEX IF NOT EXISTS vip_progression_events_user_source_idx
+ON vip_progression_events (user_id, source_transaction_id, source_type);
+
+CREATE INDEX IF NOT EXISTS vip_progression_events_source_tx_idx
+ON vip_progression_events (source_transaction_id);
+
+CREATE INDEX IF NOT EXISTS vip_progression_events_user_type_idx
+ON vip_progression_events (user_id, source_type);
+
 

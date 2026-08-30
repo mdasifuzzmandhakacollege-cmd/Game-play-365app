@@ -7,11 +7,47 @@
 
 import { Request, Response } from 'express';
 import { db } from '../../db/index.js';
-import { vipLevels, userVipProgress, users, vipRewardClaims } from '../../db/schema.js';
-import { and, eq, sql } from 'drizzle-orm';
+import {
+  vipLevels,
+  userVipProgress,
+  users,
+  vipRewardClaims,
+  vipProgressionEvents,
+  paymentRequests,
+  transactions
+} from '../../db/schema.js';
+import { and, eq, or, sql } from 'drizzle-orm';
 import { VIP_TIER_CONFIG } from '../../shared/gameplayConfig.js';
 import { resolveAuthUser, toScale4, fromScale4 } from './promotionController.js';
 import { WalletLedgerService } from '../ledger/walletLedgerService.js';
+
+export interface ProcessProgressionEventParams {
+  userId: number;
+  sourceTransactionId: string;
+  sourceType: 'DEPOSIT' | 'BET';
+  amount?: string | number | bigint;
+  currency?: string;
+}
+
+export interface ProgressionUpdateResult {
+  success: boolean;
+  duplicate?: boolean;
+  reason?: string;
+  userId: number;
+  sourceTransactionId: string;
+  sourceType: 'DEPOSIT' | 'BET';
+  amountScale4?: bigint;
+  amountStr?: string;
+  previousDeposit?: string;
+  newDeposit?: string;
+  previousBet?: string;
+  newBet?: string;
+  previousLevel?: number;
+  currentLevel?: number;
+  upgraded?: boolean;
+  newTierName?: string;
+  levelUpBonusAvailable?: number;
+}
 
 export class VipService {
   private static ledgerService: WalletLedgerService | null = null;
@@ -26,24 +62,28 @@ export class VipService {
 
   /**
    * Cron / Background Evaluator: Check cumulative deposits and bets to trigger tier upgrades
+   * Pure scale-4 BigInt arithmetic (zero float drift / zero Number() conversion).
    */
   public static async evaluateVipUpgrade(userId: number) {
     return await db.transaction(async (tx) => {
       const [progress] = await tx
         .select()
         .from(userVipProgress)
-        .where(eq(userVipProgress.userId, userId));
+        .where(eq(userVipProgress.userId, userId))
+        .for('update');
 
       if (!progress) return null;
 
       const currentLvl = progress.currentLevel;
-      const deposit = Number(progress.cumulativeDeposit);
-      const bet = Number(progress.cumulativeBet);
+      const depositScale4 = toScale4(progress.cumulativeDeposit || '0.0000');
+      const betScale4 = toScale4(progress.cumulativeBet || '0.0000');
 
-      // Find highest qualifying level
+      // Find highest qualifying level with exact BigInt comparisons
       let qualifiedLevel = 1;
       for (const tier of VIP_TIER_CONFIG) {
-        if (deposit >= tier.minDeposit && bet >= tier.minBet) {
+        const minDepositScale4 = toScale4(tier.minDeposit);
+        const minBetScale4 = toScale4(tier.minBet);
+        if (depositScale4 >= minDepositScale4 && betScale4 >= minBetScale4) {
           qualifiedLevel = tier.level;
         }
       }
@@ -65,7 +105,7 @@ export class VipService {
           .update(users)
           .set({
             vipLevel: qualifiedLevel,
-            vipTier: upgradedTier.name.toUpperCase().replace(' ', '_'),
+            vipTier: upgradedTier.name.toUpperCase().replace(/\s+/g, '_'),
             updatedAt: new Date()
           })
           .where(eq(users.id, userId));
@@ -80,6 +120,428 @@ export class VipService {
       }
 
       return { upgraded: false, currentLevel: currentLvl };
+    });
+  }
+
+  /**
+   * Authoritative VIP Progression Event Processor
+   * 
+   * [SOURCE AUTHORITY & FINANCIAL INTEGRITY INVARIANTS]:
+   * 1. Authoritative Source Validation: Only settled/approved REAL deposits and committed BET transactions.
+   * 2. Exclusions: Rejects failed, pending, rejected, reversed, promo, bonus, commission, admin adjustment, and free-spin stakes.
+   * 3. Pure Scale-4 BigInt Arithmetic: Zero Number(), parseFloat(), or floating-point math in financial path.
+   * 4. Strict Idempotency: Enforced by PostgreSQL unique constraint on vip_progression_events (user_id, source_transaction_id, source_type).
+   * 5. ACID Transaction & Row Locking: SELECT ... FOR UPDATE on user_vip_progress.
+   */
+  public static async processAuthoritativeProgression(
+    params: ProcessProgressionEventParams
+  ): Promise<ProgressionUpdateResult> {
+    if (!params.userId || typeof params.userId !== 'number') {
+      throw new Error('Valid userId is required');
+    }
+    if (!params.sourceTransactionId || typeof params.sourceTransactionId !== 'string' || params.sourceTransactionId.trim() === '') {
+      throw new Error('sourceTransactionId is required for VIP progression');
+    }
+    if (params.sourceType !== 'DEPOSIT' && params.sourceType !== 'BET') {
+      return {
+        success: false,
+        reason: 'INVALID_SOURCE_TYPE',
+        userId: params.userId,
+        sourceTransactionId: params.sourceTransactionId,
+        sourceType: params.sourceType
+      };
+    }
+
+    // 1. Authoritatively look up source activity from database
+    let authoritativeAmount: string = '0.0000';
+    let authoritativeCurrency: string = 'BDT';
+
+    if (params.sourceType === 'DEPOSIT') {
+      const [req] = await db
+        .select()
+        .from(paymentRequests)
+        .where(
+          and(
+            eq(paymentRequests.userId, params.userId),
+            or(
+              eq(paymentRequests.trxId, params.sourceTransactionId),
+              sql`${paymentRequests.id}::varchar = ${params.sourceTransactionId}`
+            )
+          )
+        )
+        .limit(1);
+
+      let depositRecord: { amount: string; currency: string; status: string; type: string; userId: number } | null = req
+        ? { amount: String(req.amount), currency: req.currency || 'BDT', status: req.status, type: req.type, userId: req.userId }
+        : null;
+
+      if (!depositRecord) {
+        const [tx] = await db
+          .select()
+          .from(transactions)
+          .where(
+            and(
+              eq(transactions.userId, params.userId),
+              eq(transactions.transactionId, params.sourceTransactionId)
+            )
+          )
+          .limit(1);
+
+        if (tx) {
+          depositRecord = { amount: String(tx.amount), currency: tx.currency || 'BDT', status: tx.status, type: tx.type, userId: tx.userId };
+        }
+      }
+
+      if (!depositRecord) {
+        return {
+          success: false,
+          reason: 'SOURCE_TRANSACTION_NOT_FOUND',
+          userId: params.userId,
+          sourceTransactionId: params.sourceTransactionId,
+          sourceType: 'DEPOSIT'
+        };
+      }
+
+      if (depositRecord.userId !== params.userId) {
+        return {
+          success: false,
+          reason: 'TRANSACTION_USER_MISMATCH',
+          userId: params.userId,
+          sourceTransactionId: params.sourceTransactionId,
+          sourceType: 'DEPOSIT'
+        };
+      }
+
+      if (depositRecord.type !== 'DEPOSIT') {
+        return {
+          success: false,
+          reason: 'INVALID_TRANSACTION_TYPE',
+          userId: params.userId,
+          sourceTransactionId: params.sourceTransactionId,
+          sourceType: 'DEPOSIT'
+        };
+      }
+
+      const isApprovedDeposit = depositRecord.status === 'APPROVED' || depositRecord.status === 'COMPLETED' || depositRecord.status === 'SETTLED';
+      if (!isApprovedDeposit) {
+        return {
+          success: false,
+          reason: 'DEPOSIT_NOT_SETTLED',
+          userId: params.userId,
+          sourceTransactionId: params.sourceTransactionId,
+          sourceType: 'DEPOSIT'
+        };
+      }
+
+      authoritativeAmount = depositRecord.amount;
+      authoritativeCurrency = depositRecord.currency;
+    } else if (params.sourceType === 'BET') {
+      const [betTx] = await db
+        .select()
+        .from(transactions)
+        .where(
+          and(
+            eq(transactions.userId, params.userId),
+            eq(transactions.transactionId, params.sourceTransactionId)
+          )
+        )
+        .limit(1);
+
+      if (!betTx) {
+        return {
+          success: false,
+          reason: 'SOURCE_TRANSACTION_NOT_FOUND',
+          userId: params.userId,
+          sourceTransactionId: params.sourceTransactionId,
+          sourceType: 'BET'
+        };
+      }
+
+      if (betTx.userId !== params.userId) {
+        return {
+          success: false,
+          reason: 'TRANSACTION_USER_MISMATCH',
+          userId: params.userId,
+          sourceTransactionId: params.sourceTransactionId,
+          sourceType: 'BET'
+        };
+      }
+
+      if (betTx.type !== 'BET') {
+        return {
+          success: false,
+          reason: 'INVALID_TRANSACTION_TYPE',
+          userId: params.userId,
+          sourceTransactionId: params.sourceTransactionId,
+          sourceType: 'BET'
+        };
+      }
+
+      const isCommittedBet = betTx.status === 'COMPLETED' || betTx.status === 'SETTLED';
+      if (!isCommittedBet) {
+        return {
+          success: false,
+          reason: 'TRANSACTION_NOT_SETTLED',
+          userId: params.userId,
+          sourceTransactionId: params.sourceTransactionId,
+          sourceType: 'BET'
+        };
+      }
+
+      const meta = betTx.metadata as any;
+      if (meta && (meta.freeSpin === true || meta.isFreeSpin === true || meta.source === 'FREE_SPIN')) {
+        return {
+          success: false,
+          reason: 'EXCLUDED_PROMOTIONAL_STAKE',
+          userId: params.userId,
+          sourceTransactionId: params.sourceTransactionId,
+          sourceType: 'BET'
+        };
+      }
+
+      authoritativeAmount = String(betTx.amount);
+      authoritativeCurrency = betTx.currency || 'BDT';
+    }
+
+    // 2. Validate scale-4 amount and check callers' context if provided
+    const amountScale4 = toScale4(authoritativeAmount);
+    if (amountScale4 <= 0n) {
+      return {
+        success: false,
+        reason: 'INVALID_AMOUNT',
+        userId: params.userId,
+        sourceTransactionId: params.sourceTransactionId,
+        sourceType: params.sourceType
+      };
+    }
+
+    if (params.amount !== undefined && params.amount !== null) {
+      const callerAmountScale4 = typeof params.amount === 'bigint' ? params.amount : toScale4(params.amount);
+      if (callerAmountScale4 !== amountScale4) {
+        return {
+          success: false,
+          reason: params.sourceType === 'BET' ? 'BET_AMOUNT_MISMATCH' : 'AMOUNT_MISMATCH',
+          userId: params.userId,
+          sourceTransactionId: params.sourceTransactionId,
+          sourceType: params.sourceType
+        };
+      }
+    }
+
+    if (params.currency && typeof params.currency === 'string' && params.currency.trim() !== '') {
+      if (params.currency.trim().toUpperCase() !== authoritativeCurrency.trim().toUpperCase()) {
+        return {
+          success: false,
+          reason: 'CURRENCY_MISMATCH',
+          userId: params.userId,
+          sourceTransactionId: params.sourceTransactionId,
+          sourceType: params.sourceType
+        };
+      }
+    }
+
+    const amountStr = fromScale4(amountScale4);
+
+    // 3. ACID Transaction with row-level locking
+    return await db.transaction(async (tx) => {
+      // Check idempotency in vip_progression_events
+      const [existingEvent] = await tx
+        .select()
+        .from(vipProgressionEvents)
+        .where(
+          and(
+            eq(vipProgressionEvents.userId, params.userId),
+            eq(vipProgressionEvents.sourceTransactionId, params.sourceTransactionId),
+            eq(vipProgressionEvents.sourceType, params.sourceType)
+          )
+        )
+        .for('update');
+
+      if (existingEvent) {
+        const [currProgress] = await tx
+          .select()
+          .from(userVipProgress)
+          .where(eq(userVipProgress.userId, params.userId));
+
+        return {
+          success: true,
+          duplicate: true,
+          reason: 'ALREADY_PROCESSED',
+          userId: params.userId,
+          sourceTransactionId: params.sourceTransactionId,
+          sourceType: params.sourceType,
+          currentLevel: currProgress?.currentLevel || 1,
+          cumulativeDeposit: currProgress?.cumulativeDeposit || '0.0000',
+          cumulativeBet: currProgress?.cumulativeBet || '0.0000'
+        };
+      }
+
+      // Insert event into vip_progression_events
+      const [insertedEvent] = await tx
+        .insert(vipProgressionEvents)
+        .values({
+          userId: params.userId,
+          sourceTransactionId: params.sourceTransactionId,
+          sourceType: params.sourceType,
+          amount: amountStr,
+          currency: authoritativeCurrency,
+          processedAt: new Date()
+        })
+        .onConflictDoNothing()
+        .returning();
+
+      if (!insertedEvent) {
+        const [currProgress] = await tx
+          .select()
+          .from(userVipProgress)
+          .where(eq(userVipProgress.userId, params.userId));
+
+        return {
+          success: true,
+          duplicate: true,
+          reason: 'ALREADY_PROCESSED',
+          userId: params.userId,
+          sourceTransactionId: params.sourceTransactionId,
+          sourceType: params.sourceType,
+          currentLevel: currProgress?.currentLevel || 1,
+          cumulativeDeposit: currProgress?.cumulativeDeposit || '0.0000',
+          cumulativeBet: currProgress?.cumulativeBet || '0.0000'
+        };
+      }
+
+      // Lock user_vip_progress row
+      let [progress] = await tx
+        .select()
+        .from(userVipProgress)
+        .where(eq(userVipProgress.userId, params.userId))
+        .for('update');
+
+      if (!progress) {
+        const [created] = await tx
+          .insert(userVipProgress)
+          .values({
+            userId: params.userId,
+            currentLevel: 1,
+            cumulativeDeposit: '0.0000',
+            cumulativeBet: '0.0000',
+            levelUpBonusClaimed: [],
+            totalCashbackClaimed: '0.0000',
+            lastUpgradedAt: new Date(),
+            updatedAt: new Date()
+          })
+          .returning();
+        progress = created;
+      }
+
+      // Compute new cumulative totals with pure Scale-4 BigInt arithmetic
+      const prevDepositScale4 = toScale4(progress.cumulativeDeposit || '0.0000');
+      const prevBetScale4 = toScale4(progress.cumulativeBet || '0.0000');
+
+      let newDepositScale4 = prevDepositScale4;
+      let newBetScale4 = prevBetScale4;
+
+      if (params.sourceType === 'DEPOSIT') {
+        newDepositScale4 = prevDepositScale4 + amountScale4;
+      } else if (params.sourceType === 'BET') {
+        newBetScale4 = prevBetScale4 + amountScale4;
+      }
+
+      const newDepositStr = fromScale4(newDepositScale4);
+      const newBetStr = fromScale4(newBetScale4);
+
+      // Evaluate VIP upgrade with pure BigInt comparisons
+      let qualifiedLevel = 1;
+      for (const tier of VIP_TIER_CONFIG) {
+        const minDepositScale4 = toScale4(tier.minDeposit);
+        const minBetScale4 = toScale4(tier.minBet);
+        if (newDepositScale4 >= minDepositScale4 && newBetScale4 >= minBetScale4) {
+          qualifiedLevel = tier.level;
+        }
+      }
+
+      const currentLvl = progress.currentLevel;
+      let upgraded = false;
+      let upgradedTierName: string | undefined = undefined;
+      let levelUpBonusAvailable: number | undefined = undefined;
+
+      if (qualifiedLevel > currentLvl) {
+        upgraded = true;
+        const upgradedTier = VIP_TIER_CONFIG.find((t) => t.level === qualifiedLevel)!;
+        upgradedTierName = upgradedTier.name;
+        levelUpBonusAvailable = upgradedTier.bonus;
+
+        await tx
+          .update(userVipProgress)
+          .set({
+            currentLevel: qualifiedLevel,
+            cumulativeDeposit: newDepositStr,
+            cumulativeBet: newBetStr,
+            lastUpgradedAt: new Date(),
+            updatedAt: new Date()
+          })
+          .where(eq(userVipProgress.userId, params.userId));
+
+        await tx
+          .update(users)
+          .set({
+            vipLevel: qualifiedLevel,
+            vipTier: upgradedTier.name.toUpperCase().replace(/\s+/g, '_'),
+            updatedAt: new Date()
+          })
+          .where(eq(users.id, params.userId));
+      } else {
+        await tx
+          .update(userVipProgress)
+          .set({
+            cumulativeDeposit: newDepositStr,
+            cumulativeBet: newBetStr,
+            updatedAt: new Date()
+          })
+          .where(eq(userVipProgress.userId, params.userId));
+      }
+
+      return {
+        success: true,
+        duplicate: false,
+        userId: params.userId,
+        sourceTransactionId: params.sourceTransactionId,
+        sourceType: params.sourceType,
+        amountScale4,
+        amountStr,
+        previousDeposit: fromScale4(prevDepositScale4),
+        newDeposit: newDepositStr,
+        previousBet: fromScale4(prevBetScale4),
+        newBet: newBetStr,
+        previousLevel: currentLvl,
+        currentLevel: upgraded ? qualifiedLevel : currentLvl,
+        upgraded,
+        newTierName: upgradedTierName,
+        levelUpBonusAvailable
+      };
+    });
+  }
+
+  public static async recordAuthoritativeDeposit(params: {
+    userId: number;
+    sourceTransactionId: string;
+    amount?: string | number | bigint;
+    currency?: string;
+  }) {
+    return await VipService.processAuthoritativeProgression({
+      ...params,
+      sourceType: 'DEPOSIT'
+    });
+  }
+
+  public static async recordAuthoritativeBet(params: {
+    userId: number;
+    sourceTransactionId: string;
+    amount?: string | number | bigint;
+    currency?: string;
+  }) {
+    return await VipService.processAuthoritativeProgression({
+      ...params,
+      sourceType: 'BET'
     });
   }
 
