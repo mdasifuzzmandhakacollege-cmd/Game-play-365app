@@ -912,8 +912,54 @@ async function runTests() {
     if (codeOnly.includes('parseFloat(')) {
       throw new Error('wageringService.ts contains forbidden parseFloat()');
     }
+    if (codeOnly.includes('.toFixed(')) {
+      throw new Error('wageringService.ts contains forbidden toFixed()');
+    }
+    if (codeOnly.includes('Number(')) {
+      throw new Error('wageringService.ts contains forbidden Number()');
+    }
     if (codeOnly.includes('Math.round(') || codeOnly.includes('Math.floor(') || codeOnly.includes('Math.ceil(')) {
       throw new Error('wageringService.ts contains floating-point Math functions');
+    }
+  });
+
+  // Test 14: Task 5.1.1 Strict monetary input validation & JS number rejection
+  await assert('14. Task 5.1.1: Strict monetary parsing (exact string, bigint, reject JS numbers)', async () => {
+    // 1. "0.0516" => 516n
+    const parsed1 = toScale4('0.0516');
+    if (parsed1 !== 516n) {
+      throw new Error(`Expected "0.0516" => 516n, got ${parsed1}`);
+    }
+
+    // 2. Bigint input remains exact
+    const parsed2 = toScale4(516n);
+    if (parsed2 !== 516n) {
+      throw new Error(`Expected 516n => 516n, got ${parsed2}`);
+    }
+
+    // 3. Reject JS number monetary input
+    let rejectedNumber = false;
+    try {
+      toScale4(0.0516 as any);
+    } catch (err: any) {
+      rejectedNumber = true;
+      if (!err.message.includes('Unsafe JS number monetary input')) {
+        throw new Error(`Unexpected error message: ${err.message}`);
+      }
+    }
+    if (!rejectedNumber) {
+      throw new Error('Expected JS number input to be rejected');
+    }
+
+    // 4. Reject invalid non-numeric string
+    let rejectedInvalidStr = false;
+    try {
+      toScale4('abc.def' as any);
+    } catch (err: any) {
+      rejectedInvalidStr = true;
+    }
+    if (!rejectedInvalidStr) {
+      throw new Error('Expected invalid string format to be rejected');
     }
   });
 

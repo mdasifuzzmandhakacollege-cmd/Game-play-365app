@@ -25,10 +25,22 @@ import { wageringRequirements, wageringProgressEvents, transactions, users } fro
 /**
  * Pure integer minor-units decimal arithmetic (scale 4, 1.0000 = 10000n)
  * Guarantees zero JavaScript floating-point representation errors.
+ * Strictly accepts only exact decimal string or bigint minor units.
  */
-export const toScale4 = (val: string | number | bigint): bigint => {
+export const toScale4 = (val: string | bigint): bigint => {
   if (typeof val === 'bigint') return val;
-  const s = typeof val === 'number' ? val.toFixed(4) : String(val).trim();
+  if (typeof val === 'number') {
+    throw new Error('Unsafe JS number monetary input is rejected. Use exact decimal string or bigint minor units.');
+  }
+  if (typeof val !== 'string') {
+    throw new Error('Monetary input must be an exact decimal string or bigint minor units.');
+  }
+
+  const s = val.trim();
+  if (!s || !/^-?\d+(\.\d+)?$/.test(s)) {
+    throw new Error(`Invalid monetary decimal string format: "${val}"`);
+  }
+
   const [intPart = '0', fracPart = ''] = s.split('.');
   const paddedFrac = fracPart.padEnd(4, '0').slice(0, 4);
   const isNeg = intPart.startsWith('-');
@@ -49,7 +61,7 @@ export const fromScale4 = (val: bigint): string => {
 export interface ProcessWageringBetParams {
   userId: number;
   sourceTransactionId: string;
-  amount?: string | number | bigint;
+  amount?: string | bigint;
   currency?: string;
   requirementId?: number; // Target specific requirement, or default to oldest active
   tx?: any;
@@ -76,7 +88,7 @@ export interface WageringProgressionResult {
 export interface CreateWageringRequirementParams {
   userId: number;
   promoName: string;
-  bonusAmountGranted: string | number | bigint;
+  bonusAmountGranted: string | bigint;
   requiredMultiplier?: number;
   expiryDays?: number;
   expiryHours?: number;
