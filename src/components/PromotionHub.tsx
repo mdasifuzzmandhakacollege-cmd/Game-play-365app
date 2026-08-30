@@ -2,7 +2,7 @@
  * @file PromotionHub.tsx
  * @description Master Promotional & Reward Center for Playall 365.
  * Structured with harmonious visual proportion, balanced hierarchy, responsive mobile layout,
- * 7-Day Streak Tracker, Provably Fair Lucky Fortune Wheel, Rich Campaign Cards,
+ * 7-Day Streak Tracker, Cryptographically Secure Weighted Lucky Fortune Wheel, Rich Campaign Cards,
  * and Instant Bonus/Wagering Ledger integration.
  */
 
@@ -872,7 +872,7 @@ export const PromotionHub: React.FC<PromotionHubProps> = ({
                 <RotateCcw className="w-4 h-4 text-amber-400" />
                 <h2 className="text-sm font-bold text-white uppercase">লাকি ফরচুন হুইল (Spin &amp; Win)</h2>
               </div>
-              <span className="text-[10px] text-amber-300 font-bold">100% Provably Fair RNG</span>
+              <span className="text-[10px] text-amber-300 font-bold">CSPRNG Weighted RNG</span>
             </div>
 
             {/* Wheel Graphic Container */}

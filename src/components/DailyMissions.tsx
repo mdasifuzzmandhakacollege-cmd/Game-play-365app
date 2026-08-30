@@ -128,7 +128,7 @@ export const DailyMissions: React.FC<DailyMissionsProps> = ({
       id: 'mission_lucky_wheel_spin',
       title: 'Spin Fortune Wheel',
       titleBn: 'লাকি ফরচুন হুইল স্পিন করুন',
-      description: 'Take 1 spin on the Provably Fair Lucky Fortune Wheel today.',
+      description: 'Take 1 spin on the Lucky Fortune Wheel today.',
       descriptionBn: 'আজকের অন্তত ১টি লাকি স্পিন সফলভাবে সম্পন্ন করুন।',
       icon: 'spin',
       target: 1,

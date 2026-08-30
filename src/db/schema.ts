@@ -299,6 +299,7 @@ export const wheelSpins = pgTable('wheel_spins', {
   prizeValue: numeric('prize_value', { precision: 18, scale: 4 }).notNull(),
   currency: varchar('currency', { length: 3 }).notNull(),
   isClaimed: boolean('is_claimed').default(true).notNull(),
+  auditMetadata: jsonb('audit_metadata').default({}),
   createdAt: timestamp('created_at', { withTimezone: true }).defaultNow().notNull(),
 }, (table) => ({
   userSpinDateUtcIdx: uniqueIndex('wheel_spins_user_spin_date_utc_idx').on(table.userId, table.spinDateUtc),

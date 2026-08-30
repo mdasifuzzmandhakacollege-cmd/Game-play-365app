@@ -1,7 +1,7 @@
 /**
  * @file promotionController.ts
  * @description Enterprise Promotion & Event Engine for Playall 365.
- * Features: 7-Day Daily Check-in Streak, Provably Weighted Spin-the-Wheel,
+ * Features: 7-Day Daily Check-in Streak, Cryptographically Secure Weighted Spin-the-Wheel,
  * Wagering Turnover Rollover Requirement Tracker (Bonus to Real balance conversion).
  */
 
@@ -12,6 +12,7 @@ import { and, eq, sql } from 'drizzle-orm';
 import { DAILY_CHECKIN_REWARDS, WHEEL_PRIZES } from '../../shared/gameplayConfig.js';
 import { AuthRequest } from '../../middleware/auth.js';
 import { WalletLedgerService } from '../ledger/walletLedgerService.js';
+import { WheelRngService, CustomRngFunction } from '../services/wheelRngService.js';
 
 /**
  * Pure integer minor-units decimal arithmetic (scale 4, 1.0000 = 10000n)
@@ -305,14 +306,15 @@ export class PromotionService {
   }
 
   /**
-   * Provably fair Lucky Spin-the-Wheel with Daily Limits, Scale-4 Math,
+   * Cryptographically Secure Weighted Lucky Spin-the-Wheel with Daily Limits, Scale-4 Math,
    * Authoritative UTC Calendar Day Boundary, PostgreSQL DB-Level Unique Constraint Protection,
-   * and Authoritative WalletLedgerService routing (ZERO direct balance mutations).
+   * Node.js crypto.randomInt CSPRNG authority, and Authoritative WalletLedgerService routing.
    */
   public static async executeWheelSpin(
     userId: number,
     spinTimestamp: Date = new Date(),
-    customLedgerService?: WalletLedgerService
+    customLedgerService?: WalletLedgerService,
+    customRng?: CustomRngFunction
   ) {
     if (!userId || typeof userId !== 'number') {
       throw new Error('Valid userId is required to execute wheel spin');
@@ -344,25 +346,22 @@ export class PromotionService {
           throw new Error('You have already used your daily free wheel spin for today. Come back tomorrow!');
         }
 
-        // 2. Provably weighted Spin-the-Wheel RNG algorithm
-        const totalWeight = WHEEL_PRIZES.reduce((acc, p) => acc + p.weight, 0);
-        let randomWeight = Math.random() * totalWeight;
-
-        let winningPrize = WHEEL_PRIZES[0];
-        for (const prize of WHEEL_PRIZES) {
-          if (randomWeight < prize.weight) {
-            winningPrize = prize;
-            break;
-          }
-          randomWeight -= prize.weight;
-        }
-
+        // 2. Cryptographically secure weighted Spin-the-Wheel RNG algorithm (Node.js CSPRNG)
+        const selection = WheelRngService.selectPrize(WHEEL_PRIZES, customRng);
+        const winningPrize = selection.prize;
         const prizeValueStr = winningPrize.value.toFixed(4);
         const prizeBigInt = toScale4(prizeValueStr);
 
+        // 3. Prepare sanitized spin audit metadata (NO raw entropy/secrets stored)
+        const spinAuditMetadata = WheelRngService.createAuditMetadata(
+          selection,
+          prizeValueStr,
+          todayUtc
+        );
+
         let ledgerResult: any = null;
 
-        // 3. Authoritative Wallet Ledger Credit for monetary prizes (NO direct wallets balance mutation)
+        // 4. Authoritative Wallet Ledger Credit for monetary prizes (NO direct wallets balance mutation)
         if (prizeBigInt > 0n) {
           if (winningPrize.type === 'REAL_CASH') {
             ledgerResult = await effectiveLedger.executeTransaction({
@@ -372,16 +371,7 @@ export class PromotionService {
               targetBalance: 'REAL',
               amountMinor: prizeValueStr,
               transactionId: deterministicSpinTxId,
-              auditMetadata: {
-                providerId: 'GAMEPLAY365_PROMOTIONS',
-                category: 'REAL_CASH',
-                rewardType: winningPrize.type,
-                prizeLabel: winningPrize.label,
-                prizeValue: prizeValueStr,
-                promoType: 'LUCKY_WHEEL',
-                spinDateUtc: todayUtc,
-                isWithdrawable: true
-              }
+              auditMetadata: spinAuditMetadata
             });
           } else if (winningPrize.type === 'BONUS_CASH') {
             ledgerResult = await effectiveLedger.executeTransaction({
@@ -391,21 +381,12 @@ export class PromotionService {
               targetBalance: 'BONUS',
               amountMinor: prizeValueStr,
               transactionId: deterministicSpinTxId,
-              auditMetadata: {
-                providerId: 'GAMEPLAY365_PROMOTIONS',
-                category: 'BONUS_CASH',
-                rewardType: winningPrize.type,
-                prizeLabel: winningPrize.label,
-                prizeValue: prizeValueStr,
-                promoType: 'LUCKY_WHEEL',
-                spinDateUtc: todayUtc,
-                isWithdrawable: false
-              }
+              auditMetadata: spinAuditMetadata
             });
           }
         }
 
-        // 4. Immutable wheel spin audit log with authoritative UTC spin date
+        // 5. Immutable wheel spin audit log with authoritative UTC spin date and audit metadata
         await tx.insert(wheelSpins).values({
           userId: userId,
           spinDateUtc: todayUtc,
@@ -414,6 +395,15 @@ export class PromotionService {
           prizeValue: prizeValueStr,
           currency: 'BDT',
           isClaimed: true,
+          auditMetadata: {
+            prizeId: selection.prizeId,
+            prizeType: selection.prizeType,
+            prizeLabel: selection.prizeLabel,
+            prizeWeight: selection.prizeWeight,
+            totalWeight: selection.totalWeight,
+            algorithm: selection.algorithm,
+            spinDateUtc: todayUtc
+          },
           createdAt: spinTimestamp
         });
 
@@ -422,7 +412,15 @@ export class PromotionService {
           timestamp: spinTimestamp.getTime(),
           transactionId: deterministicSpinTxId,
           ledgerEntryId: ledgerResult?.ledgerEntryId || null,
-          isIdempotent: ledgerResult?.isIdempotent || false
+          isIdempotent: ledgerResult?.isIdempotent || false,
+          audit: {
+            prizeId: selection.prizeId,
+            prizeType: selection.prizeType,
+            prizeWeight: selection.prizeWeight,
+            totalWeight: selection.totalWeight,
+            algorithm: selection.algorithm,
+            spinDateUtc: todayUtc
+          }
         };
       });
     } catch (err: any) {
