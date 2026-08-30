@@ -1011,7 +1011,7 @@ export const CashierView: React.FC<CashierViewProps> = ({
                           <span className={`px-2 py-0.5 rounded text-[10px] font-bold ${
                             dep.status === 'CREDITED'
                               ? 'bg-emerald-500/20 text-emerald-400 border border-emerald-500/40'
-                              : dep.status === 'AWAITING_PAYMENT'
+                              : (dep.status === 'AWAITING_PAYMENT' || dep.status === 'VERIFIED' || dep.status === 'AWAITING_LEDGER_SETTLEMENT')
                               ? 'bg-yellow-500/20 text-yellow-300 border border-yellow-500/40'
                               : 'bg-red-500/20 text-red-400 border border-red-500/40'
                           }`}>

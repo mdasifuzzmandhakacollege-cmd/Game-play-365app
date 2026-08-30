@@ -840,7 +840,7 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({ onStateMutated, onClose,
                           <span className={`px-2 py-0.5 rounded text-[10px] font-bold ${
                             intent.status === 'CREDITED'
                               ? 'bg-emerald-500/20 text-emerald-400 border border-emerald-500/40'
-                              : intent.status === 'AWAITING_PAYMENT'
+                              : (intent.status === 'AWAITING_PAYMENT' || intent.status === 'VERIFIED' || intent.status === 'AWAITING_LEDGER_SETTLEMENT')
                               ? 'bg-yellow-500/20 text-yellow-300 border border-yellow-500/40'
                               : 'bg-red-500/20 text-red-400 border border-red-500/40'
                           }`}>

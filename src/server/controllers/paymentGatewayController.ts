@@ -76,6 +76,8 @@ export class PaymentGatewayController {
       res.status(200).json({
         success: true,
         data: result.depositIntent,
+        status: result.status || result.depositIntent.status,
+        code: result.code || 'LEDGER_SETTLEMENT_PENDING',
         newBalance: result.newBalance,
         message: result.message
       });

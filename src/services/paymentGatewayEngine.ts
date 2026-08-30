@@ -393,6 +393,8 @@ export class PaymentGatewayEngine {
   }): Promise<{
     success: boolean;
     depositIntent: DepositIntent;
+    status: string;
+    code: string;
     message: string;
     newBalance?: number;
   }> {
@@ -405,6 +407,8 @@ export class PaymentGatewayEngine {
       return {
         success: true,
         depositIntent: intent,
+        status: 'CREDITED',
+        code: 'ALREADY_CREDITED',
         message: 'This deposit has already been verified and credited.'
       };
     }
@@ -488,73 +492,82 @@ export class PaymentGatewayEngine {
     }
 
     // ------------------------------------------------------------------------
-    // Step 05: Atomic Double-Entry Ledger & Balance Credit
+    // Step 05: Provider Verification Confirmed — Awaiting Authoritative Ledger Settlement
     // ------------------------------------------------------------------------
-    // Note: Live production credit is reserved for verified server-side callbacks/WalletLedgerService.
-    intent.status = 'VERIFIED';
+    // CRITICAL (TASK 6.1.2): Provider verification alone sets AWAITING_LEDGER_SETTLEMENT.
+    // It must NEVER mark the deposit as CREDITED or emit phantom wallet credit signals.
+    // CREDITED is allowed ONLY after authoritative WalletLedgerService settlement succeeds.
+    intent.status = 'AWAITING_LEDGER_SETTLEMENT';
+    intent.providerTransactionId = verificationResult.providerTransactionId || cleanTrx;
     intent.verifiedAt = new Date().toISOString();
     intent.auditTrail.push({
-      status: 'VERIFIED',
+      status: 'AWAITING_LEDGER_SETTLEMENT',
       timestamp: intent.verifiedAt,
-      note: 'Payment authorized and verified by Provider Verification Engine.'
+      note: `Payment authorized and verified by Provider (${intent.provider.toUpperCase()}). Awaiting authoritative WalletLedgerService settlement.`
     });
 
-    // Mark TrxID as consumed
+    // Mark TrxID as consumed in the idempotency pool
     this.consumedTrxIds.set(trxKey, {
       depositId: intent.id,
       userId: intent.userId,
       consumedAt: new Date().toISOString()
     });
 
-    // Step 05: Non-authoritative Simulation Audit Log & Status Update
-    // Note: In production, authoritative financial ledger records are created exclusively via WalletLedgerService (PostgresLedgerPool).
-    intent.status = 'VERIFIED';
-    intent.verifiedAt = new Date().toISOString();
-    intent.auditTrail.push({
-      status: 'VERIFIED',
-      timestamp: intent.verifiedAt,
-      note: 'Payment authorized and verified by Provider Verification Engine.'
-    });
-
-    // Mark TrxID as consumed
-    this.consumedTrxIds.set(trxKey, {
-      depositId: intent.id,
-      userId: intent.userId,
-      consumedAt: new Date().toISOString()
-    });
-
-    // Record non-authoritative preview entry in diagnostic ledger
-    const ledgerEntry: DoubleEntryLedgerEntry = {
-      id: `LEDGER_DEP_${Date.now()}`,
-      transactionId: `DEP_${cleanTrx}`,
-      walletId: `w_${intent.userId}`,
-      userId: intent.userId,
-      entryType: 'DEPOSIT_CREDIT',
-      debitAccount: `SYSTEM_LIABILITY_${intent.provider.toUpperCase()}_ACCOUNT`,
-      creditAccount: `USER_WALLET_${intent.userId}`,
-      amount: intent.amount,
-      currency: intent.currency,
-      balanceBefore: 0,
-      balanceAfter: 0,
-      reference: intent.id,
-      createdAt: new Date().toISOString()
-    };
-    this.doubleEntryLedger.unshift(ledgerEntry);
-
-    // Update Destination Account daily volume
+    // Update Destination Account daily volume tracking
     intent.destinationAccount.currentDayVolume += intent.amount;
 
+    // Log Immutable Verification Audit (without emitting phantom WALLET_DEPOSIT_CREDITED)
+    this.logAudit({
+      actor: 'SYSTEM:PaymentVerificationEngine',
+      action: 'DEPOSIT_PROVIDER_VERIFIED',
+      resource: 'DEPOSIT',
+      resourceId: intent.id,
+      ipAddress: '127.0.0.1',
+      metadata: {
+        userId: intent.userId,
+        amount: intent.amount,
+        trxId: cleanTrx,
+        provider: intent.provider,
+        providerTransactionId: intent.providerTransactionId,
+        settlementStatus: 'LEDGER_SETTLEMENT_PENDING'
+      }
+    });
+
+    this.notifyChange();
+
+    return {
+      success: true,
+      depositIntent: intent,
+      status: 'LEDGER_SETTLEMENT_PENDING',
+      code: 'LEDGER_SETTLEMENT_PENDING',
+      message: `পেমেন্ট প্রোভাইডার দ্বারা অনুমোদিত হয়েছে (TrxID: ${cleanTrx})। ওয়ালেট লেজার সেটেলমেন্টের অপেক্ষায় রয়েছে।`
+    };
+  }
+
+  /**
+   * Settle deposit to CREDITED status ONLY after authoritative WalletLedgerService settlement succeeds.
+   */
+  public settleDepositWithLedger(depositId: string, settlement: { ledgerTransactionId: string; creditedAt?: string }): DepositIntent {
+    const intent = this.depositIntents.get(depositId);
+    if (!intent) {
+      throw new Error(`Deposit intent '${depositId}' not found for ledger settlement.`);
+    }
+    if (intent.status === 'CREDITED') {
+      return intent;
+    }
+    if (intent.status !== 'VERIFIED' && intent.status !== 'AWAITING_LEDGER_SETTLEMENT') {
+      throw new Error(`Cannot credit deposit in status '${intent.status}'. Deposit must be VERIFIED or AWAITING_LEDGER_SETTLEMENT.`);
+    }
     intent.status = 'CREDITED';
-    intent.creditedAt = new Date().toISOString();
+    intent.creditedAt = settlement.creditedAt || new Date().toISOString();
     intent.auditTrail.push({
       status: 'CREDITED',
       timestamp: intent.creditedAt,
-      note: `Deposit record confirmed for ৳${intent.amount.toLocaleString()}.`
+      note: `Authoritative WalletLedgerService settlement committed. Ledger Ref: ${settlement.ledgerTransactionId}`
     });
 
-    // Log Immutable Audit
     this.logAudit({
-      actor: 'SYSTEM:PaymentOrchestrator',
+      actor: 'SYSTEM:WalletLedgerService',
       action: 'WALLET_DEPOSIT_CREDITED',
       resource: 'WALLET',
       resourceId: intent.id,
@@ -562,30 +575,12 @@ export class PaymentGatewayEngine {
       metadata: {
         userId: intent.userId,
         amount: intent.amount,
-        trxId: cleanTrx,
-        provider: intent.provider
+        ledgerTransactionId: settlement.ledgerTransactionId
       }
     });
 
-    // Send Multi-Channel Notification
-    notificationService.pushNotification(intent.userId, {
-      userId: intent.userId,
-      title: '🎉 ডিপোজিট সফল ও ওয়ালেটে যুক্ত হয়েছে!',
-      message: `আপনার ${intent.provider.toUpperCase()} ডিপোজিট ৳${intent.amount.toLocaleString()} সফলভাবে ওয়ালেটে যুক্ত হয়েছে। (TrxID: ${cleanTrx})`,
-      type: 'DEPOSIT_CONFIRMED',
-      amount: intent.amount,
-      currency: intent.currency,
-      isRead: false
-    });
-
-    soundEngine.playWalletCredit();
     this.notifyChange();
-
-    return {
-      success: true,
-      depositIntent: intent,
-      message: `৳${intent.amount.toLocaleString()} সফলভাবে ডিপোজিট হয়েছে।`
-    };
+    return intent;
   }
 
   // ==========================================================================

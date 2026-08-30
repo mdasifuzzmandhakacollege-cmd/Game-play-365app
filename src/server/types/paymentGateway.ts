@@ -29,6 +29,7 @@ export type DepositStatus =
   | 'TRX_SUBMITTED'
   | 'VERIFYING'
   | 'VERIFIED'
+  | 'AWAITING_LEDGER_SETTLEMENT'
   | 'CREDITED'
   | 'FAILED'
   | 'EXPIRED'
