@@ -274,9 +274,43 @@ CREATE TABLE IF NOT EXISTS wheel_spins (
     prize_value NUMERIC(18, 4) NOT NULL,
     currency VARCHAR(3) NOT NULL,
     is_claimed BOOLEAN NOT NULL DEFAULT TRUE,
+    audit_metadata JSONB NOT NULL DEFAULT '{}'::jsonb,
     created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
 );
 
 CREATE UNIQUE INDEX IF NOT EXISTS wheel_spins_user_spin_date_utc_idx
 ON wheel_spins (user_id, spin_date_utc);
+
+-- ----------------------------------------------------------------------------
+-- 10. Free Spin Entitlements Table (PLAY369 Task 3.4 / 3.4.1)
+-- Authoritative PostgreSQL store for non-monetary casino free spin rewards.
+-- ----------------------------------------------------------------------------
+CREATE TABLE IF NOT EXISTS free_spin_entitlements (
+    id SERIAL PRIMARY KEY,
+    user_id INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+    source VARCHAR(32) NOT NULL DEFAULT 'LUCKY_WHEEL',
+    source_reference VARCHAR(128) NOT NULL,
+    quantity INTEGER NOT NULL,
+    remaining_quantity INTEGER NOT NULL,
+    status VARCHAR(32) NOT NULL DEFAULT 'ACTIVE',
+    spin_date_utc VARCHAR(10) NOT NULL,
+    expires_at TIMESTAMPTZ,
+    granted_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+    created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+
+    -- Database Integrity Constraints (Task 3.4.1)
+    CONSTRAINT chk_free_spin_quantity_positive CHECK (quantity > 0),
+    CONSTRAINT chk_free_spin_remaining_non_negative CHECK (remaining_quantity >= 0),
+    CONSTRAINT chk_free_spin_remaining_lte_quantity CHECK (remaining_quantity <= quantity),
+    CONSTRAINT chk_free_spin_status_valid CHECK (status IN ('ACTIVE', 'CONSUMED', 'EXPIRED', 'REVOKED'))
+);
+
+CREATE UNIQUE INDEX IF NOT EXISTS free_spin_entitlements_source_ref_idx
+ON free_spin_entitlements (source_reference);
+
+CREATE UNIQUE INDEX IF NOT EXISTS free_spin_entitlements_user_source_date_idx
+ON free_spin_entitlements (user_id, source, spin_date_utc);
+
+CREATE INDEX IF NOT EXISTS free_spin_entitlements_user_status_idx
+ON free_spin_entitlements (user_id, status);
 
