@@ -28,7 +28,6 @@ import {
   BankTransferPaymentAdapter,
   CardPaymentAdapter
 } from './paymentAdapters';
-import { seamlessEngine } from './simulatedWalletEngine';
 import { notificationService } from './notificationService';
 import { soundEngine } from './soundEngine';
 import { webhookLogger } from './webhookLogger';
@@ -507,24 +506,36 @@ export class PaymentGatewayEngine {
       consumedAt: new Date().toISOString()
     });
 
-    const currentWallets = seamlessEngine.getWallets();
-    const userWallet = currentWallets.find((w) => w.user_id === intent.userId) || currentWallets[0];
-    const beforeBal = userWallet ? userWallet.real_balance : 0;
-    const afterBal = beforeBal; // No unverified in-memory balance top up
+    // Step 05: Non-authoritative Simulation Audit Log & Status Update
+    // Note: In production, authoritative financial ledger records are created exclusively via WalletLedgerService (PostgresLedgerPool).
+    intent.status = 'VERIFIED';
+    intent.verifiedAt = new Date().toISOString();
+    intent.auditTrail.push({
+      status: 'VERIFIED',
+      timestamp: intent.verifiedAt,
+      note: 'Payment authorized and verified by Provider Verification Engine.'
+    });
 
-    // Record Double-Entry Ledger
+    // Mark TrxID as consumed
+    this.consumedTrxIds.set(trxKey, {
+      depositId: intent.id,
+      userId: intent.userId,
+      consumedAt: new Date().toISOString()
+    });
+
+    // Record non-authoritative preview entry in diagnostic ledger
     const ledgerEntry: DoubleEntryLedgerEntry = {
       id: `LEDGER_DEP_${Date.now()}`,
       transactionId: `DEP_${cleanTrx}`,
-      walletId: userWallet ? userWallet.id : `w_${intent.userId}`,
+      walletId: `w_${intent.userId}`,
       userId: intent.userId,
       entryType: 'DEPOSIT_CREDIT',
       debitAccount: `SYSTEM_LIABILITY_${intent.provider.toUpperCase()}_ACCOUNT`,
       creditAccount: `USER_WALLET_${intent.userId}`,
       amount: intent.amount,
       currency: intent.currency,
-      balanceBefore: beforeBal,
-      balanceAfter: afterBal,
+      balanceBefore: 0,
+      balanceAfter: 0,
       reference: intent.id,
       createdAt: new Date().toISOString()
     };
@@ -551,8 +562,6 @@ export class PaymentGatewayEngine {
       metadata: {
         userId: intent.userId,
         amount: intent.amount,
-        beforeBal,
-        afterBal,
         trxId: cleanTrx,
         provider: intent.provider
       }
@@ -575,201 +584,29 @@ export class PaymentGatewayEngine {
     return {
       success: true,
       depositIntent: intent,
-      message: `৳${intent.amount.toLocaleString()} সফলভাবে ডিপোজিট হয়েছে।`,
-      newBalance: afterBal
+      message: `৳${intent.amount.toLocaleString()} সফলভাবে ডিপোজিট হয়েছে।`
     };
   }
 
   // ==========================================================================
-  // SECTION 5: Controlled Withdrawal Flow with Balance Reservation Model
+  // SECTION 5: Controlled Withdrawal Flow with Fail-Closed Provider Gate
   // ==========================================================================
   public async requestWithdrawal(req: WithdrawalPayoutRequest): Promise<WithdrawalRecord> {
-    // 1. Idempotency Key check
-    if (this.idempotencyStore.has(req.idempotencyKey)) {
-      return this.idempotencyStore.get(req.idempotencyKey);
+    const adapter = this.adapters.get(req.provider) || new BkashPaymentAdapter();
+
+    // Fail-Closed: Production payment flow must never mutate monetary state through simulated engines.
+    // Real provider and wallet settlement requires configured live gateway and WalletLedgerService.
+    if (!adapter.isConfigured()) {
+      const err = new Error(`Payment provider '${req.provider}' payout gateway is not configured.`);
+      (err as any).code = 'PROVIDER_NOT_CONFIGURED';
+      (err as any).status = 'PENDING_INTEGRATION';
+      throw err;
     }
 
-    const currentWallets = seamlessEngine.getWallets();
-    const wallet = currentWallets.find((w) => w.user_id === req.userId) || currentWallets[0];
-
-    if (!wallet) {
-      throw new Error('User wallet not found.');
-    }
-
-    if (wallet.real_balance < req.amount) {
-      throw new Error(
-        `পর্যাপ্ত ব্যালেন্স নেই। আপনার বর্তমান ব্যালেন্স: ৳${wallet.real_balance.toLocaleString()}, উইথড্র রিকোয়েস্ট: ৳${req.amount.toLocaleString()}`
-      );
-    }
-
-    const now = new Date();
-    const dateStr = now.toISOString().slice(0, 10).replace(/-/g, '');
-    const randomSuffix = Math.random().toString(36).substring(2, 7).toUpperCase();
-    const withdrawalId = `WTH-${dateStr}-${randomSuffix}`;
-
-    // Risk Analysis
-    const risk = this.analyzeRisk({
-      userId: req.userId,
-      amount: req.amount,
-      provider: req.provider,
-      recipientAccount: req.recipientAccount,
-      type: 'WITHDRAWAL'
-    });
-
-    if (risk.isBlocked) {
-      throw new Error('Withdrawal blocked by Risk Engine due to suspicious activity.');
-    }
-
-    // 2. Controlled Balance Reservation (Available Balance reduced, Reserved Balance increased)
-    const availBefore = wallet.real_balance;
-    const reservedBefore = wallet.locked_balance || 0;
-
-    wallet.real_balance = Number((wallet.real_balance - req.amount).toFixed(4));
-    wallet.locked_balance = Number((reservedBefore + req.amount).toFixed(4));
-    wallet.version += 1;
-    wallet.updated_at = now.toISOString();
-
-    const record: WithdrawalRecord = {
-      id: withdrawalId,
-      userId: req.userId,
-      username: req.username,
-      provider: req.provider,
-      method: req.method,
-      amount: req.amount,
-      currency: req.currency,
-      recipientAccount: req.recipientAccount,
-      recipientName: req.recipientName,
-      status: 'WITHDRAWAL_RESERVED',
-      reservedBalanceBefore: reservedBefore,
-      availableBalanceBefore: availBefore,
-      availableBalanceAfter: wallet.real_balance,
-      createdAt: now.toISOString(),
-      riskScore: risk.riskScore,
-      idempotencyKey: req.idempotencyKey,
-      auditTrail: [
-        {
-          status: 'CREATED',
-          timestamp: now.toISOString(),
-          note: `Withdrawal request for ৳${req.amount.toLocaleString()} to ${req.recipientAccount}`
-        },
-        {
-          status: 'RISK_CHECK',
-          timestamp: now.toISOString(),
-          note: `Risk score: ${risk.riskScore}/100 (${risk.riskLevel})`
-        },
-        {
-          status: 'WITHDRAWAL_RESERVED',
-          timestamp: now.toISOString(),
-          note: `৳${req.amount.toLocaleString()} reserved from Available Balance. Available now: ৳${wallet.real_balance.toLocaleString()}`
-        }
-      ]
-    };
-
-    this.withdrawalRecords.set(withdrawalId, record);
-    this.idempotencyStore.set(req.idempotencyKey, record);
-
-    // Double Entry for Reservation
-    this.doubleEntryLedger.unshift({
-      id: `LEDGER_WTH_RES_${Date.now()}`,
-      transactionId: `WTH_RES_${withdrawalId}`,
-      walletId: wallet.id,
-      userId: req.userId,
-      entryType: 'WITHDRAWAL_RESERVE',
-      debitAccount: `USER_WALLET_${req.userId}`,
-      creditAccount: `SYSTEM_PAYOUT_RESERVE_ACCOUNT`,
-      amount: req.amount,
-      currency: req.currency,
-      balanceBefore: availBefore,
-      balanceAfter: wallet.real_balance,
-      reservedBefore: reservedBefore,
-      reservedAfter: wallet.locked_balance,
-      reference: withdrawalId,
-      createdAt: now.toISOString()
-    });
-
-    this.logAudit({
-      actor: `USER:${req.username}`,
-      action: 'WITHDRAWAL_RESERVED',
-      resource: 'WITHDRAWAL',
-      resourceId: withdrawalId,
-      ipAddress: req.clientIp || '127.0.0.1',
-      metadata: { amount: req.amount, recipient: req.recipientAccount, provider: req.provider }
-    });
-
-    // Execute Automated Payout via Adapter
-    this.dispatchAutomatedPayout(record);
-
-    this.notifyChange();
-    return record;
-  }
-
-  private async dispatchAutomatedPayout(record: WithdrawalRecord) {
-    record.status = 'PAYOUT_PROCESSING';
-    record.processedAt = new Date().toISOString();
-    record.auditTrail.push({
-      status: 'PAYOUT_PROCESSING',
-      timestamp: record.processedAt,
-      note: `Dispatched payout request to ${record.provider.toUpperCase()} Payout Gateway`
-    });
-    this.notifyChange();
-
-    try {
-      const adapter = this.adapters.get(record.provider) || new BkashPaymentAdapter();
-      const payoutResult = await adapter.executePayout({ withdrawal: record });
-
-      if (payoutResult.success) {
-        // Finalize Debit
-        record.status = 'WITHDRAWAL_COMPLETED';
-        record.providerReference = payoutResult.providerReference;
-        record.completedAt = new Date().toISOString();
-        record.auditTrail.push({
-          status: 'WITHDRAWAL_COMPLETED',
-          timestamp: record.completedAt,
-          note: `Payout confirmed by provider. Ref: ${payoutResult.providerReference}`
-        });
-
-        // Release reserved balance permanently
-        const currentWallets = seamlessEngine.getWallets();
-        const wallet = currentWallets.find((w) => w.user_id === record.userId);
-        if (wallet) {
-          wallet.locked_balance = Math.max(0, Number(((wallet.locked_balance || 0) - record.amount).toFixed(4)));
-        }
-
-        this.doubleEntryLedger.unshift({
-          id: `LEDGER_WTH_DONE_${Date.now()}`,
-          transactionId: `WTH_FINALIZE_${record.id}`,
-          walletId: wallet ? wallet.id : `w_${record.userId}`,
-          userId: record.userId,
-          entryType: 'WITHDRAWAL_FINALIZE',
-          debitAccount: `SYSTEM_PAYOUT_RESERVE_ACCOUNT`,
-          creditAccount: `EXTERNAL_RECIPIENT_${record.recipientAccount}`,
-          amount: record.amount,
-          currency: record.currency,
-          balanceBefore: wallet ? wallet.real_balance : 0,
-          balanceAfter: wallet ? wallet.real_balance : 0,
-          reference: record.id,
-          createdAt: new Date().toISOString()
-        });
-
-        notificationService.pushNotification(record.userId, {
-          userId: record.userId,
-          title: '💸 উইথড্রয়াল সফল ও ক্যাশ-আউট সম্পন্ন!',
-          message: `আপনার ৳${record.amount.toLocaleString()} উইথড্রয়াল রিকোয়েস্ট সফলভাবে ${record.recipientAccount} নম্বরে পাঠানো হয়েছে। (Ref: ${payoutResult.providerReference})`,
-          type: 'WITHDRAWAL_APPROVED',
-          amount: record.amount,
-          currency: record.currency,
-          isRead: false
-        });
-
-        soundEngine.playCashout();
-      } else {
-        this.releaseWithdrawalReservation(record, payoutResult.message);
-      }
-    } catch (err: any) {
-      this.releaseWithdrawalReservation(record, err.message || 'Provider payout execution failed');
-    }
-
-    this.notifyChange();
+    const err = new Error(`Payment provider '${req.provider}' live payout integration is pending.`);
+    (err as any).code = 'PROVIDER_NOT_CONFIGURED';
+    (err as any).status = 'PENDING_INTEGRATION';
+    throw err;
   }
 
   public releaseWithdrawalReservation(record: WithdrawalRecord, failureReason: string) {
@@ -778,47 +615,13 @@ export class PaymentGatewayEngine {
     record.auditTrail.push({
       status: 'FAILED',
       timestamp: new Date().toISOString(),
-      note: `Payout failed: ${failureReason}. Releasing reserved funds back to user.`
+      note: `Payout failed: ${failureReason}.`
     });
-
-    // Return reserved funds back to Available Balance
-    const currentWallets = seamlessEngine.getWallets();
-    const wallet = currentWallets.find((w) => w.user_id === record.userId);
-    if (wallet) {
-      const availBefore = wallet.real_balance;
-      wallet.real_balance = Number((wallet.real_balance + record.amount).toFixed(4));
-      wallet.locked_balance = Math.max(0, Number(((wallet.locked_balance || 0) - record.amount).toFixed(4)));
-      wallet.version += 1;
-      wallet.updated_at = new Date().toISOString();
-
-      record.status = 'RESERVATION_RELEASED';
-      record.auditTrail.push({
-        status: 'RESERVATION_RELEASED',
-        timestamp: new Date().toISOString(),
-        note: `৳${record.amount.toLocaleString()} restored to Available Balance. Current balance: ৳${wallet.real_balance.toLocaleString()}`
-      });
-
-      this.doubleEntryLedger.unshift({
-        id: `LEDGER_WTH_REL_${Date.now()}`,
-        transactionId: `WTH_RELEASE_${record.id}`,
-        walletId: wallet.id,
-        userId: record.userId,
-        entryType: 'WITHDRAWAL_RELEASE',
-        debitAccount: `SYSTEM_PAYOUT_RESERVE_ACCOUNT`,
-        creditAccount: `USER_WALLET_${record.userId}`,
-        amount: record.amount,
-        currency: record.currency,
-        balanceBefore: availBefore,
-        balanceAfter: wallet.real_balance,
-        reference: record.id,
-        createdAt: new Date().toISOString()
-      });
-    }
 
     notificationService.pushNotification(record.userId, {
       userId: record.userId,
-      title: '⚠️ উইথড্রয়াল ব্যর্থ ও টাকা ফেরত এসেছে',
-      message: `উইথড্রয়াল ব্যর্থ হওয়ার কারণে ৳${record.amount.toLocaleString()} পুনরায় আপনার ওয়ালেটে ফেরত যোগ করা হয়েছে।`,
+      title: '⚠️ উইথড্রয়াল ব্যর্থ হয়েছে',
+      message: `উইথড্রয়াল প্রক্রিয়া সম্পন্ন করা যায়নি।`,
       type: 'SYSTEM_ALERT',
       amount: record.amount,
       currency: record.currency,

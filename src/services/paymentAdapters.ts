@@ -19,6 +19,11 @@ export interface PaymentProviderAdapter {
   name: string;
 
   /**
+   * Check if adapter is configured with production secrets
+   */
+  isConfigured(): boolean;
+
+  /**
    * Verify an incoming deposit by transaction ID against provider records/APIs
    */
   verifyDeposit(params: {

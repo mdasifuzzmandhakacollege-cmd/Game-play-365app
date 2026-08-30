@@ -150,7 +150,13 @@ export class PaymentGatewayController {
       });
     } catch (err: any) {
       console.error('[PaymentGatewayController.requestWithdrawal error]:', err);
-      res.status(400).json({ success: false, error: err.message || 'Withdrawal failed' });
+      const isUnconfigured = err.code === 'PROVIDER_NOT_CONFIGURED' || err.status === 'PENDING_INTEGRATION';
+      res.status(isUnconfigured ? 503 : 400).json({
+        success: false,
+        code: err.code || 'WITHDRAWAL_FAILED',
+        status: err.status || 'FAILED',
+        error: err.message || 'Withdrawal failed'
+      });
     }
   }
 
