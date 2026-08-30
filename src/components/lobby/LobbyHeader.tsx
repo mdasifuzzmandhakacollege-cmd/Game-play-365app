@@ -27,8 +27,8 @@ export const LobbyHeader: React.FC<LobbyHeaderProps> = ({ onOpenSearch }) => {
           </span>
         </div>
         <div className="overflow-hidden whitespace-nowrap w-full">
-          <div className="inline-block animate-[marquee_25s_linear_infinite] text-emerald-200/90 font-mono text-[11px] sm:text-xs">
-            🎉 <strong className="text-amber-400">Player 017***5643</strong> won <strong className="text-amber-300">৳48,500</strong> on Spribe Aviator! • 💎 Daily VIP Login Bonus ৳999 is ready to claim • ⚡ Instant 24/7 Auto-Withdrawal active • 🚀 Gates of Olympus 1000x multiplier live!
+          <div className="inline-block animate-[marquee_30s_linear_infinite] text-emerald-200/90 font-mono text-[11px] sm:text-xs">
+            📢 <strong className="text-amber-300">Welcome to PLAY369 Official Gaming Platform</strong> • 💎 Daily VIP Login Rewards active • ⚡ Instant 24/7 bKash, Nagad & Rocket settlement • 🛡️ Licensed Provably Fair & Certified RNG Gaming
           </div>
         </div>
       </div>

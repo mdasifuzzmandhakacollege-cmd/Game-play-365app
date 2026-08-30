@@ -101,20 +101,20 @@ export const MobileBottomNav: React.FC<MobileBottomNavProps> = ({
           <span className="mt-0.5 text-[10px] sm:text-[11px] font-sans">Offers</span>
         </button>
 
-        {/* Tab 3: Center Elevated Deposit / Cashier */}
+        {/* Tab 3: Center Elevated Wallet / Cashier */}
         <div className="relative -top-3 flex flex-col items-center justify-center">
           <button
             type="button"
-            id="play369-mobilenav-deposit"
+            id="play369-mobilenav-wallet"
             onClick={() => {
               soundEngine.playClick(1200);
               onOpenCashier();
             }}
             className="relative w-13 h-13 sm:w-14 sm:h-14 rounded-2xl bg-gradient-to-tr from-amber-400 via-yellow-400 to-amber-500 text-slate-950 flex flex-col items-center justify-center shadow-[0_6px_22px_rgba(245,158,11,0.45)] border-2 border-[#02180e] hover:scale-105 active:scale-95 transition-transform cursor-pointer"
-            aria-label="Deposit / Cashier"
+            aria-label="Wallet / Cashier"
           >
             <Wallet className="w-5 h-5 stroke-[2.5]" />
-            <span className="text-[9px] sm:text-[10px] font-black uppercase tracking-tight leading-none mt-0.5 font-sans">Deposit</span>
+            <span className="text-[9px] sm:text-[10px] font-black uppercase tracking-tight leading-none mt-0.5 font-sans">Wallet</span>
           </button>
         </div>
 

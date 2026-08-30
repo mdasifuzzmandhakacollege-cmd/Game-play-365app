@@ -272,7 +272,7 @@ export const Navbar: React.FC<NavbarProps> = ({
               <span className="font-mono font-bold">{currency}</span>
             </button>
 
-            {/* Notification Entry */}
+            {/* Notification Entry (48px Touch Target) */}
             <div className="flex items-center shrink-0">
               <NotificationBell
                 currentUser={currentUser}
@@ -281,9 +281,9 @@ export const Navbar: React.FC<NavbarProps> = ({
               />
             </div>
 
-            {/* Wallet Balance Display UI & Cashier Entry (48px Touch Target) */}
+            {/* Wallet Balance Display UI & Cashier Entry (Desktop/Tablet md+ only) */}
             <div
-              className={`flex items-center bg-[#02180e] border rounded-xl sm:rounded-2xl p-1 shadow-md transition-all duration-300 shrink-0 ${
+              className={`hidden md:flex items-center bg-[#02180e] border rounded-xl sm:rounded-2xl p-1 shadow-md transition-all duration-300 shrink-0 ${
                 balanceFlash === 'credit'
                   ? 'border-emerald-400 ring-2 ring-emerald-400/50 shadow-emerald-500/25 scale-[1.02]'
                   : balanceFlash === 'deduct'
@@ -291,10 +291,10 @@ export const Navbar: React.FC<NavbarProps> = ({
                   : 'border-amber-500/40 shadow-amber-500/10'
               }`}
             >
-              {/* Balance Display (hidden on ultra-small mobile, shown on sm+) */}
+              {/* Balance Display */}
               <div
                 id="play369-wallet-balance-box"
-                className="hidden xs:flex px-2 sm:px-3 py-1 text-right cursor-pointer min-h-[44px] flex-col justify-center"
+                className="flex px-2 sm:px-3 py-1 text-right cursor-pointer min-h-[44px] flex-col justify-center"
                 onClick={() => {
                   audioEngine.playClick();
                   onOpenCashier();
@@ -306,7 +306,7 @@ export const Navbar: React.FC<NavbarProps> = ({
                   <span>ব্যালেন্স</span>
                 </div>
                 <div
-                  className={`text-xs sm:text-sm font-black font-mono leading-tight transition-colors truncate max-w-[80px] xs:max-w-[100px] sm:max-w-none ${
+                  className={`text-xs sm:text-sm font-black font-mono leading-tight transition-colors truncate max-w-[120px] ${
                     balanceFlash === 'credit'
                       ? 'text-emerald-400 animate-pulse'
                       : balanceFlash === 'deduct'
@@ -318,18 +318,17 @@ export const Navbar: React.FC<NavbarProps> = ({
                 </div>
               </div>
 
-              {/* Deposit Action Button (48px Touch Target) */}
+              {/* Deposit Action Button (48px Touch Target on Desktop) */}
               <button
                 id="play369-deposit-btn"
                 onClick={() => {
                   audioEngine.playClick(1200);
                   onOpenCashier();
                 }}
-                className="min-h-[44px] px-2.5 sm:px-4 rounded-xl bg-gradient-to-r from-amber-400 via-yellow-400 to-amber-500 hover:from-amber-300 hover:to-yellow-300 text-slate-950 font-black text-xs tracking-wide flex items-center space-x-1 shadow-md shadow-amber-500/25 active:scale-95 transition-all cursor-pointer shrink-0 whitespace-nowrap"
+                className="min-h-[44px] px-3 sm:px-4 rounded-xl bg-gradient-to-r from-amber-400 via-yellow-400 to-amber-500 hover:from-amber-300 hover:to-yellow-300 text-slate-950 font-black text-xs tracking-wide flex items-center space-x-1 shadow-md shadow-amber-500/25 active:scale-95 transition-all cursor-pointer shrink-0 whitespace-nowrap"
               >
                 <ArrowUpRight className="w-3.5 h-3.5 stroke-[3]" />
-                <span className="hidden xs:inline">ডিপোজিট</span>
-                <span className="xs:hidden">জমা</span>
+                <span>ডিপোজিট</span>
               </button>
             </div>
 

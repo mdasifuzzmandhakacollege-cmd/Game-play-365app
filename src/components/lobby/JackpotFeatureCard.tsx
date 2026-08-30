@@ -25,15 +25,13 @@ export const JackpotFeatureCard: React.FC<JackpotFeatureCardProps> = ({
     tag: 'FEATURED SPOTLIGHT',
     title: 'Gates of Olympus 1000',
     titleBn: 'গেটস অফ অলিম্পাস ১০০০',
-    subtitle: '500x Zeus Multiplier orbs with tumbling chain-reaction spins.',
+    subtitle: 'Pragmatic Play tumbling slot with chain-reaction scatter wins.',
     btnText: 'Play Now',
     targetGameId: 'vs20olympgate',
     bgGradient: 'from-amber-950/60 via-[#032415] to-[#01140b]',
     borderColor: 'border-amber-500/40',
     accentColor: '#f59e0b',
-    iconEmoji: '⚡',
-    multiplierText: '1,000x',
-    rtpText: '96.50%'
+    iconEmoji: '⚡'
   };
 
   const handleAction = () => {
@@ -48,26 +46,21 @@ export const JackpotFeatureCard: React.FC<JackpotFeatureCardProps> = ({
   return (
     <section
       id="play369-jackpot-feature-card"
-      className="relative w-full rounded-3xl overflow-hidden border border-amber-500/30 bg-gradient-to-r from-[#032314] via-[#02180e] to-[#042818] p-4 sm:p-5 shadow-xl transition-all"
-      aria-label="Highlighted Game Promotion"
+      className="relative w-full rounded-3xl overflow-hidden border border-amber-500/25 bg-gradient-to-r from-[#032314] via-[#02180e] to-[#042818] p-4 sm:p-5 shadow-xl transition-all"
+      aria-label="Featured Spotlight Game"
     >
       {/* Soft Controlled Glow */}
-      <div className="absolute -top-12 -right-8 w-44 h-44 bg-amber-500/15 rounded-full blur-3xl pointer-events-none" />
+      <div className="absolute -top-12 -right-8 w-44 h-44 bg-amber-500/10 rounded-full blur-3xl pointer-events-none" />
       <div className="absolute -bottom-8 -left-8 w-36 h-36 bg-emerald-500/10 rounded-full blur-2xl pointer-events-none" />
 
       <div className="relative z-10 flex items-center justify-between gap-3 sm:gap-6">
         {/* Left: Highlight details */}
-        <div className="space-y-1.5 max-w-[70%] sm:max-w-md">
+        <div className="space-y-1.5 max-w-[72%] sm:max-w-md">
           <div className="flex items-center space-x-2">
             <span className="inline-flex items-center space-x-1 px-2.5 py-0.5 rounded-full text-[10px] font-mono font-black uppercase tracking-wider bg-amber-400 text-slate-950 shadow-sm">
               <Sparkles className="w-3 h-3 text-slate-950" />
-              <span>{currentSlide.tag || 'HOT EVENT'}</span>
+              <span>{currentSlide.tag || 'FEATURED'}</span>
             </span>
-            {currentSlide.multiplierText && (
-              <span className="hidden xs:inline-flex items-center px-2 py-0.5 rounded-full text-[10px] font-mono font-bold bg-emerald-950/90 border border-emerald-500/40 text-emerald-300">
-                Max {currentSlide.multiplierText}
-              </span>
-            )}
           </div>
 
           <h3 className="text-base sm:text-xl font-black text-white font-sans drop-shadow-sm leading-tight">
@@ -83,7 +76,7 @@ export const JackpotFeatureCard: React.FC<JackpotFeatureCardProps> = ({
               type="button"
               id="play369-jackpot-feature-cta"
               onClick={handleAction}
-              className="min-h-[48px] px-4 sm:px-5 py-2 rounded-xl bg-gradient-to-r from-amber-400 via-yellow-400 to-amber-500 hover:from-amber-300 hover:to-yellow-300 text-slate-950 font-black text-xs font-mono shadow-md shadow-amber-500/20 active:scale-95 transition-all cursor-pointer flex items-center space-x-1.5"
+              className="min-h-[48px] px-4 sm:px-5 py-2 rounded-xl bg-gradient-to-r from-amber-400 via-yellow-400 to-amber-500 hover:from-amber-300 hover:to-yellow-300 text-slate-950 font-black text-xs font-sans uppercase tracking-wider shadow-md shadow-amber-500/20 active:scale-95 transition-all cursor-pointer flex items-center space-x-1.5"
             >
               <Play className="w-3.5 h-3.5 fill-slate-950 shrink-0" />
               <span>{currentSlide.btnText || 'Play Now'}</span>

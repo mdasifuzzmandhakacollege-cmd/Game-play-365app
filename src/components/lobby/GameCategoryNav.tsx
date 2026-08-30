@@ -29,7 +29,7 @@ export const GameCategoryNav: React.FC<GameCategoryNavProps> = ({
   return (
     <nav
       id="play369-category-nav"
-      className="w-full overflow-x-auto scrollbar-none py-1 -mx-2 px-2 sm:mx-0 sm:px-0"
+      className="w-full overflow-x-auto scrollbar-none snap-x snap-mandatory py-1 -mx-2 px-2 sm:mx-0 sm:px-0"
       aria-label="Game Categories"
     >
       <div className="flex items-center space-x-2 sm:space-x-3 min-w-max pb-1">
@@ -42,13 +42,13 @@ export const GameCategoryNav: React.FC<GameCategoryNavProps> = ({
               type="button"
               id={`play369-cat-btn-${cat.id}`}
               onClick={() => handleCategoryClick(cat.id)}
-              className={`group flex flex-col items-center justify-center min-w-[64px] sm:min-w-[76px] min-h-[54px] sm:min-h-[60px] p-2 rounded-2xl transition-all duration-200 cursor-pointer active:scale-95 select-none relative ${
+              className={`group flex flex-col items-center justify-center min-w-[68px] sm:min-w-[76px] min-h-[56px] sm:min-h-[62px] px-3 py-2 rounded-2xl transition-all duration-200 cursor-pointer active:scale-95 select-none relative snap-start shrink-0 ${
                 isSelected
-                  ? 'bg-gradient-to-b from-amber-400 via-yellow-400 to-amber-500 text-slate-950 shadow-[0_6px_20px_rgba(245,158,11,0.4)] border border-amber-300 font-black'
+                  ? 'bg-gradient-to-b from-amber-400 via-yellow-400 to-amber-500 text-slate-950 shadow-[0_4px_16px_rgba(245,158,11,0.35)] border border-amber-300 font-black'
                   : 'bg-[#02180e]/90 hover:bg-[#032415] border border-emerald-800/70 hover:border-emerald-600 text-emerald-200 hover:text-white shadow-sm'
               }`}
               aria-pressed={isSelected}
-              aria-label={`${cat.label} category, ${cat.count} games`}
+              aria-label={`${cat.label} category`}
             >
               {/* Centered Emoji / Icon */}
               <span className="text-xl sm:text-2xl leading-none transition-transform group-hover:scale-110 drop-shadow-sm">
@@ -62,7 +62,7 @@ export const GameCategoryNav: React.FC<GameCategoryNavProps> = ({
                 {cat.label}
               </span>
 
-              {/* Active Golden Glow Pill Indicator */}
+              {/* Active Golden Indicator */}
               {isSelected && (
                 <motion.span
                   layoutId="categoryActiveIndicator"

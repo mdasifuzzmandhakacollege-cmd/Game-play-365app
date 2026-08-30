@@ -30,8 +30,16 @@ export const FloatingActionHub: React.FC<FloatingActionHubProps> = ({
   return (
     <div
       id="play369-floating-hub"
-      className="fixed bottom-[calc(4.5rem+env(safe-area-inset-bottom,0px))] right-3 sm:right-6 z-30 flex flex-col items-end space-y-2 pointer-events-auto select-none"
+      className="fixed bottom-[calc(4.75rem+env(safe-area-inset-bottom,0px))] right-2.5 sm:right-6 z-30 flex flex-col items-end space-y-2 pointer-events-auto select-none"
     >
+      {/* Backdrop to easily collapse on outside tap */}
+      {isExpanded && (
+        <div
+          className="fixed inset-0 z-[-1] bg-black/40 backdrop-blur-[1px]"
+          onClick={() => setIsExpanded(false)}
+        />
+      )}
+
       {/* Expanded Menu Actions */}
       {isExpanded && (
         <div className="flex flex-col items-end space-y-2 mb-1 animate-in fade-in slide-in-from-bottom-3 duration-200">
@@ -45,14 +53,14 @@ export const FloatingActionHub: React.FC<FloatingActionHubProps> = ({
               setIsExpanded(false);
             }}
             className="flex items-center space-x-2 bg-[#02180e]/95 border border-amber-400/60 p-1.5 pr-3 rounded-full shadow-2xl backdrop-blur-xl hover:scale-105 active:scale-95 transition-all cursor-pointer min-h-[44px]"
-            title="Daily VIP Bonus ৳999"
+            title="Daily VIP Bonus"
           >
             <div className="w-8 h-8 rounded-full bg-gradient-to-tr from-amber-400 to-yellow-400 text-slate-950 flex items-center justify-center font-bold text-sm shadow">
               🎁
             </div>
             <div className="text-left font-sans">
               <div className="text-[9px] text-emerald-300 font-bold leading-none">VIP Bonus</div>
-              <div className="text-[10px] font-black text-amber-400 font-mono leading-tight">৳999 Free</div>
+              <div className="text-[10px] font-black text-amber-400 font-mono leading-tight">Daily Gift</div>
             </div>
           </button>
 
@@ -94,21 +102,21 @@ export const FloatingActionHub: React.FC<FloatingActionHubProps> = ({
             </div>
             <div className="text-left font-sans">
               <div className="text-[9px] text-emerald-300 font-bold leading-none">Treasure</div>
-              <div className="text-[10px] font-black text-amber-400 font-mono leading-tight">Mystery Box</div>
+              <div className="text-[10px] font-black text-amber-400 font-mono leading-tight">Chest</div>
             </div>
           </button>
         </div>
       )}
 
-      {/* Main Single Floating Trigger (Compact, never covers gameplay, 48px touch target) */}
+      {/* Main Single Floating Trigger (Exact 48px footprint, non-obstructive) */}
       <button
         type="button"
         id="play369-float-hub-toggle"
         onClick={toggleHub}
-        className={`min-h-[48px] min-w-[48px] rounded-2xl flex items-center justify-center shadow-2xl transition-all cursor-pointer border ${
+        className={`w-12 h-12 min-h-[48px] min-w-[48px] max-w-[48px] max-h-[48px] rounded-2xl flex items-center justify-center shadow-xl transition-all cursor-pointer border ${
           isExpanded
             ? 'bg-rose-600 border-rose-400 text-white rotate-90 scale-95'
-            : 'bg-gradient-to-tr from-amber-400 via-yellow-400 to-amber-500 border-amber-300 text-slate-950 hover:scale-105 active:scale-95 shadow-[0_4px_20px_rgba(245,158,11,0.4)]'
+            : 'bg-gradient-to-tr from-amber-400 via-yellow-400 to-amber-500 border-amber-300 text-slate-950 hover:scale-105 active:scale-95 shadow-[0_4px_16px_rgba(245,158,11,0.35)]'
         }`}
         aria-label={isExpanded ? 'Close rewards hub' : 'Open rewards hub'}
       >
@@ -117,7 +125,7 @@ export const FloatingActionHub: React.FC<FloatingActionHubProps> = ({
         ) : (
           <div className="relative flex items-center justify-center">
             <Gift className="w-5 h-5 stroke-[2.5]" />
-            <span className="absolute -top-1.5 -right-1.5 w-2.5 h-2.5 rounded-full bg-rose-600 border border-amber-200 animate-ping" />
+            <span className="absolute -top-1 -right-1 w-2 h-2 rounded-full bg-rose-600 border border-amber-200" />
           </div>
         )}
       </button>
