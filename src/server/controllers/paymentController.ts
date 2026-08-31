@@ -11,12 +11,14 @@ import { eq, desc, sql } from 'drizzle-orm';
 import { PaymentMethodType } from '../types/seamless';
 import { WageringService } from '../services/wageringService';
 import { validatePaymentAmount, fromScale4, toScale4 } from '../utils/paymentAmount';
+import { resolveAuthPaymentUser } from '../utils/paymentAuth';
 
 export class PaymentController {
   /**
    * Submit a local deposit request (bKash / Nagad / Rocket)
    * In production, deposit submission creates ONLY a PENDING record.
    * Client-controlled autoApprove and direct wallet balance mutation are strictly disabled.
+   * Authenticated via Firebase ID token and resolved to canonical PostgreSQL user.
    */
   async submitDeposit(req: Request, res: Response): Promise<void> {
     try {
@@ -30,7 +32,21 @@ export class PaymentController {
         trxId
       } = req.body;
 
-      if (!userId || !method || amount === undefined || amount === null || amount === '' || !trxId) {
+      // 1. Resolve authoritative authenticated user
+      let authUser;
+      try {
+        authUser = await resolveAuthPaymentUser(req, userId);
+      } catch (authErr: any) {
+        res.status(authErr.statusCode || 401).json({
+          success: false,
+          error: authErr.code || authErr.message || 'Authentication failed',
+          code: authErr.code || 'UNAUTHENTICATED',
+          message: authErr.message
+        });
+        return;
+      }
+
+      if (!method || amount === undefined || amount === null || amount === '' || !trxId) {
         res.status(400).json({ error: 'Missing required deposit parameters' });
         return;
       }
@@ -59,18 +75,11 @@ export class PaymentController {
         return;
       }
 
-      // 1. Verify user exists
-      const userList = await db.select().from(users).where(eq(users.id, Number(userId)));
-      if (userList.length === 0) {
-        res.status(404).json({ error: 'User not found' });
-        return;
-      }
-
-      // 2. Verify or create wallet
+      // 2. Verify or create wallet for authenticated canonical user
       const walletList = await db
         .select()
         .from(wallets)
-        .where(eq(wallets.userId, Number(userId)));
+        .where(eq(wallets.userId, authUser.id));
 
       let wallet = walletList.find((w) => w.currency === currency) || walletList[0];
 
@@ -78,7 +87,7 @@ export class PaymentController {
         const [newWallet] = await db
           .insert(wallets)
           .values({
-            userId: Number(userId),
+            userId: authUser.id,
             currency: currency,
             realBalance: '0.0000',
             bonusBalance: '0.0000',
@@ -88,12 +97,11 @@ export class PaymentController {
         wallet = newWallet;
       }
 
-      // 3. Insert Payment Request with strictly PENDING status
-      // Real wallet credit is strictly reserved for verified server-side provider callbacks/manual review
+      // 3. Insert Payment Request with strictly PENDING status bound to authoritative user
       const [insertedReq] = await db
         .insert(paymentRequests)
         .values({
-          userId: Number(userId),
+          userId: authUser.id,
           walletId: wallet.id,
           type: 'DEPOSIT',
           method: method as PaymentMethodType,
@@ -120,6 +128,7 @@ export class PaymentController {
 
   /**
    * Submit a local withdrawal request (bKash / Nagad / Rocket)
+   * Authenticated via Firebase ID token and resolved to canonical PostgreSQL user.
    */
   async submitWithdrawal(req: Request, res: Response): Promise<void> {
     try {
@@ -131,7 +140,21 @@ export class PaymentController {
         receiverNumber
       } = req.body;
 
-      if (!userId || !method || amount === undefined || amount === null || amount === '' || !receiverNumber) {
+      // 1. Resolve authoritative authenticated user
+      let authUser;
+      try {
+        authUser = await resolveAuthPaymentUser(req, userId);
+      } catch (authErr: any) {
+        res.status(authErr.statusCode || 401).json({
+          success: false,
+          error: authErr.code || authErr.message || 'Authentication failed',
+          code: authErr.code || 'UNAUTHENTICATED',
+          message: authErr.message
+        });
+        return;
+      }
+
+      if (!method || amount === undefined || amount === null || amount === '' || !receiverNumber) {
         res.status(400).json({ error: 'Missing required withdrawal parameters' });
         return;
       }
@@ -159,8 +182,8 @@ export class PaymentController {
         return;
       }
 
-      // Authoritative Server-Side Wagering Gate Check (PLAY369 Task 5.2)
-      const gate = await WageringService.enforceWithdrawalWageringGate({ userId: Number(userId) });
+      // Authoritative Server-Side Wagering Gate Check (PLAY369 Task 5.2) on authenticated user
+      const gate = await WageringService.enforceWithdrawalWageringGate({ userId: authUser.id });
       if (!gate.allowed) {
         res.status(403).json({
           success: false,
@@ -175,7 +198,7 @@ export class PaymentController {
       const walletList = await db
         .select()
         .from(wallets)
-        .where(eq(wallets.userId, Number(userId)));
+        .where(eq(wallets.userId, authUser.id));
 
       const wallet = walletList.find((w) => w.currency === currency) || walletList[0];
 
@@ -205,11 +228,11 @@ export class PaymentController {
 
       const trxId = `WTH_${method}_${Math.random().toString(36).substring(2, 9).toUpperCase()}`;
 
-      // 2. Insert Payment Request (PENDING)
+      // 2. Insert Payment Request (PENDING) bound to authenticated user
       const [insertedReq] = await db
         .insert(paymentRequests)
         .values({
-          userId: Number(userId),
+          userId: authUser.id,
           walletId: wallet.id,
           type: 'WITHDRAWAL',
           method: method as PaymentMethodType,
@@ -222,12 +245,12 @@ export class PaymentController {
         })
         .returning();
 
-      // 3. Record transaction
+      // 3. Record transaction bound to authenticated user
       await db.insert(transactions).values({
         providerId: 'CASHIER_LOCAL',
         transactionId: trxId,
         referenceTransactionId: String(insertedReq.id),
-        userId: Number(userId),
+        userId: authUser.id,
         walletId: wallet.id,
         gameId: 'CASHIER_WITHDRAWAL',
         type: 'TIP',

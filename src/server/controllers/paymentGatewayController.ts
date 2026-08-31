@@ -8,6 +8,7 @@ import { paymentGatewayEngine } from '../../services/paymentGatewayEngine';
 import { PaymentProviderId, PaymentMethod } from '../types/paymentGateway';
 import { WageringService } from '../services/wageringService';
 import { validatePaymentAmount, ParsedPaymentAmount } from '../utils/paymentAmount';
+import { resolveAuthPaymentUser } from '../utils/paymentAuth';
 
 export class PaymentGatewayController {
   /**
@@ -18,7 +19,6 @@ export class PaymentGatewayController {
     try {
       const {
         userId,
-        username,
         provider,
         method,
         amount,
@@ -26,8 +26,22 @@ export class PaymentGatewayController {
         idempotencyKey
       } = req.body;
 
-      if (!userId || !provider || amount === undefined || amount === null || amount === '') {
-        res.status(400).json({ error: 'Missing required parameters: userId, provider, amount' });
+      // 1. Resolve and verify authenticated user ownership
+      let authUser;
+      try {
+        authUser = await resolveAuthPaymentUser(req, userId);
+      } catch (authErr: any) {
+        res.status(authErr.statusCode || 401).json({
+          success: false,
+          error: authErr.code || authErr.message || 'Authentication failed',
+          code: authErr.code || 'UNAUTHENTICATED',
+          message: authErr.message
+        });
+        return;
+      }
+
+      if (!provider || amount === undefined || amount === null || amount === '') {
+        res.status(400).json({ error: 'Missing required parameters: provider, amount' });
         return;
       }
 
@@ -49,8 +63,8 @@ export class PaymentGatewayController {
       const clientIp = (req.headers['x-forwarded-for'] as string) || req.socket.remoteAddress || '127.0.0.1';
 
       const intent = paymentGatewayEngine.createDepositIntent({
-        userId: String(userId),
-        username: String(username || `User_${userId}`),
+        userId: String(authUser.id),
+        username: authUser.username || `User_${authUser.id}`,
         provider: provider as PaymentProviderId,
         method: (method || provider.toUpperCase()) as PaymentMethod,
         amount: parsedAmount.decimalString,
@@ -77,11 +91,40 @@ export class PaymentGatewayController {
    */
   async verifyTrxId(req: Request, res: Response): Promise<void> {
     try {
-      const { depositId, trxId, senderNumber } = req.body;
+      const { depositId, trxId, senderNumber, userId } = req.body;
 
       if (!depositId || !trxId) {
         res.status(400).json({ error: 'Missing required parameters: depositId, trxId' });
         return;
+      }
+
+      // 1. Resolve and verify authenticated user ownership
+      let authUser;
+      try {
+        authUser = await resolveAuthPaymentUser(req, userId);
+      } catch (authErr: any) {
+        res.status(authErr.statusCode || 401).json({
+          success: false,
+          error: authErr.code || authErr.message || 'Authentication failed',
+          code: authErr.code || 'UNAUTHENTICATED',
+          message: authErr.message
+        });
+        return;
+      }
+
+      // 2. Validate that authenticated player owns this deposit intent
+      const existingIntent = paymentGatewayEngine.getDepositIntent(String(depositId));
+      if (existingIntent) {
+        const isOwner = existingIntent.userId === String(authUser.id) || existingIntent.userId === authUser.uid;
+        if (!isOwner) {
+          res.status(403).json({
+            success: false,
+            error: 'ACCOUNT_OWNERSHIP_MISMATCH',
+            code: 'ACCOUNT_OWNERSHIP_MISMATCH',
+            message: 'Account ownership mismatch: deposit intent does not belong to authenticated user'
+          });
+          return;
+        }
       }
 
       const result = await paymentGatewayEngine.verifyAndCreditDeposit({
@@ -118,7 +161,6 @@ export class PaymentGatewayController {
     try {
       const {
         userId,
-        username,
         provider,
         method,
         amount,
@@ -128,8 +170,22 @@ export class PaymentGatewayController {
         idempotencyKey
       } = req.body;
 
-      if (!userId || !provider || amount === undefined || amount === null || amount === '' || !recipientAccount) {
-        res.status(400).json({ error: 'Missing required parameters: userId, provider, amount, recipientAccount' });
+      // 1. Resolve and verify authenticated user ownership
+      let authUser;
+      try {
+        authUser = await resolveAuthPaymentUser(req, userId);
+      } catch (authErr: any) {
+        res.status(authErr.statusCode || 401).json({
+          success: false,
+          error: authErr.code || authErr.message || 'Authentication failed',
+          code: authErr.code || 'UNAUTHENTICATED',
+          message: authErr.message
+        });
+        return;
+      }
+
+      if (!provider || amount === undefined || amount === null || amount === '' || !recipientAccount) {
+        res.status(400).json({ error: 'Missing required parameters: provider, amount, recipientAccount' });
         return;
       }
 
@@ -148,8 +204,8 @@ export class PaymentGatewayController {
         return;
       }
 
-      // Authoritative Server-Side Wagering Gate Check (PLAY369 Task 5.2)
-      const gate = await WageringService.enforceWithdrawalWageringGate({ userId: Number(userId) });
+      // Authoritative Server-Side Wagering Gate Check (PLAY369 Task 5.2) on authenticated user
+      const gate = await WageringService.enforceWithdrawalWageringGate({ userId: authUser.id });
       if (!gate.allowed) {
         res.status(403).json({
           success: false,
@@ -165,8 +221,8 @@ export class PaymentGatewayController {
       const key = idempotencyKey || (req.headers['idempotency-key'] as string) || `WD-${Date.now()}-${Math.random().toString(36).substring(2, 6)}`;
 
       const record = await paymentGatewayEngine.requestWithdrawal({
-        userId: String(userId),
-        username: String(username || `User_${userId}`),
+        userId: String(authUser.id),
+        username: authUser.username || `User_${authUser.id}`,
         provider: provider as PaymentProviderId,
         method: (method || provider.toUpperCase()) as PaymentMethod,
         amount: parsedAmount.decimalString,

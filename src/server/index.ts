@@ -74,17 +74,17 @@ app.use('/api/seamless', seamlessRouter);
 // 5. Automated Payment Gateway & Cashier Routes (bKash, Nagad, Rocket, Bank, USDT)
 // ----------------------------------------------------------------------------
 const cashierRouter = express.Router();
-cashierRouter.post('/deposit', (req, res) => paymentController.submitDeposit(req, res));
-cashierRouter.post('/withdraw', (req, res) => paymentController.submitWithdrawal(req, res));
+cashierRouter.post('/deposit', requireAuth, (req, res) => paymentController.submitDeposit(req, res));
+cashierRouter.post('/withdraw', requireAuth, (req, res) => paymentController.submitWithdrawal(req, res));
 cashierRouter.get('/requests', requireAdmin, (req, res) => paymentController.getRequests(req, res));
 
 app.use('/api/cashier', cashierRouter);
 
 // Automated Payment Orchestrator API v2
 const paymentV2Router = express.Router();
-paymentV2Router.post('/deposit/intent', (req, res) => paymentGatewayController.createDepositIntent(req, res));
-paymentV2Router.post('/deposit/verify-trx', (req, res) => paymentGatewayController.verifyTrxId(req, res));
-paymentV2Router.post('/withdraw/request', (req, res) => paymentGatewayController.requestWithdrawal(req, res));
+paymentV2Router.post('/deposit/intent', requireAuth, (req, res) => paymentGatewayController.createDepositIntent(req, res));
+paymentV2Router.post('/deposit/verify-trx', requireAuth, (req, res) => paymentGatewayController.verifyTrxId(req, res));
+paymentV2Router.post('/withdraw/request', requireAuth, (req, res) => paymentGatewayController.requestWithdrawal(req, res));
 paymentV2Router.post('/webhook/:provider', (req, res) => paymentGatewayController.handleWebhook(req, res));
 paymentV2Router.get('/destination-pool', requireAdmin, (req, res) => paymentGatewayController.getDestinationPool(req, res));
 paymentV2Router.get('/stats', requireAdmin, (req, res) => paymentGatewayController.getStats(req, res));

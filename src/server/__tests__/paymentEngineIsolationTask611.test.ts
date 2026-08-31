@@ -150,6 +150,8 @@ async function runTests() {
     let responseBody: any = null;
 
     const mockReq = {
+      user: { uid: 'test_user_611_ctrl' },
+      mockUser: { id: 61101, uid: 'test_user_611_ctrl', username: 'ctrl_tester' },
       body: {
         depositId: intent.id,
         trxId: 'TRX_CTRL_MOCK_101'
@@ -197,6 +199,8 @@ async function runTests() {
     let responseBody: any = null;
 
     const mockReq = {
+      user: { uid: 'wager_blocked_user' },
+      mockUser: { id: 999999, uid: 'wager_blocked_user', username: 'wager_blocked_user' },
       headers: {},
       socket: { remoteAddress: '127.0.0.1' },
       body: {

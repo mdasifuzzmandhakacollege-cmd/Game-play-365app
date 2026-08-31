@@ -144,6 +144,8 @@ async function runTests() {
 
   await assert('8. PaymentGatewayController deposit rejects numeric amounts (100, 0.0516) with 400 & UNSAFE_NUMERIC_MONEY_INPUT', async () => {
     const req1: any = {
+      user: { uid: 'firebase_101' },
+      mockUser: { id: 101, uid: 'firebase_101', username: 'Player1' },
       body: { userId: '101', username: 'Player1', provider: 'bkash', amount: 100 },
       headers: {},
       socket: {}
@@ -155,6 +157,8 @@ async function runTests() {
     }
 
     const req2: any = {
+      user: { uid: 'firebase_101' },
+      mockUser: { id: 101, uid: 'firebase_101', username: 'Player1' },
       body: { userId: '101', username: 'Player1', provider: 'bkash', amount: 0.0516 },
       headers: {},
       socket: {}
@@ -169,6 +173,8 @@ async function runTests() {
   await assert('9. PaymentGatewayController deposit rejects over-precision, scientific notation & negative amounts', async () => {
     // Over-precision
     const req1: any = {
+      user: { uid: 'firebase_101' },
+      mockUser: { id: 101, uid: 'firebase_101', username: 'Player1' },
       body: { userId: '101', username: 'Player1', provider: 'bkash', amount: '1.23456' },
       headers: {},
       socket: {}
@@ -181,6 +187,8 @@ async function runTests() {
 
     // Scientific notation
     const req2: any = {
+      user: { uid: 'firebase_101' },
+      mockUser: { id: 101, uid: 'firebase_101', username: 'Player1' },
       body: { userId: '101', username: 'Player1', provider: 'bkash', amount: '1e3' },
       headers: {},
       socket: {}
@@ -193,6 +201,8 @@ async function runTests() {
 
     // Negative amount
     const req3: any = {
+      user: { uid: 'firebase_101' },
+      mockUser: { id: 101, uid: 'firebase_101', username: 'Player1' },
       body: { userId: '101', username: 'Player1', provider: 'bkash', amount: '-500' },
       headers: {},
       socket: {}
@@ -206,6 +216,8 @@ async function runTests() {
 
   await assert('10. PaymentGatewayController accepts valid scale-4 decimal strings ("100", "0.0516") without float conversions', async () => {
     const req1: any = {
+      user: { uid: 'firebase_101' },
+      mockUser: { id: 101, uid: 'firebase_101', username: 'Player1' },
       body: { userId: '101', username: 'Player1', provider: 'bkash', amount: '100' },
       headers: {},
       socket: {}
@@ -217,6 +229,8 @@ async function runTests() {
     }
 
     const req2: any = {
+      user: { uid: 'firebase_101' },
+      mockUser: { id: 101, uid: 'firebase_101', username: 'Player1' },
       body: { userId: '101', username: 'Player1', provider: 'bkash', amount: '0.0516' },
       headers: {},
       socket: {}
@@ -230,6 +244,8 @@ async function runTests() {
 
   await assert('11. PaymentGatewayController withdrawal rejects numeric amount & invalid formats', async () => {
     const req1: any = {
+      user: { uid: 'firebase_101' },
+      mockUser: { id: 101, uid: 'firebase_101', username: 'Player1' },
       body: { userId: '101', username: 'Player1', provider: 'nagad', amount: 500, recipientAccount: '01811223344' },
       headers: {},
       socket: {}
@@ -241,6 +257,8 @@ async function runTests() {
     }
 
     const req2: any = {
+      user: { uid: 'firebase_101' },
+      mockUser: { id: 101, uid: 'firebase_101', username: 'Player1' },
       body: { userId: '101', username: 'Player1', provider: 'nagad', amount: 'abc', recipientAccount: '01811223344' },
       headers: {},
       socket: {}
@@ -291,6 +309,8 @@ async function runTests() {
 
   if (failed > 0) {
     process.exit(1);
+  } else {
+    process.exit(0);
   }
 }
 
