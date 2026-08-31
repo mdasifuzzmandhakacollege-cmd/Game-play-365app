@@ -42,6 +42,7 @@ import { SystemErrorsMonitor } from './components/SystemErrorsMonitor';
 import { SecurityDashboard } from './components/SecurityDashboard';
 import { WebhookInspector } from './components/WebhookInspector';
 import { ErrorBoundary } from './components/ErrorBoundary';
+import { SandboxPaymentTestView } from './components/SandboxPaymentTestView';
 import { useErrorReporter } from './hooks/useErrorReporter';
 import { AuthProvider } from './contexts/AuthContext';
 import { ThemeProvider } from './contexts/ThemeContext';
@@ -83,7 +84,8 @@ export type WorkbenchSubTabType =
   | 'cache'
   | 'autosync'
   | 'apiRate'
-  | 'errors';
+  | 'errors'
+  | 'sandboxPayment';
 
 /**
  * Fallback component rendered when an unrecognized tab state is encountered
@@ -209,7 +211,9 @@ function Playall365InnerApp() {
       errors: 'errors',
       cache: 'cache',
       autosync: 'autosync',
-      apiRate: 'apiRate'
+      apiRate: 'apiRate',
+      sandboxPayment: 'sandboxPayment',
+      sandbox: 'sandboxPayment'
     };
 
     if (workbenchTabAliases[activeTab]) {
@@ -234,7 +238,8 @@ function Playall365InnerApp() {
       'errors',
       'cache',
       'autosync',
-      'apiRate'
+      'apiRate',
+      'sandboxPayment'
     ].includes(activeTab);
   }, [activeTab]);
 
@@ -344,6 +349,9 @@ function Playall365InnerApp() {
 
       case 'apiRate':
         return <ApiRateMonitor />;
+
+      case 'sandboxPayment':
+        return import.meta.env.DEV ? <SandboxPaymentTestView /> : null;
 
       default:
         // Safe fallback to simulator if subtab state is desynchronized
@@ -591,7 +599,10 @@ function Playall365InnerApp() {
               { id: 'hmac', label: 'HMAC SHA-256 Inspector', icon: Lock },
               { id: 'ledger', label: 'PostgreSQL Ledger', icon: Layers },
               { id: 'code', label: 'API Code & Schema', icon: FileCode2 },
-              { id: 'architecture', label: 'Architecture SLA Spec', icon: BookOpen }
+              { id: 'architecture', label: 'Architecture SLA Spec', icon: BookOpen },
+              ...(import.meta.env.DEV
+                ? [{ id: 'sandboxPayment', label: '🧪 Sandbox Payments (Task 6.2C)', icon: ShieldCheck }]
+                : [])
             ].map((tab) => {
               const Icon = tab.icon;
               const isSelected = workbenchSubTab === tab.id;

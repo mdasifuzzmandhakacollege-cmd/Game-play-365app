@@ -63,6 +63,22 @@ export class SandboxPaymentAdapter {
   }
 
   /**
+   * Updates or transitions the deterministic status of an existing fixture.
+   */
+  public setFixtureStatus(
+    transactionId: string,
+    status: 'PENDING' | 'COMPLETED' | 'ERROR',
+    code?: string
+  ): void {
+    const fixture = this.fixtures.get(transactionId);
+    if (fixture) {
+      fixture.status = status;
+      if (code) fixture.code = code;
+      this.fixtures.set(transactionId, fixture);
+    }
+  }
+
+  /**
    * Returns verification count for a transaction ID.
    */
   public getVerificationCount(transactionId: string): number {

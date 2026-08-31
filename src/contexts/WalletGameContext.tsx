@@ -38,7 +38,8 @@ export type MainNavTab =
   | 'errors'
   | 'cache'
   | 'autosync'
-  | 'apiRate';
+  | 'apiRate'
+  | 'sandboxPayment';
 
 interface BetRequestParams {
   providerId: string;
