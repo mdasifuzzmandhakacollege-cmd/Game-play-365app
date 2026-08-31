@@ -133,6 +133,15 @@ export interface BonusToRealTransferResult {
   timestamp: string;
 }
 
+export interface WithdrawalReservationFingerprint {
+  userId: string;
+  currency: string;
+  amount: string;
+  paymentMethod: string;
+  receiverAccount: string;
+  operationType: 'WITHDRAWAL_RESERVATION';
+}
+
 export interface WithdrawalReservationRequest {
   userId: string | number;
   currency: string;
@@ -144,6 +153,7 @@ export interface WithdrawalReservationRequest {
   paymentMethod?: string;
   method?: string;
   receiverNumber?: string;
+  recipientAccount?: string;
   adminNote?: string;
   idempotencyKey?: string;
   correlationId?: string;
@@ -163,6 +173,7 @@ export interface WithdrawalReservationResult {
   paymentMethod?: string;
   method?: string;
   receiverNumber?: string;
+  recipientAccount?: string;
   amount: string;
   amountMinor?: string;
   amountMajor?: string;
@@ -182,6 +193,7 @@ export interface WithdrawalReservationResult {
   debitEntryId?: string;
   status: 'PENDING';
   correlationId: string;
+  fingerprint?: WithdrawalReservationFingerprint;
   executedAt: string;
   timestamp?: string;
 }

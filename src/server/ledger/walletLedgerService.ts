@@ -28,6 +28,7 @@ import {
   WalletFrozenError,
   WalletNotFoundError,
   WalletRecord,
+  WithdrawalReservationFingerprint,
   WithdrawalReservationRequest,
   WithdrawalReservationResult
 } from './types';
@@ -739,7 +740,42 @@ export class WalletLedgerService {
   }
 
   /**
-   * PLAY369 Task 6.1.6: Atomic Withdrawal Funds Reservation
+   * Validates that an existing cached idempotency payload strictly matches the authoritative request fingerprint.
+   * Throws IdempotencyConflictError if ANY canonical field differs.
+   */
+  private validateWithdrawalFingerprint(
+    idempotencyKey: string,
+    cachedPayload: any,
+    currentFingerprint: WithdrawalReservationFingerprint
+  ): void {
+    const cachedFp: Partial<WithdrawalReservationFingerprint> = cachedPayload.fingerprint || {
+      userId: String(cachedPayload.userId || '').trim(),
+      currency: cachedPayload.currency,
+      amount: cachedPayload.amount,
+      paymentMethod: String(cachedPayload.paymentMethod || cachedPayload.method || '').trim().toUpperCase(),
+      receiverAccount: String(cachedPayload.receiverNumber || cachedPayload.recipientAccount || '').trim(),
+      operationType: 'WITHDRAWAL_RESERVATION'
+    };
+
+    const matches = (
+      String(cachedFp.userId).trim() === currentFingerprint.userId &&
+      cachedFp.currency === currentFingerprint.currency &&
+      cachedFp.amount === currentFingerprint.amount &&
+      String(cachedFp.paymentMethod || '').trim().toUpperCase() === currentFingerprint.paymentMethod &&
+      String(cachedFp.receiverAccount || '').trim() === currentFingerprint.receiverAccount &&
+      (cachedFp.operationType === undefined || cachedFp.operationType === 'WITHDRAWAL_RESERVATION')
+    );
+
+    if (!matches) {
+      throw new IdempotencyConflictError(idempotencyKey, {
+        expected: cachedFp,
+        provided: currentFingerprint
+      });
+    }
+  }
+
+  /**
+   * PLAY369 Task 6.1.6 & 6.1.6.1: Atomic Withdrawal Funds Reservation & Strict Idempotency Contract
    * Atomically transfers funds: REAL BALANCE -> LOCKED BALANCE within a single PostgreSQL transaction.
    * 
    * Invariants:
@@ -748,7 +784,7 @@ export class WalletLedgerService {
    * 3. Atomically debits REAL balance and credits LOCKED balance
    * 4. Inserts 2 immutable ledger entries (REAL DEBIT and LOCKED CREDIT)
    * 5. Inserts the PENDING payment_requests record
-   * 6. Records idempotency state
+   * 6. Records and enforces strict authoritative idempotency fingerprint
    * 7. Commits or rolls back atomically
    */
   public async reserveWithdrawalFunds(req: WithdrawalReservationRequest): Promise<WithdrawalReservationResult> {
@@ -756,27 +792,48 @@ export class WalletLedgerService {
     if (req.userId === undefined || req.userId === null || String(req.userId).trim() === '') {
       throw new LedgerValidationError("Valid userId is required for withdrawal reservation", { userId: req.userId });
     }
-    if (!req.withdrawalId || String(req.withdrawalId).trim() === '') {
-      throw new LedgerValidationError("Deterministic withdrawalId is required", { withdrawalId: req.withdrawalId });
-    }
     if (!req.amount || String(req.amount).trim() === '') {
       throw new LedgerValidationError("Withdrawal amount is required", { amount: req.amount });
     }
-    if (!req.paymentMethod || String(req.paymentMethod).trim() === '') {
+    if (!req.paymentMethod && !req.method) {
       throw new LedgerValidationError("Payment method is required", { paymentMethod: req.paymentMethod });
     }
 
     const normalizedUserId = String(req.userId).trim();
     const currency = validateCurrency(req.currency);
     const amountMinor = parseToMinorUnits(req.amount, currency, false);
+    const normalizedAmount = req.amount.trim();
+    const normalizedPaymentMethod = String(req.paymentMethod || req.method || '').trim().toUpperCase();
+    const normalizedReceiverAccount = String(req.receiverNumber || req.recipientAccount || '').trim();
 
     if (amountMinor <= 0n) {
       throw new LedgerValidationError("Withdrawal amount must be strictly greater than zero", { amount: req.amount });
     }
 
     const correlationId = req.correlationId || `corr_wdraw_${Date.now()}_${Math.random().toString(36).substring(2, 7)}`;
-    const rootTxId = req.withdrawalId.trim();
-    const idempotencyKey = req.idempotencyKey || this.generateIdempotencyKey(normalizedUserId, currency, `wdraw_res:${rootTxId}`);
+    
+    // Canonical Idempotency Fingerprint
+    const canonicalFingerprint: WithdrawalReservationFingerprint = {
+      userId: normalizedUserId,
+      currency,
+      amount: normalizedAmount,
+      paymentMethod: normalizedPaymentMethod,
+      receiverAccount: normalizedReceiverAccount,
+      operationType: 'WITHDRAWAL_RESERVATION'
+    };
+
+    const idempotencyKey = req.idempotencyKey || this.generateIdempotencyKey(
+      normalizedUserId,
+      currency,
+      `wdraw_res:${req.withdrawalId || normalizedAmount + ':' + normalizedPaymentMethod}`
+    );
+
+    // Derive deterministic transaction ID
+    const rootTxId = (
+      req.withdrawalId && String(req.withdrawalId).trim() !== ''
+        ? String(req.withdrawalId).trim()
+        : `WTH_RES_${normalizedUserId}_${idempotencyKey.replace(/[^a-zA-Z0-9_-]/g, '_')}`
+    );
 
     const sanitizedAudit = maskSensitiveData(req.metadata || {});
 
@@ -793,13 +850,8 @@ export class WalletLedgerService {
       const rawPayload = existingIdemp.rows[0].response_payload;
       const cached = typeof rawPayload === 'string' ? JSON.parse(rawPayload) : rawPayload;
 
-      // Verify that idempotency key was not reused for different parameters
-      if (cached.amount !== undefined && cached.amount !== req.amount) {
-        throw new IdempotencyConflictError(idempotencyKey, {
-          expectedAmount: cached.amount,
-          providedAmount: req.amount
-        });
-      }
+      // Verify that idempotency key matches all canonical fields
+      this.validateWithdrawalFingerprint(idempotencyKey, cached, canonicalFingerprint);
 
       safeLog('info', correlationId, `[Ledger] Idempotent withdrawal reservation returned cached payload: ${rootTxId}`);
       return {
@@ -920,7 +972,7 @@ export class WalletLedgerService {
             targetBalance: 'REAL',
             category: 'WITHDRAWAL_RESERVATION',
             withdrawalId: rootTxId,
-            paymentMethod: req.paymentMethod
+            paymentMethod: normalizedPaymentMethod
           })
         ]
       );
@@ -953,7 +1005,7 @@ export class WalletLedgerService {
             targetBalance: 'LOCKED',
             category: 'WITHDRAWAL_RESERVATION',
             withdrawalId: rootTxId,
-            paymentMethod: req.paymentMethod
+            paymentMethod: normalizedPaymentMethod
           })
         ]
       );
@@ -969,10 +1021,10 @@ export class WalletLedgerService {
         [
           normalizedUserId,
           wallet.id,
-          req.paymentMethod,
-          req.amount,
+          normalizedPaymentMethod,
+          normalizedAmount,
           currency,
-          req.receiverNumber || null,
+          normalizedReceiverAccount || null,
           rootTxId,
           req.adminNote || null,
           JSON.stringify({
@@ -993,9 +1045,13 @@ export class WalletLedgerService {
         paymentRequestId,
         transactionId: rootTxId,
         status: 'PENDING',
-        amount: req.amount,
+        amount: normalizedAmount,
         currency,
+        userId: normalizedUserId,
         walletId: wallet.id,
+        paymentMethod: normalizedPaymentMethod,
+        receiverNumber: normalizedReceiverAccount,
+        recipientAccount: normalizedReceiverAccount,
         beforeRealBalance: formattedBeforeReal,
         afterRealBalance: formattedAfterReal,
         beforeLockedBalance: formattedBeforeLocked,
@@ -1003,6 +1059,7 @@ export class WalletLedgerService {
         debitLedgerEntryId: debitEntryId,
         lockLedgerEntryId: lockEntryId,
         isIdempotent: false,
+        fingerprint: canonicalFingerprint,
         executedAt: new Date().toISOString(),
         correlationId
       };
@@ -1030,7 +1087,7 @@ export class WalletLedgerService {
     } catch (err: any) {
       await client.query('ROLLBACK').catch(() => {});
 
-      if (err.code === '23505') {
+      if (err.code === '23505' || err.message?.includes('duplicate key') || err.message?.includes('idempotency') || err.message?.includes('payment_requests')) {
         const recovery = await this.db.query<{ response_payload: WithdrawalReservationResult }>(
           `SELECT response_payload FROM idempotency_records WHERE idempotency_key = $1 LIMIT 1`,
           [idempotencyKey]
@@ -1038,6 +1095,7 @@ export class WalletLedgerService {
         if (recovery.rows.length > 0) {
           const rawRec = recovery.rows[0].response_payload;
           const cachedRec = typeof rawRec === 'string' ? JSON.parse(rawRec) : rawRec;
+          this.validateWithdrawalFingerprint(idempotencyKey, cachedRec, canonicalFingerprint);
           return {
             ...cachedRec,
             isIdempotent: true

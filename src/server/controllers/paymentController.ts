@@ -172,6 +172,21 @@ export class PaymentController {
         return;
       }
 
+      // 2. Require strict Idempotency-Key HTTP header (PLAY369 Task 6.1.6.1)
+      const rawIdempHeader = (
+        (req.headers && req.headers['idempotency-key']) ||
+        (typeof req.header === 'function' ? req.header('idempotency-key') : undefined)
+      );
+      if (!rawIdempHeader || typeof rawIdempHeader !== 'string' || rawIdempHeader.trim() === '') {
+        res.status(400).json({
+          success: false,
+          error: 'Idempotency-Key header is required for withdrawals',
+          code: 'IDEMPOTENCY_KEY_REQUIRED'
+        });
+        return;
+      }
+      const idempotencyKey = rawIdempHeader.trim();
+
       if (!method || amount === undefined || amount === null || amount === '' || !receiverNumber) {
         res.status(400).json({ error: 'Missing required withdrawal parameters' });
         return;
@@ -210,24 +225,13 @@ export class PaymentController {
         return;
       }
 
-      // Generate or accept deterministic withdrawal reference
-      const withdrawalId = (
-        typeof requestedWithdrawalId === 'string' && requestedWithdrawalId.trim() !== ''
-          ? requestedWithdrawalId.trim()
-          : (typeof requestedTrxId === 'string' && requestedTrxId.trim() !== ''
-              ? requestedTrxId.trim()
-              : `WTH_${method}_${Date.now()}_${authUser.id}_${Math.random().toString(36).substring(2, 7).toUpperCase()}`)
-      );
-
-      const idempotencyKey = (
-        (req.headers['idempotency-key'] as string) ||
-        (typeof bodyIdempotencyKey === 'string' && bodyIdempotencyKey.trim() !== '' ? bodyIdempotencyKey.trim() : undefined) ||
-        `idemp:wdraw:${authUser.id}:${currency}:${withdrawalId}`
-      );
+      // 3. Derive deterministic server-authoritative withdrawal transaction ID (PLAY369 Task 6.1.6.1)
+      const sanitizedKey = idempotencyKey.replace(/[^a-zA-Z0-9_-]/g, '_');
+      const withdrawalId = `WTH_RES_${authUser.id}_${sanitizedKey}`;
 
       const correlationId = (req.headers['x-correlation-id'] as string) || `corr_wth_${Date.now()}_${authUser.id}`;
 
-      // 2. Perform Atomic Reservation via WalletLedgerService (REAL -> LOCKED)
+      // 4. Perform Atomic Reservation via WalletLedgerService (REAL -> LOCKED)
       try {
         const reservation = await this.ledgerService.reserveWithdrawalFunds({
           withdrawalId,
@@ -240,6 +244,11 @@ export class PaymentController {
           metadata: {
             method,
             receiverNumber: String(receiverNumber),
+            clientReference: (
+              typeof requestedWithdrawalId === 'string' && requestedWithdrawalId.trim() !== ''
+                ? requestedWithdrawalId.trim()
+                : (typeof requestedTrxId === 'string' && requestedTrxId.trim() !== '' ? requestedTrxId.trim() : undefined)
+            ),
             senderIp: req.ip,
             userAgent: req.headers['user-agent']
           },
@@ -304,9 +313,10 @@ export class PaymentController {
         if (ledgerErr instanceof IdempotencyConflictError) {
           res.status(409).json({
             success: false,
-            error: 'Idempotency conflict: transaction already submitted with different parameters',
+            error: 'Idempotency conflict: request parameters do not match original request',
             code: 'IDEMPOTENCY_CONFLICT',
-            message: ledgerErr.message
+            message: ledgerErr.message,
+            details: ledgerErr.details
           });
           return;
         }

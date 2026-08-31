@@ -291,7 +291,10 @@ async function runSuite() {
         currency: 'BDT',
         receiverNumber: '01900000003'
       },
-      headers: {},
+      headers: {
+        'idempotency-key': 'idemp_task616_ctrl_test'
+      },
+      header: (name: string) => (name.toLowerCase() === 'idempotency-key' ? 'idemp_task616_ctrl_test' : undefined),
       ip: '127.0.0.1'
     };
     const res = mockResponse();
