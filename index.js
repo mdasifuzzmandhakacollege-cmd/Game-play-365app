@@ -2992,7 +2992,7 @@ function fromScale42(val) {
 function toScale42(val) {
   if (typeof val === "bigint") return val;
   if (typeof val === "number") {
-    throw new Error("Unsafe JS number monetary input is rejected. Use exact decimal string or bigint minor units.");
+    throw new Error("UNSAFE_NUMERIC_MONEY_INPUT: Unsafe JS number monetary input is rejected. Use exact decimal string or bigint minor units.");
   }
   if (typeof val !== "string") {
     throw new Error("Monetary input must be an exact decimal string or bigint minor units.");
@@ -3015,6 +3015,9 @@ function validatePaymentAmount(amount) {
   if (amount === void 0 || amount === null || amount === "") {
     throw new Error("Monetary amount is required and cannot be empty.");
   }
+  if (typeof amount === "number") {
+    throw new Error("UNSAFE_NUMERIC_MONEY_INPUT: Unsafe JS number monetary input is rejected. Use exact decimal string or bigint minor units.");
+  }
   let str;
   if (typeof amount === "string") {
     str = amount.trim();
@@ -3030,14 +3033,6 @@ function validatePaymentAmount(amount) {
       minorUnits: amount,
       decimalString: fromScale42(amount)
     };
-  } else if (typeof amount === "number") {
-    if (Number.isNaN(amount) || !Number.isFinite(amount)) {
-      throw new Error("Invalid monetary amount: NaN or Infinity is not allowed.");
-    }
-    if (amount <= 0) {
-      throw new Error("Monetary amount must be strictly greater than zero.");
-    }
-    str = String(amount).trim();
   } else {
     throw new Error("Invalid monetary amount type. Expected decimal string or minor units.");
   }
@@ -3092,10 +3087,15 @@ var PaymentController = class {
         res.status(400).json({ error: "Missing required deposit parameters" });
         return;
       }
+      if (typeof amount !== "string") {
+        res.status(400).json({
+          error: "UNSAFE_NUMERIC_MONEY_INPUT: Monetary amount must be provided as an exact decimal string."
+        });
+        return;
+      }
       let amountMinor;
       let normalizedAmount;
       try {
-        amountMinor = toScale42(String(amount));
         const parsed = validatePaymentAmount(amount);
         amountMinor = parsed.minorUnits;
         normalizedAmount = parsed.decimalString;
@@ -3161,6 +3161,12 @@ var PaymentController = class {
       } = req.body;
       if (!userId || !method || amount === void 0 || amount === null || amount === "" || !receiverNumber) {
         res.status(400).json({ error: "Missing required withdrawal parameters" });
+        return;
+      }
+      if (typeof amount !== "string") {
+        res.status(400).json({
+          error: "UNSAFE_NUMERIC_MONEY_INPUT: Monetary amount must be provided as an exact decimal string."
+        });
         return;
       }
       let amountMinor;
@@ -5753,6 +5759,12 @@ var PaymentGatewayController = class {
         res.status(400).json({ error: "Missing required parameters: userId, provider, amount" });
         return;
       }
+      if (typeof amount !== "string") {
+        res.status(400).json({
+          error: 'UNSAFE_NUMERIC_MONEY_INPUT: Monetary amount must be provided as an exact decimal string (e.g. "100.0000"). Numeric values are rejected.'
+        });
+        return;
+      }
       let parsedAmount;
       try {
         parsedAmount = validatePaymentAmount(amount);
@@ -5836,6 +5848,12 @@ var PaymentGatewayController = class {
       } = req.body;
       if (!userId || !provider || amount === void 0 || amount === null || amount === "" || !recipientAccount) {
         res.status(400).json({ error: "Missing required parameters: userId, provider, amount, recipientAccount" });
+        return;
+      }
+      if (typeof amount !== "string") {
+        res.status(400).json({
+          error: 'UNSAFE_NUMERIC_MONEY_INPUT: Monetary amount must be provided as an exact decimal string (e.g. "100.0000"). Numeric values are rejected.'
+        });
         return;
       }
       let parsedAmount;

@@ -31,6 +31,13 @@ export class PaymentGatewayController {
         return;
       }
 
+      if (typeof amount !== 'string') {
+        res.status(400).json({
+          error: 'UNSAFE_NUMERIC_MONEY_INPUT: Monetary amount must be provided as an exact decimal string (e.g. "100.0000"). Numeric values are rejected.'
+        });
+        return;
+      }
+
       let parsedAmount: ParsedPaymentAmount;
       try {
         parsedAmount = validatePaymentAmount(amount);
@@ -123,6 +130,13 @@ export class PaymentGatewayController {
 
       if (!userId || !provider || amount === undefined || amount === null || amount === '' || !recipientAccount) {
         res.status(400).json({ error: 'Missing required parameters: userId, provider, amount, recipientAccount' });
+        return;
+      }
+
+      if (typeof amount !== 'string') {
+        res.status(400).json({
+          error: 'UNSAFE_NUMERIC_MONEY_INPUT: Monetary amount must be provided as an exact decimal string (e.g. "100.0000"). Numeric values are rejected.'
+        });
         return;
       }
 

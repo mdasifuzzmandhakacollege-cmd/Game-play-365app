@@ -78,7 +78,7 @@ async function runTests() {
         username: 'wd_tester',
         provider: 'bkash',
         method: 'BKASH',
-        amount: 2500,
+        amount: '2500.0000',
         currency: 'BDT',
         recipientAccount: '01700112233',
         idempotencyKey: `WD-KEY-${Date.now()}`
@@ -105,7 +105,7 @@ async function runTests() {
       username: 'dep_tester',
       provider: 'nagad',
       method: 'NAGAD',
-      amount: 1500,
+      amount: '1500.0000',
       currency: 'BDT'
     });
 
@@ -142,7 +142,7 @@ async function runTests() {
       username: 'ctrl_tester',
       provider: 'bkash',
       method: 'BKASH',
-      amount: 1000,
+      amount: '1000.0000',
       currency: 'BDT'
     });
 
@@ -204,7 +204,7 @@ async function runTests() {
         username: 'wager_blocked_user',
         provider: 'bkash',
         method: 'BKASH',
-        amount: 3000,
+        amount: '3000.0000',
         currency: 'BDT',
         recipientAccount: '01711223344'
       }

@@ -38,7 +38,7 @@ export function fromScale4(val: bigint): string {
 export function toScale4(val: string | bigint): bigint {
   if (typeof val === 'bigint') return val;
   if (typeof val === 'number') {
-    throw new Error('Unsafe JS number monetary input is rejected. Use exact decimal string or bigint minor units.');
+    throw new Error('UNSAFE_NUMERIC_MONEY_INPUT: Unsafe JS number monetary input is rejected. Use exact decimal string or bigint minor units.');
   }
   if (typeof val !== 'string') {
     throw new Error('Monetary input must be an exact decimal string or bigint minor units.');
@@ -69,6 +69,10 @@ export function validatePaymentAmount(amount: unknown): ParsedPaymentAmount {
     throw new Error('Monetary amount is required and cannot be empty.');
   }
 
+  if (typeof amount === 'number') {
+    throw new Error('UNSAFE_NUMERIC_MONEY_INPUT: Unsafe JS number monetary input is rejected. Use exact decimal string or bigint minor units.');
+  }
+
   let str: string;
   if (typeof amount === 'string') {
     str = amount.trim();
@@ -84,14 +88,6 @@ export function validatePaymentAmount(amount: unknown): ParsedPaymentAmount {
       minorUnits: amount,
       decimalString: fromScale4(amount)
     };
-  } else if (typeof amount === 'number') {
-    if (Number.isNaN(amount) || !Number.isFinite(amount)) {
-      throw new Error('Invalid monetary amount: NaN or Infinity is not allowed.');
-    }
-    if (amount <= 0) {
-      throw new Error('Monetary amount must be strictly greater than zero.');
-    }
-    str = String(amount).trim();
   } else {
     throw new Error('Invalid monetary amount type. Expected decimal string or minor units.');
   }

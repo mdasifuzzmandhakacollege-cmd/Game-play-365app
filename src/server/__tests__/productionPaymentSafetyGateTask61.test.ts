@@ -62,7 +62,7 @@ async function runTests() {
         username: 'user1',
         provider: 'bkash',
         method: 'BKASH',
-        amount: 500,
+        amount: '500.0000',
         currency: 'BDT',
         status: 'AWAITING_PAYMENT',
         destinationAccount: {} as any,
@@ -99,7 +99,7 @@ async function runTests() {
           username: 'user2',
           provider: ad.providerId,
           method: 'BKASH',
-          amount: 1000,
+          amount: '1000.0000',
           currency: 'BDT',
           status: 'AWAITING_PAYMENT',
           destinationAccount: {} as any,
@@ -124,7 +124,7 @@ async function runTests() {
       username: 'safetester',
       provider: 'bkash',
       method: 'BKASH',
-      amount: 750,
+      amount: '750.0000',
       currency: 'BDT'
     });
 
@@ -168,9 +168,9 @@ async function runTests() {
       throw new Error('Expected paymentRequests insertion with status: PENDING');
     }
 
-    // Ensure toScale4 is used for deposit amount parsing
-    if (!content.includes('toScale4(String(amount))')) {
-      throw new Error('Expected toScale4 validation for deposit amount');
+    // Ensure validatePaymentAmount is used for deposit amount parsing
+    if (!content.includes('validatePaymentAmount(amount)')) {
+      throw new Error('Expected validatePaymentAmount validation for deposit amount');
     }
   });
 

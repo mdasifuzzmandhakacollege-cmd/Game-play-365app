@@ -70,7 +70,7 @@ async function runTests() {
         username: 'phantom_tester',
         provider: 'bkash',
         method: 'BKASH',
-        amount: 2500,
+        amount: '2500.0000',
         currency: 'BDT'
       });
 
@@ -167,7 +167,7 @@ async function runTests() {
       username: 'settle_tester',
       provider: 'nagad',
       method: 'NAGAD',
-      amount: 5000,
+      amount: '5000.0000',
       currency: 'BDT'
     });
 
@@ -210,7 +210,7 @@ async function runTests() {
       username: 'unconf_tester',
       provider: 'bkash',
       method: 'BKASH',
-      amount: 1000,
+      amount: '1000.0000',
       currency: 'BDT'
     });
 

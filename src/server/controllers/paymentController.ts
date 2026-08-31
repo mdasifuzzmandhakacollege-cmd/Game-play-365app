@@ -35,11 +35,17 @@ export class PaymentController {
         return;
       }
 
+      if (typeof amount !== 'string') {
+        res.status(400).json({
+          error: 'UNSAFE_NUMERIC_MONEY_INPUT: Monetary amount must be provided as an exact decimal string.'
+        });
+        return;
+      }
+
       // Exact Scale-4 validation to prevent floating point inaccuracies
       let amountMinor: bigint;
       let normalizedAmount: string;
       try {
-        amountMinor = toScale4(String(amount));
         const parsed = validatePaymentAmount(amount);
         amountMinor = parsed.minorUnits;
         normalizedAmount = parsed.decimalString;
@@ -127,6 +133,13 @@ export class PaymentController {
 
       if (!userId || !method || amount === undefined || amount === null || amount === '' || !receiverNumber) {
         res.status(400).json({ error: 'Missing required withdrawal parameters' });
+        return;
+      }
+
+      if (typeof amount !== 'string') {
+        res.status(400).json({
+          error: 'UNSAFE_NUMERIC_MONEY_INPUT: Monetary amount must be provided as an exact decimal string.'
+        });
         return;
       }
 

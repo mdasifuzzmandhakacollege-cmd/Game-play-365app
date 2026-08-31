@@ -99,10 +99,18 @@ async function runTests() {
     expectThrow(() => validatePaymentAmount(undefined), /Monetary amount is required/);
   });
 
-  // Test 5: Malformed formats rejection
-  await assert('5. Rejects NaN, Infinity, -Infinity and malformed format strings', () => {
-    expectThrow(() => validatePaymentAmount(NaN), /NaN or Infinity is not allowed/);
-    expectThrow(() => validatePaymentAmount(Infinity), /NaN or Infinity is not allowed/);
+  // Test 5: Rejection of JS numbers (Task 6.1.4.1)
+  await assert('5. validatePaymentAmount rejects JavaScript/JSON numbers with UNSAFE_NUMERIC_MONEY_INPUT', () => {
+    expectThrow(() => validatePaymentAmount(100), /UNSAFE_NUMERIC_MONEY_INPUT/);
+    expectThrow(() => validatePaymentAmount(100.5), /UNSAFE_NUMERIC_MONEY_INPUT/);
+    expectThrow(() => validatePaymentAmount(0.0516), /UNSAFE_NUMERIC_MONEY_INPUT/);
+    expectThrow(() => validatePaymentAmount(1e3), /UNSAFE_NUMERIC_MONEY_INPUT/);
+  });
+
+  // Test 6: Malformed formats rejection
+  await assert('6. Rejects NaN, Infinity, -Infinity and malformed format strings', () => {
+    expectThrow(() => validatePaymentAmount(NaN), /UNSAFE_NUMERIC_MONEY_INPUT/);
+    expectThrow(() => validatePaymentAmount(Infinity), /UNSAFE_NUMERIC_MONEY_INPUT/);
     expectThrow(() => validatePaymentAmount('NaN'), /Invalid monetary amount format/);
     expectThrow(() => validatePaymentAmount('Infinity'), /Invalid monetary amount format/);
     expectThrow(() => validatePaymentAmount('-Infinity'), /Invalid monetary amount format|cannot be negative/);
@@ -112,12 +120,13 @@ async function runTests() {
     expectThrow(() => validatePaymentAmount('1.'), /Invalid monetary decimal string format/);
   });
 
-  // Test 6: toScale4 rejects unsafe JS number types
-  await assert('6. toScale4 rejects unsafe JS floating point numbers', () => {
-    expectThrow(() => toScale4(100 as any), /Unsafe JS number monetary input is rejected/);
+  // Test 7: toScale4 rejects unsafe JS number types
+  await assert('7. toScale4 rejects unsafe JS floating point numbers with UNSAFE_NUMERIC_MONEY_INPUT', () => {
+    expectThrow(() => toScale4(100 as any), /UNSAFE_NUMERIC_MONEY_INPUT/);
+    expectThrow(() => toScale4(0.0516 as any), /UNSAFE_NUMERIC_MONEY_INPUT/);
   });
 
-  // Test 7: HTTP Controller Endpoint Validation
+  // Test 8: HTTP Controller Endpoint Validation
   const controller = new PaymentGatewayController();
   const mockResponse = () => {
     const res: any = {};
@@ -133,7 +142,31 @@ async function runTests() {
     return res;
   };
 
-  await assert('7. PaymentGatewayController deposit rejects over-precision, scientific notation & negative amounts', async () => {
+  await assert('8. PaymentGatewayController deposit rejects numeric amounts (100, 0.0516) with 400 & UNSAFE_NUMERIC_MONEY_INPUT', async () => {
+    const req1: any = {
+      body: { userId: '101', username: 'Player1', provider: 'bkash', amount: 100 },
+      headers: {},
+      socket: {}
+    };
+    const res1 = mockResponse();
+    await controller.createDepositIntent(req1, res1);
+    if (res1.statusCode !== 400 || !res1.body.error.includes('UNSAFE_NUMERIC_MONEY_INPUT')) {
+      throw new Error(`Expected 400 with UNSAFE_NUMERIC_MONEY_INPUT, got ${res1.statusCode} ${JSON.stringify(res1.body)}`);
+    }
+
+    const req2: any = {
+      body: { userId: '101', username: 'Player1', provider: 'bkash', amount: 0.0516 },
+      headers: {},
+      socket: {}
+    };
+    const res2 = mockResponse();
+    await controller.createDepositIntent(req2, res2);
+    if (res2.statusCode !== 400 || !res2.body.error.includes('UNSAFE_NUMERIC_MONEY_INPUT')) {
+      throw new Error(`Expected 400 with UNSAFE_NUMERIC_MONEY_INPUT, got ${res2.statusCode} ${JSON.stringify(res2.body)}`);
+    }
+  });
+
+  await assert('9. PaymentGatewayController deposit rejects over-precision, scientific notation & negative amounts', async () => {
     // Over-precision
     const req1: any = {
       body: { userId: '101', username: 'Player1', provider: 'bkash', amount: '1.23456' },
@@ -171,41 +204,84 @@ async function runTests() {
     }
   });
 
-  await assert('8. PaymentGatewayController accepts valid scale-4 decimal strings without float conversions', async () => {
-    const req: any = {
-      body: { userId: '101', username: 'Player1', provider: 'bkash', amount: '500.0000' },
+  await assert('10. PaymentGatewayController accepts valid scale-4 decimal strings ("100", "0.0516") without float conversions', async () => {
+    const req1: any = {
+      body: { userId: '101', username: 'Player1', provider: 'bkash', amount: '100' },
       headers: {},
       socket: {}
     };
-    const res = mockResponse();
-    await controller.createDepositIntent(req, res);
-    if (res.statusCode !== 201 || !res.body.success || res.body.data.amount !== '500.0000') {
-      throw new Error(`Expected 201 with amount '500.0000', got ${res.statusCode} ${JSON.stringify(res.body)}`);
+    const res1 = mockResponse();
+    await controller.createDepositIntent(req1, res1);
+    if (res1.statusCode !== 201 || !res1.body.success || res1.body.data.amount !== '100.0000') {
+      throw new Error(`Expected 201 with amount '100.0000', got ${res1.statusCode} ${JSON.stringify(res1.body)}`);
+    }
+
+    const req2: any = {
+      body: { userId: '101', username: 'Player1', provider: 'bkash', amount: '0.0516' },
+      headers: {},
+      socket: {}
+    };
+    const res2 = mockResponse();
+    await controller.createDepositIntent(req2, res2);
+    if (res2.statusCode !== 201 || !res2.body.success || res2.body.data.amount !== '0.0516') {
+      throw new Error(`Expected 201 with amount '0.0516', got ${res2.statusCode} ${JSON.stringify(res2.body)}`);
     }
   });
 
-  await assert('9. PaymentGatewayController withdrawal rejects invalid amount formats', async () => {
-    const req: any = {
+  await assert('11. PaymentGatewayController withdrawal rejects numeric amount & invalid formats', async () => {
+    const req1: any = {
+      body: { userId: '101', username: 'Player1', provider: 'nagad', amount: 500, recipientAccount: '01811223344' },
+      headers: {},
+      socket: {}
+    };
+    const res1 = mockResponse();
+    await controller.requestWithdrawal(req1, res1);
+    if (res1.statusCode !== 400 || !res1.body.error.includes('UNSAFE_NUMERIC_MONEY_INPUT')) {
+      throw new Error(`Expected 400 with UNSAFE_NUMERIC_MONEY_INPUT, got ${res1.statusCode} ${JSON.stringify(res1.body)}`);
+    }
+
+    const req2: any = {
       body: { userId: '101', username: 'Player1', provider: 'nagad', amount: 'abc', recipientAccount: '01811223344' },
       headers: {},
       socket: {}
     };
-    const res = mockResponse();
-    await controller.requestWithdrawal(req, res);
-    if (res.statusCode !== 400 || !res.body.error.includes('Invalid monetary amount')) {
-      throw new Error(`Expected 400 with invalid monetary amount error, got ${res.statusCode} ${JSON.stringify(res.body)}`);
+    const res2 = mockResponse();
+    await controller.requestWithdrawal(req2, res2);
+    if (res2.statusCode !== 400 || !res2.body.error.includes('Invalid monetary amount')) {
+      throw new Error(`Expected 400 with invalid monetary amount error, got ${res2.statusCode} ${JSON.stringify(res2.body)}`);
     }
   });
 
-  // Test 10: Static code analysis of controllers
-  await assert('10. Static Code Analysis: paymentGatewayController.ts contains ZERO Number(amount) conversions', () => {
-    const filePath = path.join(process.cwd(), 'src', 'server', 'controllers', 'paymentGatewayController.ts');
-    const content = fs.readFileSync(filePath, 'utf-8');
-    if (content.includes('Number(amount)')) {
+  // Test 12: Static code analysis of controllers
+  await assert('12. Static Code Analysis: controllers contain ZERO Number(amount) or String(amount) rescues', () => {
+    const pgcPath = path.join(process.cwd(), 'src', 'server', 'controllers', 'paymentGatewayController.ts');
+    const pgcContent = fs.readFileSync(pgcPath, 'utf-8');
+    if (pgcContent.includes('Number(amount)')) {
       throw new Error('paymentGatewayController.ts must not contain Number(amount) conversions');
     }
-    if (!content.includes('validatePaymentAmount(amount)')) {
-      throw new Error('paymentGatewayController.ts must call validatePaymentAmount(amount)');
+    if (pgcContent.includes('String(amount)')) {
+      throw new Error('paymentGatewayController.ts must not contain String(amount) rescues');
+    }
+    if (pgcContent.includes('parseFloat(amount)')) {
+      throw new Error('paymentGatewayController.ts must not contain parseFloat(amount)');
+    }
+    if (!pgcContent.includes('typeof amount !== \'string\'')) {
+      throw new Error('paymentGatewayController.ts must check typeof amount !== \'string\'');
+    }
+
+    const pcPath = path.join(process.cwd(), 'src', 'server', 'controllers', 'paymentController.ts');
+    const pcContent = fs.readFileSync(pcPath, 'utf-8');
+    if (pcContent.includes('Number(amount)')) {
+      throw new Error('paymentController.ts must not contain Number(amount) conversions');
+    }
+    if (pcContent.includes('String(amount)')) {
+      throw new Error('paymentController.ts must not contain String(amount) rescues');
+    }
+    if (pcContent.includes('parseFloat(amount)')) {
+      throw new Error('paymentController.ts must not contain parseFloat(amount)');
+    }
+    if (!pcContent.includes('typeof amount !== \'string\'')) {
+      throw new Error('paymentController.ts must check typeof amount !== \'string\'');
     }
   });
 
