@@ -6,3 +6,5 @@
 export * from './types';
 export * from './fixtures';
 export * from './sandboxPaymentAdapter';
+export * from './router';
+export * from '../controllers/sandboxPaymentController';

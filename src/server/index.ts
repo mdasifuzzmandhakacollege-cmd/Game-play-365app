@@ -19,6 +19,7 @@ import { getVipDetailsHandler, claimVipBonusHandler, VipService } from './contro
 import { getPromotionDetailsHandler, claimCheckInHandler, spinWheelHandler, convertBonusHandler, getWageringStatusHandler, PromotionService } from './controllers/promotionController';
 import { WageringService } from './services/wageringService';
 import { createProviderGatewayRouter } from './controllers/providerGatewayController';
+import { createSandboxRouter } from './sandbox';
 import { requireAuth, requireAdmin, getAuthoritativeUserRole, AuthRequest } from '../middleware/auth.js';
 
 
@@ -91,6 +92,12 @@ paymentV2Router.get('/destination-pool', requireAdmin, (req, res) => paymentGate
 paymentV2Router.get('/stats', requireAdmin, (req, res) => paymentGatewayController.getStats(req, res));
 
 app.use('/api/v2/payment', paymentV2Router);
+
+// ----------------------------------------------------------------------------
+// 5b. Authenticated Sandbox Payment Flow Routes (PLAY369 Task 6.2B)
+// Disabled in production (returns 404 SANDBOX_ROUTE_DISABLED)
+// ----------------------------------------------------------------------------
+app.use('/api/sandbox', createSandboxRouter());
 
 // ----------------------------------------------------------------------------
 // 6. Multi-Tier Affiliate, VIP & Promotion Routes
