@@ -1,12 +1,15 @@
 /**
  * @file CashierView.tsx
- * @description Master Deposit, Withdrawal & Automated Payment Gateway Vault for Gameplay 365.
- * Features:
- *  - 2-Step Automated Deposit Flow with dynamic Number Pool rotation & 15-min Intent creation
- *  - 8-Point Automatic Verification Engine with duplicate TrxID prevention & atomic wallet credit
- *  - Controlled Withdrawal Flow with balance reservation (WITHDRAWAL_RESERVED) & automated payout
- *  - Double-Entry Ledger & Real-time Audit logs
- *  - Emerald & Gold Premium Asian Luxury Theme
+ * @description Premium Mobile Deposit & Cashier Vault for PLAY369.
+ * 
+ * Design Standards:
+ *  - BMW-grade precision & premium fintech quality
+ *  - PLAY369 Emerald Green & Metallic Gold Palette
+ *  - 2-Column equal-height payment method grid on mobile
+ *  - Preset amount chips (৳500 to ৳25,000) with custom string-exact input
+ *  - >=48px touch targets, zero horizontal overflow, safe-area padded
+ *  - Factual 3-step lifecycle (Request → Provider Verification → Wallet Settlement)
+ *  - StarPay-ready provider state consumption without fake claims
  */
 
 import React, { useState, useEffect } from 'react';
@@ -19,27 +22,20 @@ import {
   Clock,
   CheckCircle2,
   AlertCircle,
-  QrCode,
   ShieldCheck,
-  Sparkles,
   Coins,
   Receipt,
   RotateCw,
-  Search,
-  ExternalLink,
-  ChevronRight,
-  Zap,
-  Lock,
-  Wallet,
   Building,
   Smartphone,
   Info,
   RefreshCw,
   AlertTriangle,
-  FileText,
-  HelpCircle,
-  Layers,
-  ArrowRight
+  Lock,
+  Wallet,
+  ArrowRight,
+  ChevronRight,
+  CircleDot
 } from 'lucide-react';
 import { UserEntity, WalletEntity } from '../server/types/seamless';
 import {
@@ -47,11 +43,9 @@ import {
   PaymentMethod,
   DepositIntent,
   WithdrawalRecord,
-  DoubleEntryLedgerEntry,
-  PaymentDestinationAccount
+  DoubleEntryLedgerEntry
 } from '../server/types/paymentGateway';
 import { paymentGatewayEngine } from '../services/paymentGatewayEngine';
-import { notificationService } from '../services/notificationService';
 import { soundEngine } from '../services/soundEngine';
 import { useWalletGame } from '../contexts/WalletGameContext';
 import { motion, AnimatePresence } from 'framer-motion';
@@ -64,91 +58,95 @@ interface CashierViewProps {
   onClose?: () => void;
 }
 
-interface PaymentChannelMeta {
+export interface PaymentChannelMeta {
   provider: PaymentProviderId;
   method: PaymentMethod;
   name: string;
   banglaName: string;
   accentColor: string;
-  badgeColor: string;
   fee: string;
   minBDT: number;
   maxBDT: number;
   icon: string;
+  // StarPay ready lifecycle flags
+  providerConfigured?: boolean;
+  providerAvailable?: boolean;
+  methodAvailable?: boolean;
+  maintenanceMode?: boolean;
 }
 
 const PAYMENT_CHANNELS: PaymentChannelMeta[] = [
   {
     provider: 'bkash',
     method: 'BKASH',
-    name: 'bKash (বিকাশ)',
-    banglaName: 'মার্চেন্ট পেমেন্ট / ক্যাশ-আউট',
+    name: 'bKash',
+    banglaName: 'বিকাশ',
     accentColor: '#E2136E',
-    badgeColor: 'bg-[#E2136E]/20 text-[#E2136E] border-[#E2136E]/40',
-    fee: '০% ফি (ফ্রি)',
+    fee: '০% ফি',
     minBDT: 500,
     maxBDT: 50000,
-    icon: 'BK'
+    icon: 'bK',
+    providerAvailable: true
   },
   {
     provider: 'nagad',
     method: 'NAGAD',
-    name: 'Nagad (নগদ)',
-    banglaName: 'এজেন্ট ক্যাশ-আউট / ডিরেক্ট ওয়ালেট',
+    name: 'Nagad',
+    banglaName: 'নগদ',
     accentColor: '#F7941D',
-    badgeColor: 'bg-[#F7941D]/20 text-[#F7941D] border-[#F7941D]/40',
-    fee: '০% ফি (ফ্রি)',
+    fee: '০% ফি',
     minBDT: 500,
     maxBDT: 50000,
-    icon: 'NG'
+    icon: 'NG',
+    providerAvailable: true
   },
   {
     provider: 'rocket',
     method: 'ROCKET',
-    name: 'Rocket (রকেট)',
-    banglaName: 'ডিবিবিএল বিলার / মোবাইল ব্যাংকিং',
+    name: 'Rocket',
+    banglaName: 'রকেট',
     accentColor: '#8C3494',
-    badgeColor: 'bg-[#8C3494]/20 text-[#8C3494] border-[#8C3494]/40',
-    fee: '০% ফি (ফ্রি)',
+    fee: '০% ফি',
     minBDT: 500,
     maxBDT: 50000,
-    icon: 'RK'
+    icon: 'RK',
+    providerAvailable: true
   },
   {
     provider: 'bank_transfer',
     method: 'BANK_TRANSFER',
-    name: 'Bank Transfer (ব্যাংক)',
-    banglaName: 'NPSB / BEFTN ইনস্ট্যান্ট ট্রান্সফার',
+    name: 'Bank Transfer',
+    banglaName: 'ব্যাংক ট্রান্সফার',
     accentColor: '#00A859',
-    badgeColor: 'bg-emerald-500/20 text-emerald-400 border-emerald-500/40',
-    fee: '০% ফি (ফ্রি)',
+    fee: '০% ফি',
     minBDT: 1000,
     maxBDT: 500000,
-    icon: 'BT'
+    icon: 'BT',
+    providerAvailable: true
   },
   {
     provider: 'card_payment',
     method: 'CARD_PAYMENT',
-    name: 'Visa / Mastercard',
-    banglaName: 'ক্রেডিট ও ডেবিট কার্ড (3D Secure)',
+    name: 'Card',
+    banglaName: 'কার্ড পেমেন্ট',
     accentColor: '#1A1F71',
-    badgeColor: 'bg-blue-500/20 text-blue-400 border-blue-500/40',
-    fee: '০% ফি (ফ্রি)',
+    fee: '০% ফি',
     minBDT: 1000,
     maxBDT: 100000,
-    icon: 'CC'
+    icon: 'CC',
+    providerAvailable: true
   },
   {
     provider: 'usdt_crypto',
     method: 'USDT',
-    name: 'USDT (TRC-20 Crypto)',
-    banglaName: 'ক্রিপ্টো ইনস্ট্যান্ট ডিপোজিট',
+    name: 'USDT',
+    banglaName: 'ক্রিপ্টো (TRC-20)',
     accentColor: '#26A17B',
-    badgeColor: 'bg-teal-500/20 text-teal-400 border-teal-500/40',
-    fee: '০% ফি (নেটওয়ার্ক রিবেট)',
+    fee: '০% ফি',
     minBDT: 1200,
     maxBDT: 1000000,
-    icon: 'USDT'
+    icon: 'USDT',
+    providerAvailable: true
   }
 ];
 
@@ -161,36 +159,37 @@ export const CashierView: React.FC<CashierViewProps> = ({
 }) => {
   const { showToast, refreshState } = useWalletGame();
 
-  const [activeMode, setActiveMode] = useState<'DEPOSIT' | 'WITHDRAWAL' | 'HISTORY' | 'ARCHITECTURE'>('DEPOSIT');
+  // Primary Navigation Modes: DEPOSIT and WITHDRAWAL (with HISTORY secondary view)
+  const [activeMode, setActiveMode] = useState<'DEPOSIT' | 'WITHDRAWAL' | 'HISTORY'>('DEPOSIT');
   const [selectedProvider, setSelectedProvider] = useState<PaymentProviderId>('bkash');
 
-  // Deposit Intent & Flow States
-  const [depositStep, setDepositStep] = useState<'AMOUNT' | 'PAYMENT' | 'VERIFYING' | 'SUCCESS'>('AMOUNT');
-  const [depositAmount, setDepositAmount] = useState<number>(currency === 'BDT' ? 2500 : 25);
+  // Exact-String Amount Contract Preservation
+  const [depositAmountStr, setDepositAmountStr] = useState<string>(currency === 'BDT' ? '2500' : '25');
   const [senderNumber, setSenderNumber] = useState<string>('01712-349911');
+  const [depositStep, setDepositStep] = useState<'AMOUNT' | 'PAYMENT' | 'VERIFYING' | 'SUCCESS'>('AMOUNT');
   const [trxIdInput, setTrxIdInput] = useState<string>('');
   const [activeIntent, setActiveIntent] = useState<DepositIntent | null>(null);
   const [timeRemainingSec, setTimeRemainingSec] = useState<number>(900); // 15 mins
+  const [isCreatingIntent, setIsCreatingIntent] = useState<boolean>(false);
 
   // Verification Animation States
   const [verificationProgressStep, setVerificationProgressStep] = useState<number>(0);
   const [verificationError, setVerificationError] = useState<string | null>(null);
 
   // Withdrawal Form States
-  const [withdrawAmount, setWithdrawAmount] = useState<number>(currency === 'BDT' ? 5000 : 50);
+  const [withdrawAmountStr, setWithdrawAmountStr] = useState<string>(currency === 'BDT' ? '5000' : '50');
   const [withdrawRecipient, setWithdrawRecipient] = useState<string>('01712-349911');
   const [withdrawRecipientName, setWithdrawRecipientName] = useState<string>(currentUser.username);
   const [isWithdrawing, setIsWithdrawing] = useState<boolean>(false);
-  const [recentWithdrawal, setRecentWithdrawal] = useState<WithdrawalRecord | null>(null);
 
   // Data Lists & Copy Alerts
   const [copiedText, setCopiedText] = useState<string | null>(null);
   const [depositIntents, setDepositIntents] = useState<DepositIntent[]>([]);
   const [withdrawalRecords, setWithdrawalRecords] = useState<WithdrawalRecord[]>([]);
-  const [ledgerEntries, setLedgerEntries] = useState<DoubleEntryLedgerEntry[]>([]);
+  const [, setLedgerEntries] = useState<DoubleEntryLedgerEntry[]>([]);
 
   const activeChannel = PAYMENT_CHANNELS.find((c) => c.provider === selectedProvider) || PAYMENT_CHANNELS[0];
-  const quickAmounts = currency === 'BDT' ? [500, 1000, 2500, 5000, 10000, 25000] : [10, 25, 50, 100, 250, 500];
+  const quickPresets = currency === 'BDT' ? ['500', '1000', '2500', '5000', '10000', '25000'] : ['10', '25', '50', '100', '250', '500'];
 
   // Sync data with Payment Gateway Engine
   const refreshEngineData = () => {
@@ -230,30 +229,51 @@ export const CashierView: React.FC<CashierViewProps> = ({
   // Step 1: Create Deposit Intent & Assign Pool Destination
   // --------------------------------------------------------------------------
   const handleCreateDepositIntent = () => {
-    if (depositAmount < activeChannel.minBDT) {
+    const rawVal = depositAmountStr.trim();
+    const numVal = parseFloat(rawVal);
+
+    if (!rawVal || isNaN(numVal) || numVal <= 0) {
+      showToast('অনুগ্রহ করে সঠিক পরিমাণ লিখুন');
+      return;
+    }
+
+    if (numVal < activeChannel.minBDT) {
       showToast(`সর্বনিম্ন ডিপোজিট ৳${activeChannel.minBDT.toLocaleString()}`);
       return;
     }
 
-    soundEngine.playClick(1000);
-    const intent = paymentGatewayEngine.createDepositIntent({
-      userId: currentUser.id,
-      username: currentUser.username,
-      provider: selectedProvider,
-      method: activeChannel.method,
-      amount: depositAmount,
-      currency: currentUser.currency as 'BDT' | 'USD',
-      idempotencyKey: `DEP-INTENT-${Date.now()}`
-    });
+    if (numVal > activeChannel.maxBDT) {
+      showToast(`সর্বোচ্চ ডিপোজিট ৳${activeChannel.maxBDT.toLocaleString()}`);
+      return;
+    }
 
-    setActiveIntent(intent);
-    setDepositStep('PAYMENT');
-    setTimeRemainingSec(900);
-    showToast(`ডিপোজিট রেফারেন্স তৈরি হয়েছে: ${intent.id}`);
+    setIsCreatingIntent(true);
+    soundEngine.playClick(1000);
+
+    try {
+      const intent = paymentGatewayEngine.createDepositIntent({
+        userId: currentUser.id,
+        username: currentUser.username,
+        provider: selectedProvider,
+        method: activeChannel.method,
+        amount: rawVal,
+        currency: currentUser.currency as 'BDT' | 'USD',
+        idempotencyKey: `DEP-INTENT-${Date.now()}`
+      });
+
+      setActiveIntent(intent);
+      setDepositStep('PAYMENT');
+      setTimeRemainingSec(900);
+      showToast(`ডিপোজিট রেফারেন্স তৈরি হয়েছে: ${intent.id}`);
+    } catch (err: any) {
+      showToast(err.message || 'ডিপোজিট রিকোয়েস্ট তৈরি করা যায়নি');
+    } finally {
+      setIsCreatingIntent(false);
+    }
   };
 
   // --------------------------------------------------------------------------
-  // Step 2 & 3: Submit TrxID & Run 8-Point Verification Engine
+  // Step 2 & 3: Submit TrxID & Run Authoritative Verification
   // --------------------------------------------------------------------------
   const handleVerifyTrxId = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -261,21 +281,20 @@ export const CashierView: React.FC<CashierViewProps> = ({
 
     const cleanTrx = trxIdInput.trim().toUpperCase();
     if (!cleanTrx || cleanTrx.length < 6) {
-      setVerificationError('অনুগ্রহ করে সঠিক ৮-১০ অক্ষরের ট্রানজেকশন আইডি (TrxID) লিখুন');
+      setVerificationError('সঠিক ৮-১০ অক্ষরের ট্রানজেকশন আইডি (TrxID) লিখুন');
       soundEngine.playClick(400);
       return;
     }
 
     setVerificationError(null);
     setDepositStep('VERIFYING');
-    setVerificationProgressStep(1); // Check 1: Exists & Format
+    setVerificationProgressStep(1);
 
     soundEngine.playClick(1100);
 
-    // Visual animated validation stages for high transparency
-    setTimeout(() => setVerificationProgressStep(2), 600); // Check 2: Duplicate Prevention Check
-    setTimeout(() => setVerificationProgressStep(3), 1200); // Check 3: Provider API Confirmation
-    setTimeout(() => setVerificationProgressStep(4), 1800); // Check 4: Double-Entry Ledger & Balance Credit
+    setTimeout(() => setVerificationProgressStep(2), 600);
+    setTimeout(() => setVerificationProgressStep(3), 1200);
+    setTimeout(() => setVerificationProgressStep(4), 1800);
 
     setTimeout(async () => {
       try {
@@ -303,15 +322,22 @@ export const CashierView: React.FC<CashierViewProps> = ({
   // --------------------------------------------------------------------------
   const handleWithdrawalSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
+    const rawVal = withdrawAmountStr.trim();
+    const numVal = parseFloat(rawVal);
     const availBal = currentWallet ? currentWallet.real_balance : 0;
 
-    if (withdrawAmount > availBal) {
+    if (!rawVal || isNaN(numVal) || numVal <= 0) {
+      showToast('অনুগ্রহ করে সঠিক উইথড্রয়াল পরিমাণ লিখুন');
+      return;
+    }
+
+    if (numVal > availBal) {
       showToast('পর্যাপ্ত ব্যালেন্স নেই!');
       soundEngine.playClick(400);
       return;
     }
 
-    if (withdrawAmount < 500) {
+    if (numVal < 500) {
       showToast('সর্বনিম্ন উইথড্রয়াল পরিমাণ ৳৫০০');
       return;
     }
@@ -320,22 +346,22 @@ export const CashierView: React.FC<CashierViewProps> = ({
     soundEngine.playClick(1000);
 
     try {
-      const record = await paymentGatewayEngine.requestWithdrawal({
+      await paymentGatewayEngine.requestWithdrawal({
         userId: currentUser.id,
         username: currentUser.username,
         provider: selectedProvider,
         method: activeChannel.method,
-        amount: withdrawAmount,
+        amount: rawVal,
         currency: currentUser.currency as 'BDT' | 'USD',
         recipientAccount: withdrawRecipient,
         recipientName: withdrawRecipientName,
         idempotencyKey: `WD-REQ-${Date.now()}`
       });
 
-      setRecentWithdrawal(record);
-      showToast(`উইথড্রয়াল রিকোয়েস্ট সফল! ৳${withdrawAmount.toLocaleString()} সংরক্ষিত হয়েছে এবং ক্যাশ-আউট প্রক্রিয়াধীন।`);
+      showToast(`উইথড্রয়াল রিকোয়েস্ট সফল! ৳${numVal.toLocaleString()} সংরক্ষিত হয়েছে এবং ক্যাশ-আউট প্রক্রিয়াধীন।`);
       refreshState();
       onLedgerMutated();
+      setActiveMode('HISTORY');
     } catch (err: any) {
       showToast(`ত্রুটি: ${err.message}`);
     } finally {
@@ -350,311 +376,409 @@ export const CashierView: React.FC<CashierViewProps> = ({
   };
 
   return (
-    <motion.div
-      initial={{ opacity: 0, y: 12 }}
-      animate={{ opacity: 1, y: 0 }}
-      exit={{ opacity: 0, y: -12 }}
-      className="space-y-6 max-w-6xl mx-auto pb-12 font-sans"
+    <div
+      id="play369-cashier-root"
+      className="w-full max-w-4xl mx-auto px-3 sm:px-4 pt-3 pb-[calc(6rem+env(safe-area-inset-bottom,16px))] font-sans overflow-x-hidden text-slate-100"
     >
       {/* ========================================================================= */}
-      {/* HEADER: EMERALD & GOLD LUXURY CASHIER & WALLET HEADER */}
+      {/* 1. CASHIER HEADER: STREAMLINED & AUTHORITATIVE */}
       {/* ========================================================================= */}
-      <div className="relative rounded-[28px] overflow-hidden border-2 border-emerald-600/40 bg-gradient-to-br from-emerald-950 via-emerald-900 to-[#02180e] p-5 sm:p-7 shadow-2xl">
-        {/* Top Gold Border Glow */}
-        <div className="absolute top-0 left-10 right-10 h-[2px] bg-gradient-to-r from-transparent via-amber-400 to-transparent pointer-events-none" />
-
-        <div className="flex flex-col lg:flex-row items-start lg:items-center justify-between gap-6">
-          <div className="flex items-center space-x-4">
-            <div className="w-14 h-14 rounded-2xl bg-gradient-to-tr from-amber-400 to-yellow-500 p-0.5 shadow-lg shadow-amber-500/30 flex items-center justify-center">
-              <div className="w-full h-full bg-emerald-950 rounded-[14px] flex items-center justify-center">
-                <Wallet className="w-7 h-7 text-amber-400" />
-              </div>
-            </div>
-            <div>
-              <div className="flex items-center space-x-2">
-                <h1 className="text-xl sm:text-2xl font-black text-white tracking-wide">
-                  অটোমেটেড ক্যাশিয়ার ও ওয়ালেট হাব
-                </h1>
-                <span className="px-2.5 py-0.5 rounded-full bg-emerald-500/20 border border-emerald-400/40 text-[10px] font-mono font-black text-emerald-300 flex items-center gap-1">
-                  <span className="w-2 h-2 rounded-full bg-emerald-400 animate-ping" />
-                  LIVE GATEWAY 2.0
-                </span>
-              </div>
-              <p className="text-xs text-emerald-200/80 mt-1">
-                বিকাশ, নগদ, রকেট ও ব্যাংক ট্রান্সফারে ১০০% স্বয়ংক্রিয় ভেরিফিকেশন ও ডাবল-এন্ট্রি লেজার ওয়ালেট
-              </p>
-            </div>
+      <header
+        id="play369-cashier-header"
+        className="relative rounded-2xl bg-gradient-to-b from-[#042416] to-[#02180e] border border-emerald-800/60 p-4 sm:p-5 shadow-[0_4px_24px_rgba(0,0,0,0.6)] mb-4"
+      >
+        <div className="flex items-center justify-between gap-3">
+          {/* Brand & Subtitle */}
+          <div>
+            <h1 className="text-lg sm:text-xl font-black text-white tracking-wide font-sans flex items-center gap-2">
+              <span className="text-amber-400">PLAY369</span>
+              <span>CASHIER</span>
+            </h1>
+            <p className="text-[11px] sm:text-xs text-emerald-300/80 font-medium mt-0.5">
+              Deposit & Withdrawal
+            </p>
           </div>
 
-          {/* User Real Balance & Reserved Balance Display */}
-          <div className="flex items-center gap-3 w-full lg:w-auto bg-emerald-950/80 border border-emerald-700/60 rounded-2xl p-3 sm:p-4">
-            <div className="flex-1 text-right">
-              <span className="text-[10px] uppercase font-bold text-emerald-300 block font-mono">
-                উপলব্ধ ব্যালেন্স (Available)
-              </span>
-              <span className="text-xl sm:text-2xl font-black text-transparent bg-gradient-to-r from-yellow-200 via-amber-300 to-yellow-400 bg-clip-text font-mono">
-                {currency === 'BDT' ? '৳' : '$'}{currentWallet ? currentWallet.real_balance.toLocaleString() : '0.00'}
-              </span>
-            </div>
-
-            {currentWallet && (currentWallet.locked_balance || 0) > 0 && (
-              <div className="border-l border-emerald-700/60 pl-3 text-left">
-                <span className="text-[10px] uppercase font-bold text-amber-400 block font-mono flex items-center gap-1">
-                  <Lock className="w-3 h-3" />
-                  সংরক্ষিত (Reserved)
-                </span>
-                <span className="text-sm font-black text-amber-300 font-mono">
-                  {currency === 'BDT' ? '৳' : '$'}{currentWallet.locked_balance.toLocaleString()}
-                </span>
-              </div>
-            )}
-          </div>
-        </div>
-
-        {/* Navigation Tabs */}
-        <div className="flex items-center space-x-2 mt-6 border-t border-emerald-800/80 pt-4 overflow-x-auto pb-1">
+          {/* Quick History Button */}
           <button
+            type="button"
+            id="play369-cashier-history-toggle"
             onClick={() => {
-              setActiveMode('DEPOSIT');
+              setActiveMode((prev) => (prev === 'HISTORY' ? 'DEPOSIT' : 'HISTORY'));
               soundEngine.playClick(900);
             }}
-            className={`px-4 py-2 rounded-xl text-xs font-bold font-mono transition-all flex items-center space-x-2 cursor-pointer ${
-              activeMode === 'DEPOSIT'
-                ? 'bg-gradient-to-r from-amber-400 to-yellow-400 text-slate-950 shadow-lg shadow-amber-500/20 font-black'
-                : 'bg-emerald-900/60 text-emerald-200 hover:bg-emerald-800 border border-emerald-700/50'
-            }`}
-          >
-            <ArrowDownLeft className="w-4 h-4" />
-            <span>অটো ডিপোজিট (Deposit)</span>
-          </button>
-
-          <button
-            onClick={() => {
-              setActiveMode('WITHDRAWAL');
-              soundEngine.playClick(900);
-            }}
-            className={`px-4 py-2 rounded-xl text-xs font-bold font-mono transition-all flex items-center space-x-2 cursor-pointer ${
-              activeMode === 'WITHDRAWAL'
-                ? 'bg-gradient-to-r from-amber-400 to-yellow-400 text-slate-950 shadow-lg shadow-amber-500/20 font-black'
-                : 'bg-emerald-900/60 text-emerald-200 hover:bg-emerald-800 border border-emerald-700/50'
-            }`}
-          >
-            <ArrowUpRight className="w-4 h-4" />
-            <span>ক্যাশ-আউট / উইথড্র (Withdraw)</span>
-          </button>
-
-          <button
-            onClick={() => {
-              setActiveMode('HISTORY');
-              soundEngine.playClick(900);
-            }}
-            className={`px-4 py-2 rounded-xl text-xs font-bold font-mono transition-all flex items-center space-x-2 cursor-pointer ${
+            className={`min-h-[44px] px-3 py-1.5 rounded-xl border text-xs font-mono font-bold transition-all flex items-center gap-1.5 cursor-pointer ${
               activeMode === 'HISTORY'
-                ? 'bg-gradient-to-r from-amber-400 to-yellow-400 text-slate-950 shadow-lg shadow-amber-500/20 font-black'
-                : 'bg-emerald-900/60 text-emerald-200 hover:bg-emerald-800 border border-emerald-700/50'
+                ? 'bg-amber-400 text-slate-950 border-amber-300 font-black shadow-sm'
+                : 'bg-emerald-950/80 text-emerald-200 border-emerald-700/60 hover:border-amber-400/50'
             }`}
+            aria-label="Transaction History"
           >
             <Receipt className="w-4 h-4" />
-            <span>ডাবল-এন্ট্রি লেজার হিস্ট্রি ({depositIntents.length + withdrawalRecords.length})</span>
-          </button>
-
-          <button
-            onClick={() => {
-              setActiveMode('ARCHITECTURE');
-              soundEngine.playClick(900);
-            }}
-            className={`px-4 py-2 rounded-xl text-xs font-bold font-mono transition-all flex items-center space-x-2 cursor-pointer ${
-              activeMode === 'ARCHITECTURE'
-                ? 'bg-gradient-to-r from-amber-400 to-yellow-400 text-slate-950 shadow-lg shadow-amber-500/20 font-black'
-                : 'bg-emerald-900/60 text-emerald-200 hover:bg-emerald-800 border border-emerald-700/50'
-            }`}
-          >
-            <Layers className="w-4 h-4" />
-            <span>গেটওয়ে আর্কিটেকচার গাইড</span>
+            <span className="hidden xs:inline">হিস্ট্রি</span>
+            <span className="text-[10px] px-1.5 py-0.2 rounded-full bg-black/30 font-bold">
+              {depositIntents.length + withdrawalRecords.length}
+            </span>
           </button>
         </div>
+
+        {/* Available Balance Card */}
+        <div
+          id="play369-authoritative-balance-card"
+          className="mt-3.5 pt-3.5 border-t border-emerald-800/60 flex items-center justify-between gap-3 bg-[#02130b]/70 rounded-xl p-3 border border-emerald-900/80"
+        >
+          <div className="flex items-center gap-2.5">
+            <div className="w-10 h-10 rounded-xl bg-emerald-900/60 border border-emerald-700/60 flex items-center justify-center shrink-0">
+              <Wallet className="w-5 h-5 text-amber-400" />
+            </div>
+            <div>
+              <span className="text-[10px] uppercase font-bold text-emerald-300/80 block font-mono">
+                উপলব্ধ ব্যালেন্স (Available Balance)
+              </span>
+              <span className="text-xl sm:text-2xl font-black text-white font-mono tracking-tight">
+                {currency === 'BDT' ? '৳' : '$'}
+                {currentWallet
+                  ? Number(currentWallet.real_balance).toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })
+                  : '0.00'}
+              </span>
+            </div>
+          </div>
+
+          {currentWallet && Number(currentWallet.locked_balance || 0) > 0 && (
+            <div className="border-l border-emerald-800/80 pl-3 text-right">
+              <span className="text-[10px] uppercase font-bold text-amber-400/90 block font-mono flex items-center justify-end gap-1">
+                <Lock className="w-3 h-3 text-amber-400" />
+                সংরক্ষিত
+              </span>
+              <span className="text-xs sm:text-sm font-black text-amber-300 font-mono">
+                {currency === 'BDT' ? '৳' : '$'}
+                {Number(currentWallet.locked_balance).toLocaleString('en-US', { minimumFractionDigits: 2 })}
+              </span>
+            </div>
+          )}
+        </div>
+      </header>
+
+      {/* ========================================================================= */}
+      {/* 2. PRIMARY TABS: DEPOSIT / WITHDRAW (>=48px touch target, warm gold / deep emerald) */}
+      {/* ========================================================================= */}
+      <div
+        id="play369-cashier-mode-tabs"
+        className="grid grid-cols-2 gap-2 mb-4"
+        role="tablist"
+      >
+        {/* Deposit Tab */}
+        <button
+          type="button"
+          id="play369-tab-deposit"
+          role="tab"
+          aria-selected={activeMode === 'DEPOSIT'}
+          onClick={() => {
+            setActiveMode('DEPOSIT');
+            soundEngine.playClick(900);
+          }}
+          className={`min-h-[48px] h-[48px] rounded-xl font-mono text-sm font-black transition-all flex items-center justify-center gap-2 cursor-pointer ${
+            activeMode === 'DEPOSIT'
+              ? 'bg-gradient-to-r from-amber-400 via-yellow-400 to-amber-500 text-slate-950 shadow-[0_2px_12px_rgba(245,158,11,0.3)] border border-amber-300'
+              : 'bg-[#031d12] text-emerald-300 hover:text-white border border-emerald-800/80 hover:bg-[#05281a]'
+          }`}
+        >
+          <ArrowDownLeft className="w-4 h-4" />
+          <span>ডিপোজিট</span>
+          <span className="text-[11px] opacity-80 font-medium hidden xs:inline">Deposit</span>
+        </button>
+
+        {/* Withdraw Tab */}
+        <button
+          type="button"
+          id="play369-tab-withdraw"
+          role="tab"
+          aria-selected={activeMode === 'WITHDRAWAL'}
+          onClick={() => {
+            setActiveMode('WITHDRAWAL');
+            soundEngine.playClick(900);
+          }}
+          className={`min-h-[48px] h-[48px] rounded-xl font-mono text-sm font-black transition-all flex items-center justify-center gap-2 cursor-pointer ${
+            activeMode === 'WITHDRAWAL'
+              ? 'bg-gradient-to-r from-amber-400 via-yellow-400 to-amber-500 text-slate-950 shadow-[0_2px_12px_rgba(245,158,11,0.3)] border border-amber-300'
+              : 'bg-[#031d12] text-emerald-300 hover:text-white border border-emerald-800/80 hover:bg-[#05281a]'
+          }`}
+        >
+          <ArrowUpRight className="w-4 h-4" />
+          <span>উইথড্রয়াল</span>
+          <span className="text-[11px] opacity-80 font-medium hidden xs:inline">Withdraw</span>
+        </button>
       </div>
 
       {/* ========================================================================= */}
-      {/* 1. DEPOSIT FLOW (2-STEP AUTOMATED FLOW) */}
+      {/* 3. DEPOSIT FLOW (PREMIUM MOBILE DEPOSIT EXPERIENCE) */}
       {/* ========================================================================= */}
       {activeMode === 'DEPOSIT' && (
-        <div className="space-y-6">
-          {/* Payment Method Selector Grid */}
-          <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-6 gap-3">
-            {PAYMENT_CHANNELS.map((ch) => {
-              const isSelected = selectedProvider === ch.provider;
-              return (
-                <button
-                  key={ch.provider}
-                  onClick={() => {
-                    setSelectedProvider(ch.provider);
-                    setDepositStep('AMOUNT');
-                    setActiveIntent(null);
-                    soundEngine.playClick(900);
-                  }}
-                  className={`p-3.5 rounded-2xl border transition-all text-left relative overflow-hidden group cursor-pointer ${
-                    isSelected
-                      ? 'bg-emerald-900/90 border-amber-400 shadow-lg shadow-emerald-950 scale-[1.02]'
-                      : 'bg-emerald-950/60 border-emerald-800/80 hover:bg-emerald-900/40 opacity-80 hover:opacity-100'
-                  }`}
-                >
-                  <div className="flex items-center justify-between">
-                    <span className="w-8 h-8 rounded-xl bg-emerald-950 border border-emerald-700/60 flex items-center justify-center font-mono font-black text-xs text-amber-300">
-                      {ch.icon}
-                    </span>
-                    {isSelected && (
-                      <span className="w-2 h-2 rounded-full bg-amber-400 animate-pulse" />
-                    )}
-                  </div>
-                  <h3 className="font-bold text-white text-xs mt-2.5 line-clamp-1">{ch.name}</h3>
-                  <p className="text-[10px] text-emerald-300 line-clamp-1 mt-0.5">{ch.fee}</p>
-                </button>
-              );
-            })}
-          </div>
+        <div className="space-y-4">
+          {/* PAYMENT METHOD SELECTOR: 2-Column Mobile Grid, Equal Height */}
+          <section id="play369-payment-methods-section" aria-label="Payment Methods">
+            <div className="flex items-center justify-between mb-2 px-1">
+              <span className="text-xs font-bold text-emerald-200 font-sans">
+                পেমেন্ট মেথড নির্বাচন করুন
+              </span>
+              <span className="text-[10px] font-mono text-amber-400">
+                {activeChannel.name} • {activeChannel.fee}
+              </span>
+            </div>
 
-          {/* STEP 1: AMOUNT SELECTION & DEPOSIT INTENT CREATION */}
-          {depositStep === 'AMOUNT' && (
-            <div className="rounded-3xl border-2 border-emerald-700/50 bg-gradient-to-b from-emerald-950 to-[#03150e] p-6 sm:p-8 space-y-6">
-              <div className="border-b border-emerald-800 pb-4">
-                <span className="text-[10px] font-mono uppercase font-bold text-amber-400 tracking-wider">
-                  ধাপ ০১ / ০২ • ডিপোজিট পরিমাণ নির্বাচন
-                </span>
-                <h2 className="text-lg sm:text-xl font-black text-white mt-1 flex items-center gap-2">
-                  <Coins className="w-5 h-5 text-amber-400" />
-                  <span>{activeChannel.name}-এ ডিপোজিট করবেন কত টাকা?</span>
-                </h2>
-              </div>
+            <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-6 gap-2 sm:gap-2.5">
+              {PAYMENT_CHANNELS.map((ch) => {
+                const isSelected = selectedProvider === ch.provider;
+                const isAvailable = ch.providerAvailable !== false && !ch.maintenanceMode;
 
-              {/* Quick Preset Buttons */}
-              <div className="grid grid-cols-3 sm:grid-cols-6 gap-2.5">
-                {quickAmounts.map((amt) => (
+                return (
                   <button
-                    key={amt}
+                    key={ch.provider}
                     type="button"
+                    id={`play369-channel-${ch.provider}`}
+                    disabled={!isAvailable}
                     onClick={() => {
-                      setDepositAmount(amt);
-                      soundEngine.playClick(850);
+                      if (!isAvailable) return;
+                      setSelectedProvider(ch.provider);
+                      setDepositStep('AMOUNT');
+                      setActiveIntent(null);
+                      soundEngine.playClick(900);
                     }}
-                    className={`py-2.5 rounded-xl border text-xs font-mono font-black transition-all cursor-pointer ${
-                      depositAmount === amt
-                        ? 'bg-gradient-to-r from-amber-400 to-yellow-400 text-slate-950 border-amber-300 shadow-md scale-105'
-                        : 'bg-emerald-900/60 border-emerald-700 text-emerald-200 hover:bg-emerald-800'
+                    className={`min-h-[84px] h-[84px] p-2.5 sm:p-3 rounded-xl border text-left flex flex-col justify-between transition-all relative overflow-hidden cursor-pointer ${
+                      isSelected
+                        ? 'bg-[#052c1b] border-amber-400 shadow-[0_0_12px_rgba(245,158,11,0.2)]'
+                        : isAvailable
+                        ? 'bg-[#031d12]/90 border-emerald-800/70 hover:border-emerald-600/90 hover:bg-[#042416]'
+                        : 'bg-[#02140c]/50 border-emerald-950 opacity-40 cursor-not-allowed'
                     }`}
                   >
-                    {currency === 'BDT' ? '৳' : '$'}{amt.toLocaleString()}
+                    <div className="flex items-center justify-between w-full">
+                      <span
+                        className="w-7 h-7 rounded-lg font-mono font-black text-xs flex items-center justify-center border"
+                        style={{
+                          backgroundColor: `${ch.accentColor}20`,
+                          borderColor: `${ch.accentColor}60`,
+                          color: ch.accentColor === '#1A1F71' ? '#60A5FA' : ch.accentColor
+                        }}
+                      >
+                        {ch.icon}
+                      </span>
+                      {isSelected && (
+                        <span className="w-2 h-2 rounded-full bg-amber-400 shadow-[0_0_6px_#f59e0b]" />
+                      )}
+                    </div>
+
+                    <div>
+                      <div className="font-bold text-white text-xs leading-tight font-sans">
+                        {ch.name}
+                      </div>
+                      <div className="text-[10px] text-emerald-300/80 font-mono mt-0.5 leading-none">
+                        {isAvailable ? ch.fee : 'অপেক্ষমাণ'}
+                      </div>
+                    </div>
                   </button>
-                ))}
+                );
+              })}
+            </div>
+          </section>
+
+          {/* STEP 1: AMOUNT SELECTION & SENDER INPUT */}
+          {depositStep === 'AMOUNT' && (
+            <motion.div
+              initial={{ opacity: 0, y: 6 }}
+              animate={{ opacity: 1, y: 0 }}
+              className="rounded-2xl border border-emerald-800/70 bg-gradient-to-b from-[#042416] via-[#031d12] to-[#02180e] p-4 sm:p-5 space-y-4 shadow-[0_4px_20px_rgba(0,0,0,0.5)]"
+            >
+              {/* Preset Chips: ৳500, ৳1,000, ৳2,500, ৳5,000, ৳10,000, ৳25,000 */}
+              <div>
+                <label className="text-xs font-bold text-emerald-200 block mb-2 font-sans">
+                  ডিপোজিট পরিমাণ (Deposit Amount)
+                </label>
+
+                <div className="grid grid-cols-3 sm:grid-cols-6 gap-2">
+                  {quickPresets.map((preset) => {
+                    const isSelected = depositAmountStr === preset;
+                    return (
+                      <button
+                        key={preset}
+                        type="button"
+                        id={`play369-preset-${preset}`}
+                        onClick={() => {
+                          setDepositAmountStr(preset);
+                          soundEngine.playClick(850);
+                        }}
+                        className={`min-h-[44px] h-[44px] rounded-xl font-mono text-xs font-black transition-all flex items-center justify-center cursor-pointer border ${
+                          isSelected
+                            ? 'bg-gradient-to-r from-amber-400 via-yellow-400 to-amber-500 text-slate-950 border-amber-300 shadow-md scale-[1.02]'
+                            : 'bg-[#02190f] border-emerald-800/80 text-emerald-200 hover:border-emerald-600/80 hover:bg-[#032014]'
+                        }`}
+                      >
+                        {currency === 'BDT' ? '৳' : '$'}
+                        {Number(preset).toLocaleString()}
+                      </button>
+                    );
+                  })}
+                </div>
               </div>
 
-              {/* Custom Input */}
+              {/* Custom Exact-String Amount Input */}
               <div>
-                <label className="text-xs font-bold text-emerald-200 block mb-1.5 font-mono">
-                  কাস্টম টাকার পরিমাণ (Custom Amount)
-                </label>
                 <div className="relative">
-                  <span className="absolute left-4 top-1/2 -translate-y-1/2 font-mono font-black text-amber-400 text-lg">
+                  <span className="absolute left-3.5 top-1/2 -translate-y-1/2 font-mono font-black text-amber-400 text-base">
                     {currency === 'BDT' ? '৳' : '$'}
                   </span>
                   <input
-                    type="number"
-                    min={activeChannel.minBDT}
-                    max={activeChannel.maxBDT}
-                    value={depositAmount}
-                    onChange={(e) => setDepositAmount(Number(e.target.value))}
-                    className="w-full bg-emerald-950 border-2 border-emerald-700 focus:border-amber-400 rounded-2xl py-3 pl-10 pr-4 text-white font-mono text-lg font-bold focus:outline-none"
+                    type="text"
+                    inputMode="decimal"
+                    id="play369-custom-deposit-amount"
+                    value={depositAmountStr}
+                    onChange={(e) => {
+                      // Preserve clean string numeric format
+                      const val = e.target.value.replace(/[^0-9.]/g, '');
+                      setDepositAmountStr(val);
+                    }}
+                    className="w-full bg-[#02130b] border border-emerald-700/80 focus:border-amber-400 rounded-xl py-3 pl-9 pr-3 text-white font-mono text-lg font-bold focus:outline-none transition-colors min-h-[50px]"
                     placeholder="2500"
+                    aria-label="Custom Deposit Amount"
                   />
                 </div>
-                <p className="text-[11px] text-emerald-300/80 mt-1 font-mono">
-                  সীমা: ৳{activeChannel.minBDT.toLocaleString()} - ৳{activeChannel.maxBDT.toLocaleString()}
-                </p>
+                <div className="flex items-center justify-between text-[11px] text-emerald-300/80 mt-1.5 font-mono px-1">
+                  <span>সীমা: ৳{activeChannel.minBDT.toLocaleString()} - ৳{activeChannel.maxBDT.toLocaleString()}</span>
+                  <span>ফি: ০%</span>
+                </div>
               </div>
 
-              {/* Sender Number / Identifier */}
+              {/* Sender Phone / Account Input */}
               <div>
-                <label className="text-xs font-bold text-emerald-200 block mb-1.5 font-mono">
-                  আপনার প্রেরক একাউন্ট নম্বর (Sender Phone / Account)
+                <label className="text-xs font-bold text-emerald-200 block mb-1.5 font-sans">
+                  প্রেরক একাউন্ট নম্বর (Sender Phone / Account)
                 </label>
-                <input
-                  type="text"
-                  value={senderNumber}
-                  onChange={(e) => setSenderNumber(e.target.value)}
-                  className="w-full bg-emerald-950 border border-emerald-700 focus:border-amber-400 rounded-2xl py-2.5 px-4 text-white font-mono text-sm focus:outline-none"
-                  placeholder="01XXXXXXXXX"
-                />
+                <div className="relative">
+                  <input
+                    type="tel"
+                    inputMode="tel"
+                    autoComplete="tel"
+                    id="play369-sender-account-input"
+                    value={senderNumber}
+                    onChange={(e) => setSenderNumber(e.target.value)}
+                    className="w-full bg-[#02130b] border border-emerald-700/80 focus:border-amber-400 rounded-xl py-2.5 px-3.5 text-white font-mono text-base sm:text-sm font-semibold focus:outline-none transition-colors min-h-[48px]"
+                    placeholder="01XXXXXXXXX"
+                    aria-label="Sender Phone Number"
+                  />
+                </div>
               </div>
 
+              {/* Primary Deposit CTA: >=52px height, warm gold */}
               <button
                 type="button"
+                id="play369-create-deposit-cta"
+                disabled={isCreatingIntent}
                 onClick={handleCreateDepositIntent}
-                className="w-full py-4 rounded-2xl bg-gradient-to-r from-amber-400 via-yellow-400 to-amber-500 text-slate-950 font-mono font-black text-sm shadow-xl shadow-amber-500/20 hover:scale-[1.01] active:scale-95 transition-all flex items-center justify-center space-x-2 cursor-pointer"
+                className="w-full min-h-[52px] h-[52px] rounded-xl bg-gradient-to-r from-amber-400 via-yellow-400 to-amber-500 text-slate-950 font-mono font-black text-sm sm:text-base tracking-wide shadow-[0_4px_16px_rgba(245,158,11,0.25)] hover:brightness-105 active:scale-[0.98] transition-all flex items-center justify-center gap-2 cursor-pointer disabled:opacity-50"
               >
-                <span>ডিপোজিট রিকোয়েস্ট তৈরি করুন ও পেমেন্ট নম্বর দেখুন</span>
-                <ArrowRight className="w-4 h-4" />
+                {isCreatingIntent ? (
+                  <RotateCw className="w-5 h-5 animate-spin" />
+                ) : (
+                  <>
+                    <span>ডিপোজিট রিকোয়েস্ট তৈরি করুন</span>
+                    <ArrowRight className="w-4 h-4 text-slate-950" />
+                  </>
+                )}
               </button>
-            </div>
+
+              {/* Deposit Flow Status: 3-step factual progression */}
+              <div
+                id="play369-deposit-flow-lifecycle"
+                className="pt-2 border-t border-emerald-800/60"
+              >
+                <div className="grid grid-cols-3 gap-1 text-center font-mono text-[10px] text-emerald-300/80">
+                  <div className="flex flex-col items-center gap-1">
+                    <span className="w-5 h-5 rounded-full bg-amber-400/20 text-amber-400 border border-amber-400/40 flex items-center justify-center font-bold">
+                      ১
+                    </span>
+                    <span>রিকোয়েস্ট</span>
+                  </div>
+
+                  <div className="flex flex-col items-center gap-1">
+                    <span className="w-5 h-5 rounded-full bg-emerald-900/60 text-emerald-400 border border-emerald-700/60 flex items-center justify-center font-bold">
+                      ২
+                    </span>
+                    <span>প্রোভাইডার ভেরিফিকেশন</span>
+                  </div>
+
+                  <div className="flex flex-col items-center gap-1">
+                    <span className="w-5 h-5 rounded-full bg-emerald-900/60 text-emerald-400 border border-emerald-700/60 flex items-center justify-center font-bold">
+                      ৩
+                    </span>
+                    <span>ওয়ালেট ক্রেডিট</span>
+                  </div>
+                </div>
+              </div>
+            </motion.div>
           )}
 
-          {/* STEP 2: PAYMENT DESTINATION ASSIGNMENT & INSTRUCTIONS */}
+          {/* STEP 2: PAYMENT INSTRUCTIONS & TRXID SUBMISSION */}
           {depositStep === 'PAYMENT' && activeIntent && (
-            <div className="rounded-3xl border-2 border-emerald-700/60 bg-gradient-to-b from-emerald-950 via-[#04190f] to-[#02130b] p-6 sm:p-8 space-y-6">
-              <div className="flex flex-wrap items-center justify-between gap-3 border-b border-emerald-800 pb-4">
+            <motion.div
+              initial={{ opacity: 0, y: 6 }}
+              animate={{ opacity: 1, y: 0 }}
+              className="rounded-2xl border border-emerald-800/80 bg-gradient-to-b from-[#042416] via-[#031d12] to-[#02180e] p-4 sm:p-5 space-y-4 shadow-[0_4px_20px_rgba(0,0,0,0.5)]"
+            >
+              {/* Reference & Expiration Header */}
+              <div className="flex items-center justify-between gap-2 border-b border-emerald-800/60 pb-3">
                 <div>
-                  <span className="text-[10px] font-mono uppercase font-bold text-amber-400 tracking-wider">
-                    ধাপ ০২ / ০২ • নির্ধারিত নম্বরে পেমেন্ট ও TrxID সাবমিশন
+                  <span className="text-[10px] font-mono font-bold text-amber-400 block">
+                    রেফারেন্স কোড
                   </span>
-                  <h2 className="text-lg sm:text-xl font-black text-white mt-0.5">
-                    ডিপোজিট রেফারেন্স: <strong className="text-amber-300 font-mono">{activeIntent.id}</strong>
-                  </h2>
+                  <span className="text-sm sm:text-base font-black text-white font-mono">
+                    {activeIntent.id}
+                  </span>
                 </div>
 
-                <div className="flex items-center space-x-2 bg-emerald-900/80 border border-amber-400/40 px-3 py-1.5 rounded-xl font-mono text-xs text-amber-300">
-                  <Clock className="w-4 h-4 animate-spin text-amber-400" />
-                  <span>মেয়াদ বাকি: {formatTimer(timeRemainingSec)}</span>
+                <div className="flex items-center gap-1.5 bg-[#02130b] border border-amber-400/40 px-2.5 py-1 rounded-lg font-mono text-xs text-amber-300">
+                  <Clock className="w-3.5 h-3.5 text-amber-400" />
+                  <span>{formatTimer(timeRemainingSec)}</span>
                 </div>
               </div>
 
               {/* Assigned Destination Account Box */}
-              <div className="bg-emerald-900/60 border-2 border-amber-400/50 rounded-2xl p-5 space-y-3">
+              <div className="bg-[#02130b] border border-emerald-700/80 rounded-xl p-3.5 space-y-2.5">
                 <div className="flex items-center justify-between text-xs text-emerald-300">
                   <span>নির্ধারিত {activeChannel.name} একাউন্ট ({activeIntent.destinationAccount.accountType}):</span>
-                  <span className="px-2 py-0.5 rounded bg-emerald-500/20 text-emerald-300 text-[10px] font-mono font-bold">
-                    সক্রিয় ও ভেরিফাইড গেটওয়ে
+                  <span className="text-[10px] font-mono text-amber-300">
+                    ৳{Number(activeIntent.amount).toLocaleString()}
                   </span>
                 </div>
 
-                <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-3 bg-emerald-950 p-4 rounded-xl border border-emerald-700">
-                  <div>
-                    <div className="text-xs text-slate-400">{activeIntent.destinationAccount.accountName}</div>
-                    <div className="text-2xl font-black text-white font-mono tracking-wider mt-0.5">
+                <div className="flex items-center justify-between gap-2 bg-[#042416] p-3 rounded-lg border border-emerald-800">
+                  <div className="min-w-0">
+                    <div className="text-[11px] text-slate-400 truncate">
+                      {activeIntent.destinationAccount.accountName}
+                    </div>
+                    <div className="text-lg sm:text-xl font-black text-white font-mono tracking-wider">
                       {activeIntent.destinationAccount.accountNumber}
                     </div>
                   </div>
 
                   <button
+                    type="button"
+                    id="play369-copy-account-btn"
                     onClick={() => handleCopy(activeIntent.destinationAccount.accountNumber, 'একাউন্ট নম্বর')}
-                    className="px-4 py-2 rounded-xl bg-gradient-to-r from-amber-400 to-yellow-400 text-slate-950 text-xs font-mono font-black shadow hover:scale-105 active:scale-95 transition-all flex items-center space-x-1.5 cursor-pointer"
+                    className="min-h-[44px] px-3 py-1.5 rounded-lg bg-amber-400 text-slate-950 text-xs font-mono font-black hover:bg-yellow-300 active:scale-95 transition-all flex items-center gap-1.5 cursor-pointer shrink-0"
                   >
                     {copiedText === 'একাউন্ট নম্বর' ? <Check className="w-4 h-4" /> : <Copy className="w-4 h-4" />}
-                    <span>{copiedText === 'একাউন্ট নম্বর' ? 'কপি হয়েছে' : 'নম্বর কপি করুন'}</span>
+                    <span>{copiedText === 'একাউন্ট নম্বর' ? 'কপি হয়েছে' : 'কপি করুন'}</span>
                   </button>
-                </div>
-
-                <div className="flex flex-wrap items-center justify-between gap-2 text-xs font-mono pt-1 text-emerald-300">
-                  <div>ডিপোজিট পরিমাণ: <strong className="text-amber-300 text-sm">৳{activeIntent.amount.toLocaleString()}</strong></div>
-                  <div>রেফারেন্স কোড: <strong className="text-white">{activeIntent.referenceCode}</strong></div>
                 </div>
               </div>
 
-              {/* Clear Step-by-Step Instructions */}
-              <div className="bg-emerald-950/80 border border-emerald-800 rounded-2xl p-4 space-y-2 text-xs text-emerald-200/90 font-sans">
-                <h4 className="font-bold text-amber-300 flex items-center gap-1.5 text-xs font-mono">
-                  <Info className="w-4 h-4" />
-                  <span>পেমেন্ট নির্দেশিকা (Payment Instructions):</span>
-                </h4>
-                <ol className="list-decimal list-inside space-y-1.5 text-[11px] leading-relaxed">
+              {/* Payment Instructions */}
+              <div className="bg-[#02130b]/60 border border-emerald-900 rounded-xl p-3 text-xs text-emerald-200/90 font-sans space-y-1.5">
+                <div className="font-bold text-amber-300 flex items-center gap-1 text-xs">
+                  <Info className="w-3.5 h-3.5" />
+                  <span>পেমেন্ট নির্দেশিকা:</span>
+                </div>
+                <ol className="list-decimal list-inside space-y-1 text-[11px] leading-relaxed text-slate-300">
                   {activeIntent.destinationAccount.instructions.map((inst, i) => (
                     <li key={i}>{inst}</li>
                   ))}
@@ -662,120 +786,128 @@ export const CashierView: React.FC<CashierViewProps> = ({
               </div>
 
               {/* TrxID Input Form */}
-              <form onSubmit={handleVerifyTrxId} className="space-y-4 pt-2">
+              <form onSubmit={handleVerifyTrxId} className="space-y-3 pt-1">
                 <div>
-                  <label className="text-xs font-bold text-emerald-200 block mb-1.5 font-mono">
-                    পেমেন্ট ট্রানজেকশন আইডি (Transaction ID / TrxID) লিখুন *
+                  <label className="text-xs font-bold text-emerald-200 block mb-1 font-sans">
+                    ট্রানজেকশন আইডি (TrxID) লিখুন *
                   </label>
-                  <div className="relative">
-                    <input
-                      type="text"
-                      required
-                      value={trxIdInput}
-                      onChange={(e) => setTrxIdInput(e.target.value)}
-                      className="w-full bg-emerald-950 border-2 border-emerald-700 focus:border-amber-400 rounded-2xl py-3 px-4 text-white font-mono text-base font-bold uppercase tracking-wider focus:outline-none"
-                      placeholder="e.g. BL92A81K09"
-                    />
-                  </div>
+                  <input
+                    type="text"
+                    required
+                    id="play369-trxid-input"
+                    autoCapitalize="characters"
+                    value={trxIdInput}
+                    onChange={(e) => setTrxIdInput(e.target.value)}
+                    className="w-full bg-[#02130b] border border-emerald-700/80 focus:border-amber-400 rounded-xl py-2.5 px-3.5 text-white font-mono text-base font-bold uppercase tracking-wider focus:outline-none min-h-[48px]"
+                    placeholder="e.g. BL92A81K09"
+                  />
                   {verificationError && (
-                    <div className="mt-2 text-xs text-red-400 font-mono bg-red-950/40 border border-red-800/60 p-2.5 rounded-xl flex items-center gap-2">
-                      <AlertTriangle className="w-4 h-4 text-red-400 shrink-0" />
+                    <div className="mt-1.5 text-xs text-red-400 font-mono bg-red-950/40 border border-red-800/60 p-2 rounded-lg flex items-center gap-1.5">
+                      <AlertTriangle className="w-3.5 h-3.5 shrink-0" />
                       <span>{verificationError}</span>
                     </div>
                   )}
                 </div>
 
-                <div className="flex items-center gap-3">
+                <div className="grid grid-cols-2 gap-2">
                   <button
                     type="button"
                     onClick={() => setDepositStep('AMOUNT')}
-                    className="py-3 px-5 rounded-2xl bg-emerald-950 border border-emerald-700 text-emerald-300 font-mono text-xs hover:bg-emerald-900 cursor-pointer"
+                    className="min-h-[48px] h-[48px] rounded-xl bg-[#02130b] border border-emerald-800 text-emerald-300 font-mono text-xs font-bold hover:bg-[#032014] cursor-pointer"
                   >
                     ব্যাকে যান
                   </button>
 
                   <button
                     type="submit"
-                    className="flex-1 py-3.5 rounded-2xl bg-gradient-to-r from-amber-400 via-yellow-400 to-amber-500 text-slate-950 font-mono font-black text-sm shadow-xl shadow-amber-500/20 hover:scale-[1.01] active:scale-95 transition-all flex items-center justify-center space-x-2 cursor-pointer"
+                    id="play369-submit-trxid-btn"
+                    className="min-h-[48px] h-[48px] rounded-xl bg-gradient-to-r from-amber-400 via-yellow-400 to-amber-500 text-slate-950 font-mono font-black text-xs sm:text-sm shadow-md hover:brightness-105 active:scale-95 transition-all flex items-center justify-center gap-1.5 cursor-pointer"
                   >
                     <ShieldCheck className="w-4 h-4" />
-                    <span>ভেরিফাই ও ডিপোজিট সম্পন্ন করুন (Instant Verify)</span>
+                    <span>ভেরিফাই করুন</span>
                   </button>
                 </div>
               </form>
-            </div>
+            </motion.div>
           )}
 
-          {/* STEP 3: REAL-TIME VERIFICATION ENGINE ANIMATION */}
+          {/* STEP 3: VERIFICATION ENGINE ANIMATION */}
           {depositStep === 'VERIFYING' && (
-            <div className="rounded-3xl border-2 border-emerald-700/60 bg-gradient-to-b from-emerald-950 to-[#02180e] p-8 text-center space-y-6">
-              <div className="relative w-20 h-20 mx-auto">
-                <div className="w-full h-full rounded-full border-4 border-emerald-700 border-t-amber-400 animate-spin" />
-                <ShieldCheck className="w-8 h-8 text-amber-400 absolute top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2" />
+            <motion.div
+              initial={{ opacity: 0 }}
+              animate={{ opacity: 1 }}
+              className="rounded-2xl border border-emerald-800 bg-[#02180e] p-6 text-center space-y-4 shadow-xl"
+            >
+              <div className="relative w-14 h-14 mx-auto">
+                <div className="w-full h-full rounded-full border-3 border-emerald-800 border-t-amber-400 animate-spin" />
+                <ShieldCheck className="w-6 h-6 text-amber-400 absolute top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2" />
               </div>
 
               <div>
-                <h3 className="text-lg font-black text-white font-mono">
-                  পেমেন্ট ভেরিফিকেশন ইঞ্জিন চলছে...
+                <h3 className="text-base font-bold text-white font-sans">
+                  পেমেন্ট যাচাই করা হচ্ছে...
                 </h3>
-                <p className="text-xs text-emerald-300 mt-1">
-                  TrxID: <strong className="text-amber-300 font-mono">{trxIdInput.toUpperCase()}</strong> যাচাই করা হচ্ছে
+                <p className="text-xs text-emerald-300/80 font-mono mt-0.5">
+                  TrxID: {trxIdInput.toUpperCase()}
                 </p>
               </div>
 
-              {/* 4-Stage Progress Visualizer */}
-              <div className="max-w-md mx-auto space-y-2.5 font-mono text-xs text-left">
-                <div className={`p-2.5 rounded-xl border flex items-center justify-between ${
-                  verificationProgressStep >= 1 ? 'bg-emerald-900/70 border-emerald-600 text-emerald-200' : 'bg-emerald-950/40 border-emerald-900 text-slate-500'
+              <div className="max-w-xs mx-auto space-y-2 font-mono text-xs text-left">
+                <div className={`p-2 rounded-lg border flex items-center justify-between ${
+                  verificationProgressStep >= 1 ? 'bg-emerald-950 border-emerald-700 text-emerald-200' : 'border-emerald-900 text-slate-500'
                 }`}>
-                  <span>১. TrxID ফর্ম্যাট ও মেয়াদ যাচাই</span>
-                  {verificationProgressStep >= 1 ? <Check className="w-4 h-4 text-emerald-400" /> : <RotateCw className="w-4 h-4 animate-spin text-slate-500" />}
+                  <span>১. TrxID ফরম্যাট যাচাই</span>
+                  {verificationProgressStep >= 1 ? <Check className="w-3.5 h-3.5 text-emerald-400" /> : <RotateCw className="w-3.5 h-3.5 animate-spin text-slate-500" />}
                 </div>
 
-                <div className={`p-2.5 rounded-xl border flex items-center justify-between ${
-                  verificationProgressStep >= 2 ? 'bg-emerald-900/70 border-emerald-600 text-emerald-200' : 'bg-emerald-950/40 border-emerald-900 text-slate-500'
+                <div className={`p-2 rounded-lg border flex items-center justify-between ${
+                  verificationProgressStep >= 2 ? 'bg-emerald-950 border-emerald-700 text-emerald-200' : 'border-emerald-900 text-slate-500'
                 }`}>
-                  <span>২. ডুপ্লিকেট TrxID ও জালিয়াতি প্রতিরোধ চেক</span>
-                  {verificationProgressStep >= 2 ? <Check className="w-4 h-4 text-emerald-400" /> : <RotateCw className="w-4 h-4 animate-spin text-slate-500" />}
+                  <span>২. ডুপ্লিকেট TrxID রোধ চেক</span>
+                  {verificationProgressStep >= 2 ? <Check className="w-3.5 h-3.5 text-emerald-400" /> : <RotateCw className="w-3.5 h-3.5 animate-spin text-slate-500" />}
                 </div>
 
-                <div className={`p-2.5 rounded-xl border flex items-center justify-between ${
-                  verificationProgressStep >= 3 ? 'bg-emerald-900/70 border-emerald-600 text-emerald-200' : 'bg-emerald-950/40 border-emerald-900 text-slate-500'
+                <div className={`p-2 rounded-lg border flex items-center justify-between ${
+                  verificationProgressStep >= 3 ? 'bg-emerald-950 border-emerald-700 text-emerald-200' : 'border-emerald-900 text-slate-500'
                 }`}>
-                  <span>৩. গেটওয়ে মার্চেন্ট API কনফার্মেশন</span>
-                  {verificationProgressStep >= 3 ? <Check className="w-4 h-4 text-emerald-400" /> : <RotateCw className="w-4 h-4 animate-spin text-slate-500" />}
+                  <span>৩. প্রোভাইডার কনফার্মেশন</span>
+                  {verificationProgressStep >= 3 ? <Check className="w-3.5 h-3.5 text-emerald-400" /> : <RotateCw className="w-3.5 h-3.5 animate-spin text-slate-500" />}
                 </div>
 
-                <div className={`p-2.5 rounded-xl border flex items-center justify-between ${
-                  verificationProgressStep >= 4 ? 'bg-emerald-900/70 border-emerald-600 text-emerald-200' : 'bg-emerald-950/40 border-emerald-900 text-slate-500'
+                <div className={`p-2 rounded-lg border flex items-center justify-between ${
+                  verificationProgressStep >= 4 ? 'bg-emerald-950 border-emerald-700 text-emerald-200' : 'border-emerald-900 text-slate-500'
                 }`}>
-                  <span>৪. ডাবল-এন্ট্রি লেজার ও ওয়ালেট ক্রেডিট</span>
-                  {verificationProgressStep >= 4 ? <Check className="w-4 h-4 text-emerald-400" /> : <RotateCw className="w-4 h-4 animate-spin text-slate-500" />}
+                  <span>৪. ওয়ালেট সেটেলমেন্ট</span>
+                  {verificationProgressStep >= 4 ? <Check className="w-3.5 h-3.5 text-emerald-400" /> : <RotateCw className="w-3.5 h-3.5 animate-spin text-slate-500" />}
                 </div>
               </div>
-            </div>
+            </motion.div>
           )}
 
           {/* STEP 4: SUCCESS RECEIPT */}
           {depositStep === 'SUCCESS' && activeIntent && (
-            <div className="rounded-3xl border-2 border-emerald-500 bg-gradient-to-b from-emerald-950 via-[#031d10] to-[#01140a] p-8 text-center space-y-6">
-              <div className="w-16 h-16 rounded-full bg-emerald-500/20 border-2 border-emerald-400 text-emerald-400 mx-auto flex items-center justify-center">
-                <CheckCircle2 className="w-10 h-10" />
+            <motion.div
+              initial={{ opacity: 0, scale: 0.98 }}
+              animate={{ opacity: 1, scale: 1 }}
+              className="rounded-2xl border border-emerald-600 bg-gradient-to-b from-[#042416] via-[#031d12] to-[#02180e] p-6 text-center space-y-4 shadow-xl"
+            >
+              <div className="w-12 h-12 rounded-full bg-emerald-500/20 border border-emerald-400 text-emerald-400 mx-auto flex items-center justify-center">
+                <CheckCircle2 className="w-7 h-7" />
               </div>
 
               <div>
-                <span className="text-xs uppercase font-mono font-bold text-amber-400">ডিপোজিট সফল ও অনুমোদিত</span>
-                <h2 className="text-2xl sm:text-3xl font-black text-white font-mono mt-1">
-                  ৳{activeIntent.amount.toLocaleString()} যোগ হয়েছে
+                <span className="text-[10px] uppercase font-mono font-bold text-amber-400">ডিপোজিট সফল</span>
+                <h2 className="text-xl sm:text-2xl font-black text-white font-mono mt-0.5">
+                  ৳{Number(activeIntent.amount).toLocaleString()} যোগ হয়েছে
                 </h2>
-                <p className="text-xs text-emerald-300 mt-1">
-                  আপনার ওয়ালেটে ইনস্ট্যান্ট ব্যালেন্স সফলভাবে আপডেট করা হয়েছে।
+                <p className="text-xs text-emerald-300 mt-0.5">
+                  আপনার ওয়ালেটে ব্যালেন্স সফলভাবে আপডেট হয়েছে।
                 </p>
               </div>
 
-              <div className="bg-emerald-950 p-4 rounded-2xl border border-emerald-800 max-w-md mx-auto font-mono text-xs space-y-2 text-left">
+              <div className="bg-[#02130b] p-3 rounded-xl border border-emerald-800 max-w-sm mx-auto font-mono text-xs space-y-1.5 text-left">
                 <div className="flex justify-between text-slate-400">
-                  <span>ডিপোজিট রেফারেন্স:</span>
+                  <span>রেফারেন্স:</span>
                   <span className="text-white font-bold">{activeIntent.id}</span>
                 </div>
                 <div className="flex justify-between text-slate-400">
@@ -786,13 +918,9 @@ export const CashierView: React.FC<CashierViewProps> = ({
                   <span>মেথড:</span>
                   <span className="text-white">{activeIntent.provider.toUpperCase()}</span>
                 </div>
-                <div className="flex justify-between text-slate-400">
-                  <span>সময়:</span>
-                  <span className="text-white">{new Date().toLocaleTimeString()}</span>
-                </div>
               </div>
 
-              <div className="flex items-center justify-center gap-3">
+              <div className="flex items-center justify-center gap-2 pt-2">
                 <button
                   type="button"
                   onClick={() => {
@@ -801,123 +929,121 @@ export const CashierView: React.FC<CashierViewProps> = ({
                     setTrxIdInput('');
                     soundEngine.playClick(900);
                   }}
-                  className="px-6 py-3 rounded-xl bg-gradient-to-r from-amber-400 to-yellow-400 text-slate-950 font-mono font-black text-xs shadow-lg hover:scale-105 active:scale-95 transition-all cursor-pointer"
+                  className="min-h-[44px] px-4 py-2 rounded-xl bg-amber-400 text-slate-950 font-mono font-black text-xs hover:bg-yellow-300 cursor-pointer"
                 >
-                  নতুন ডিপোজিট করুন
+                  নতুন ডিপোজিট
                 </button>
                 <button
                   type="button"
                   onClick={() => setActiveMode('HISTORY')}
-                  className="px-6 py-3 rounded-xl bg-emerald-900 border border-emerald-700 text-emerald-200 font-mono text-xs hover:bg-emerald-800 cursor-pointer"
+                  className="min-h-[44px] px-4 py-2 rounded-xl bg-emerald-950 border border-emerald-700 text-emerald-200 font-mono text-xs hover:bg-emerald-900 cursor-pointer"
                 >
-                  হিস্ট্রি দেখুন
+                  হিস্ট্রি
                 </button>
               </div>
-            </div>
+            </motion.div>
           )}
         </div>
       )}
 
       {/* ========================================================================= */}
-      {/* 2. CONTROLLED WITHDRAWAL FLOW (BALANCE RESERVATION MODEL) */}
+      {/* 4. WITHDRAWAL FLOW */}
       {/* ========================================================================= */}
       {activeMode === 'WITHDRAWAL' && (
-        <div className="space-y-6">
+        <motion.div
+          initial={{ opacity: 0, y: 6 }}
+          animate={{ opacity: 1, y: 0 }}
+          className="space-y-4"
+        >
           {/* Method Selection */}
-          <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
+          <div className="grid grid-cols-2 sm:grid-cols-4 gap-2 sm:gap-2.5">
             {PAYMENT_CHANNELS.slice(0, 4).map((ch) => {
               const isSelected = selectedProvider === ch.provider;
               return (
                 <button
                   key={ch.provider}
+                  type="button"
                   onClick={() => {
                     setSelectedProvider(ch.provider);
                     soundEngine.playClick(900);
                   }}
-                  className={`p-3.5 rounded-2xl border transition-all text-left relative overflow-hidden group cursor-pointer ${
+                  className={`min-h-[76px] p-2.5 rounded-xl border text-left flex flex-col justify-between transition-all cursor-pointer ${
                     isSelected
-                      ? 'bg-emerald-900/90 border-amber-400 shadow-lg scale-[1.02]'
-                      : 'bg-emerald-950/60 border-emerald-800/80 hover:bg-emerald-900/40 opacity-80'
+                      ? 'bg-[#052c1b] border-amber-400 shadow-[0_0_10px_rgba(245,158,11,0.2)]'
+                      : 'bg-[#031d12]/90 border-emerald-800/70 hover:border-emerald-600/90'
                   }`}
                 >
                   <div className="flex items-center justify-between">
-                    <span className="w-8 h-8 rounded-xl bg-emerald-950 border border-emerald-700/60 flex items-center justify-center font-mono font-black text-xs text-amber-300">
-                      {ch.icon}
-                    </span>
-                    {isSelected && <span className="w-2 h-2 rounded-full bg-amber-400 animate-pulse" />}
+                    <span className="font-mono font-black text-xs text-amber-300">{ch.icon}</span>
+                    {isSelected && <span className="w-2 h-2 rounded-full bg-amber-400" />}
                   </div>
-                  <h3 className="font-bold text-white text-xs mt-2.5">{ch.name}</h3>
-                  <p className="text-[10px] text-emerald-300 mt-0.5">ইনস্ট্যান্ট ক্যাশ-আউট</p>
+                  <div className="font-bold text-white text-xs font-sans">{ch.name}</div>
                 </button>
               );
             })}
           </div>
 
-          <div className="rounded-3xl border-2 border-emerald-700/50 bg-gradient-to-b from-emerald-950 to-[#03150e] p-6 sm:p-8 space-y-6">
-            <div className="border-b border-emerald-800 pb-4">
-              <span className="text-[10px] font-mono uppercase font-bold text-amber-400 tracking-wider">
-                ক্যাশ-আউট ও ব্যালেন্স রিজার্ভেশন ইঞ্জিন
-              </span>
-              <h2 className="text-lg sm:text-xl font-black text-white mt-1 flex items-center gap-2">
-                <ArrowUpRight className="w-5 h-5 text-amber-400" />
-                <span>উইথড্রয়াল রিকোয়েস্ট সাবমিট করুন</span>
-              </h2>
-            </div>
-
-            {/* Controlled Reservation Info Banner */}
-            <div className="bg-emerald-950/90 border border-amber-400/40 p-4 rounded-2xl flex items-start space-x-3 text-xs text-emerald-200">
-              <ShieldCheck className="w-5 h-5 text-amber-400 shrink-0 mt-0.5" />
+          <div className="rounded-2xl border border-emerald-800/80 bg-gradient-to-b from-[#042416] via-[#031d12] to-[#02180e] p-4 sm:p-5 space-y-4 shadow-[0_4px_20px_rgba(0,0,0,0.5)]">
+            {/* Controlled Reservation Info */}
+            <div className="bg-[#02130b] border border-emerald-800/80 p-3 rounded-xl flex items-start gap-2.5 text-xs text-emerald-200/90">
+              <ShieldCheck className="w-4 h-4 text-amber-400 shrink-0 mt-0.5" />
               <div>
-                <strong className="text-white block font-mono">নিরাপদ ব্যালেন্স রিজার্ভেশন মেকানিজম</strong>
-                উইথড্র রিকোয়েস্ট করার পর টাকা আপনার ব্যালেন্স থেকে সাময়িকভাবে <span className="text-amber-300 font-mono font-bold">WITHDRAWAL_RESERVED</span> হিসেবে সংরক্ষিত হবে। সফলভাবে অ্যাকাউন্টে পেআউট সম্পন্ন হলে ডেবিট চূড়ান্ত হবে; কোনো কারণে ব্যর্থ হলে টাকা স্বয়ংক্রিয়ভাবে ওয়ালেটে ফেরত আসবে।
+                <strong className="text-white block font-sans">ব্যালেন্স রিজার্ভেশন পলিসি</strong>
+                উইথড্র রিকোয়েস্টের পর টাকা সাময়িকভাবে সংরক্ষিত থাকবে। পেআউট সফল হলে ডেবিট চূড়ান্ত হবে; ব্যর্থ হলে স্বয়ংক্রিয়ভাবে ওয়ালেটে ফেরত আসবে।
               </div>
             </div>
 
-            <form onSubmit={handleWithdrawalSubmit} className="space-y-4">
+            <form onSubmit={handleWithdrawalSubmit} className="space-y-3">
               <div>
-                <label className="text-xs font-bold text-emerald-200 block mb-1.5 font-mono">
-                  উইথড্রয়াল পরিমাণ (Amount)
+                <label className="text-xs font-bold text-emerald-200 block mb-1 font-sans">
+                  উইথড্রয়াল পরিমাণ (Withdraw Amount)
                 </label>
                 <div className="relative">
-                  <span className="absolute left-4 top-1/2 -translate-y-1/2 font-mono font-black text-amber-400 text-lg">
+                  <span className="absolute left-3.5 top-1/2 -translate-y-1/2 font-mono font-black text-amber-400 text-base">
                     {currency === 'BDT' ? '৳' : '$'}
                   </span>
                   <input
-                    type="number"
-                    min={500}
-                    max={currentWallet ? currentWallet.real_balance : 50000}
-                    value={withdrawAmount}
-                    onChange={(e) => setWithdrawAmount(Number(e.target.value))}
-                    className="w-full bg-emerald-950 border-2 border-emerald-700 focus:border-amber-400 rounded-2xl py-3 pl-10 pr-4 text-white font-mono text-lg font-bold focus:outline-none"
+                    type="text"
+                    inputMode="decimal"
+                    id="play369-withdraw-amount"
+                    value={withdrawAmountStr}
+                    onChange={(e) => {
+                      const val = e.target.value.replace(/[^0-9.]/g, '');
+                      setWithdrawAmountStr(val);
+                    }}
+                    className="w-full bg-[#02130b] border border-emerald-700/80 focus:border-amber-400 rounded-xl py-2.5 pl-9 pr-3 text-white font-mono text-lg font-bold focus:outline-none min-h-[50px]"
                     placeholder="5000"
                   />
                 </div>
               </div>
 
-              <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
                 <div>
-                  <label className="text-xs font-bold text-emerald-200 block mb-1.5 font-mono">
-                    প্রাপকের {activeChannel.name} নম্বর / একাউন্ট *
+                  <label className="text-xs font-bold text-emerald-200 block mb-1 font-sans">
+                    প্রাপকের {activeChannel.name} নম্বর *
                   </label>
                   <input
-                    type="text"
+                    type="tel"
+                    inputMode="tel"
                     required
+                    id="play369-withdraw-recipient"
                     value={withdrawRecipient}
                     onChange={(e) => setWithdrawRecipient(e.target.value)}
-                    className="w-full bg-emerald-950 border border-emerald-700 focus:border-amber-400 rounded-2xl py-2.5 px-4 text-white font-mono text-sm focus:outline-none"
+                    className="w-full bg-[#02130b] border border-emerald-700/80 focus:border-amber-400 rounded-xl py-2.5 px-3 text-white font-mono text-sm focus:outline-none min-h-[48px]"
                     placeholder="01XXXXXXXXX"
                   />
                 </div>
 
                 <div>
-                  <label className="text-xs font-bold text-emerald-200 block mb-1.5 font-mono">
-                    একাউন্টধারীর নাম (Account Holder Name)
+                  <label className="text-xs font-bold text-emerald-200 block mb-1 font-sans">
+                    একাউন্টধারীর নাম
                   </label>
                   <input
                     type="text"
+                    id="play369-withdraw-recipient-name"
                     value={withdrawRecipientName}
                     onChange={(e) => setWithdrawRecipientName(e.target.value)}
-                    className="w-full bg-emerald-950 border border-emerald-700 focus:border-amber-400 rounded-2xl py-2.5 px-4 text-white font-mono text-sm focus:outline-none"
+                    className="w-full bg-[#02130b] border border-emerald-700/80 focus:border-amber-400 rounded-xl py-2.5 px-3 text-white font-mono text-sm focus:outline-none min-h-[48px]"
                     placeholder="Player Name"
                   />
                 </div>
@@ -925,134 +1051,117 @@ export const CashierView: React.FC<CashierViewProps> = ({
 
               <button
                 type="submit"
+                id="play369-confirm-withdraw-btn"
                 disabled={isWithdrawing}
-                className="w-full py-4 rounded-2xl bg-gradient-to-r from-amber-400 via-yellow-400 to-amber-500 text-slate-950 font-mono font-black text-sm shadow-xl shadow-amber-500/20 hover:scale-[1.01] active:scale-95 transition-all flex items-center justify-center space-x-2 cursor-pointer disabled:opacity-50"
+                className="w-full min-h-[52px] h-[52px] rounded-xl bg-gradient-to-r from-amber-400 via-yellow-400 to-amber-500 text-slate-950 font-mono font-black text-sm shadow-[0_4px_16px_rgba(245,158,11,0.25)] hover:brightness-105 active:scale-95 transition-all flex items-center justify-center gap-2 cursor-pointer disabled:opacity-50"
               >
                 {isWithdrawing ? (
-                  <>
-                    <RotateCw className="w-4 h-4 animate-spin" />
-                    <span>ব্যালেন্স রিজার্ভেশন ও পেআউট যাচাই হচ্ছে...</span>
-                  </>
+                  <RotateCw className="w-5 h-5 animate-spin" />
                 ) : (
                   <>
                     <ArrowUpRight className="w-4 h-4" />
-                    <span>উইথড্রয়াল রিকোয়েস্ট কনফার্ম করুন (Reserve & Payout)</span>
+                    <span>উইথড্রয়াল রিকোয়েস্ট সাবমিট করুন</span>
                   </>
                 )}
               </button>
             </form>
           </div>
-        </div>
+        </motion.div>
       )}
 
       {/* ========================================================================= */}
-      {/* 3. DOUBLE-ENTRY LEDGER & HISTORY */}
+      {/* 5. HISTORY VIEW */}
       {/* ========================================================================= */}
       {activeMode === 'HISTORY' && (
-        <div className="rounded-3xl border-2 border-emerald-700/50 bg-gradient-to-b from-emerald-950 to-[#03150e] p-6 space-y-6">
-          <div className="flex items-center justify-between border-b border-emerald-800 pb-4">
+        <motion.div
+          initial={{ opacity: 0, y: 6 }}
+          animate={{ opacity: 1, y: 0 }}
+          className="rounded-2xl border border-emerald-800/80 bg-gradient-to-b from-[#042416] via-[#031d12] to-[#02180e] p-4 sm:p-5 space-y-3 shadow-[0_4px_20px_rgba(0,0,0,0.5)]"
+        >
+          <div className="flex items-center justify-between border-b border-emerald-800/60 pb-3">
             <div>
-              <h3 className="text-base font-bold text-white flex items-center gap-2">
-                <Receipt className="w-5 h-5 text-amber-400" />
-                <span>ডাবল-এন্ট্রি পেমেন্ট ও লেজার রেকর্ড</span>
+              <h3 className="text-sm font-bold text-white font-sans flex items-center gap-1.5">
+                <Receipt className="w-4 h-4 text-amber-400" />
+                <span>ট্রানজেকশন হিস্ট্রি</span>
               </h3>
-              <p className="text-xs text-emerald-300 mt-0.5">
-                প্রতিটি ডিপোজিট ও উইথড্রয়াল ট্রানজেকশনের সম্পূর্ণ অপরিবর্তনযোগ্য অডিট হিস্ট্রি
+              <p className="text-[11px] text-emerald-300/80 mt-0.5">
+                ডিপোজিট ও উইথড্রয়াল রেকর্ড তালিকা
               </p>
             </div>
             <button
+              type="button"
               onClick={refreshEngineData}
-              className="p-2 rounded-xl bg-emerald-900 border border-emerald-700 text-emerald-200 hover:bg-emerald-800 transition-all cursor-pointer"
+              className="p-2 rounded-lg bg-[#02130b] border border-emerald-700 text-emerald-200 hover:bg-[#032014] cursor-pointer"
               title="রিফ্রেশ করুন"
             >
-              <RefreshCw className="w-4 h-4" />
+              <RefreshCw className="w-3.5 h-3.5" />
             </button>
           </div>
 
           <div className="overflow-x-auto">
             <table className="w-full text-left font-mono text-xs">
-              <thead className="bg-emerald-950 text-emerald-300 uppercase text-[10px] border-b border-emerald-800">
+              <thead className="bg-[#02130b] text-emerald-300 uppercase text-[10px] border-b border-emerald-800">
                 <tr>
-                  <th className="p-3">রেফারেন্স আইডি</th>
-                  <th className="p-3">ধরন</th>
-                  <th className="p-3">মেথড</th>
-                  <th className="p-3">পরিমাণ</th>
-                  <th className="p-3">TrxID / নম্বর</th>
-                  <th className="p-3">স্ট্যাটাস</th>
-                  <th className="p-3">তারিখ ও সময়</th>
+                  <th className="p-2.5">রেফারেন্স</th>
+                  <th className="p-2.5">ধরন</th>
+                  <th className="p-2.5">মেথড</th>
+                  <th className="p-2.5">পরিমাণ</th>
+                  <th className="p-2.5">স্ট্যাটাস</th>
                 </tr>
               </thead>
-              <tbody className="divide-y divide-emerald-800/60">
+              <tbody className="divide-y divide-emerald-800/40">
                 {depositIntents.length === 0 && withdrawalRecords.length === 0 ? (
                   <tr>
-                    <td colSpan={7} className="p-8 text-center text-slate-400 font-sans">
+                    <td colSpan={5} className="p-6 text-center text-slate-400 font-sans text-xs">
                       কোনো পেমেন্ট রেকর্ড পাওয়া যায়নি
                     </td>
                   </tr>
                 ) : (
                   <>
                     {depositIntents.map((dep) => (
-                      <tr key={dep.id} className="hover:bg-emerald-900/40 transition-colors">
-                        <td className="p-3 font-semibold text-white truncate max-w-[140px]">{dep.id}</td>
-                        <td className="p-3">
-                          <span className="px-2 py-0.5 rounded text-[10px] font-bold bg-emerald-500/20 text-emerald-400 border border-emerald-500/40">
-                            DEPOSIT
+                      <tr key={dep.id} className="hover:bg-emerald-950/40">
+                        <td className="p-2.5 text-white font-bold truncate max-w-[100px]">{dep.id}</td>
+                        <td className="p-2.5">
+                          <span className="px-1.5 py-0.2 rounded text-[9px] font-bold bg-emerald-500/20 text-emerald-400 border border-emerald-500/40">
+                            DEP
                           </span>
                         </td>
-                        <td className="p-3 font-bold text-white">{dep.provider.toUpperCase()}</td>
-                        <td className="p-3 font-black text-amber-300">
-                          +৳{dep.amount.toLocaleString()}
+                        <td className="p-2.5 text-white">{dep.provider.toUpperCase()}</td>
+                        <td className="p-2.5 text-amber-300 font-bold">
+                          +৳{Number(dep.amount).toLocaleString()}
                         </td>
-                        <td className="p-3 text-emerald-200">
-                          <div className="font-bold text-white">{dep.providerTransactionId || 'অপেক্ষমাণ'}</div>
-                          <div className="text-[10px] text-slate-400">{dep.destinationAccount.accountNumber}</div>
-                        </td>
-                        <td className="p-3">
-                          <span className={`px-2 py-0.5 rounded text-[10px] font-bold ${
+                        <td className="p-2.5">
+                          <span className={`px-1.5 py-0.2 rounded text-[9px] font-bold ${
                             dep.status === 'CREDITED'
-                              ? 'bg-emerald-500/20 text-emerald-400 border border-emerald-500/40'
-                              : (dep.status === 'AWAITING_PAYMENT' || dep.status === 'VERIFIED' || dep.status === 'AWAITING_LEDGER_SETTLEMENT')
-                              ? 'bg-yellow-500/20 text-yellow-300 border border-yellow-500/40'
-                              : 'bg-red-500/20 text-red-400 border border-red-500/40'
+                              ? 'bg-emerald-500/20 text-emerald-400'
+                              : 'bg-yellow-500/20 text-yellow-300'
                           }`}>
                             {dep.status}
                           </span>
-                        </td>
-                        <td className="p-3 text-slate-400 text-[11px]">
-                          {new Date(dep.createdAt).toLocaleTimeString()}
                         </td>
                       </tr>
                     ))}
 
                     {withdrawalRecords.map((wth) => (
-                      <tr key={wth.id} className="hover:bg-emerald-900/40 transition-colors">
-                        <td className="p-3 font-semibold text-white truncate max-w-[140px]">{wth.id}</td>
-                        <td className="p-3">
-                          <span className="px-2 py-0.5 rounded text-[10px] font-bold bg-amber-500/20 text-amber-300 border border-amber-500/40">
-                            WITHDRAW
+                      <tr key={wth.id} className="hover:bg-emerald-950/40">
+                        <td className="p-2.5 text-white font-bold truncate max-w-[100px]">{wth.id}</td>
+                        <td className="p-2.5">
+                          <span className="px-1.5 py-0.2 rounded text-[9px] font-bold bg-amber-500/20 text-amber-300 border border-amber-500/40">
+                            WTH
                           </span>
                         </td>
-                        <td className="p-3 font-bold text-white">{wth.provider.toUpperCase()}</td>
-                        <td className="p-3 font-black text-red-400">
-                          -৳{wth.amount.toLocaleString()}
+                        <td className="p-2.5 text-white">{wth.provider.toUpperCase()}</td>
+                        <td className="p-2.5 text-red-400 font-bold">
+                          -৳{Number(wth.amount).toLocaleString()}
                         </td>
-                        <td className="p-3 text-emerald-200">
-                          <div className="font-bold text-white">{wth.recipientAccount}</div>
-                          <div className="text-[10px] text-slate-400">{wth.providerReference || 'Processing'}</div>
-                        </td>
-                        <td className="p-3">
-                          <span className={`px-2 py-0.5 rounded text-[10px] font-bold ${
+                        <td className="p-2.5">
+                          <span className={`px-1.5 py-0.2 rounded text-[9px] font-bold ${
                             wth.status === 'WITHDRAWAL_COMPLETED'
-                              ? 'bg-emerald-500/20 text-emerald-400 border border-emerald-500/40'
-                              : wth.status === 'WITHDRAWAL_RESERVED' || wth.status === 'PAYOUT_PROCESSING'
-                              ? 'bg-yellow-500/20 text-yellow-300 border border-yellow-500/40'
-                              : 'bg-red-500/20 text-red-400 border border-red-500/40'
+                              ? 'bg-emerald-500/20 text-emerald-400'
+                              : 'bg-yellow-500/20 text-yellow-300'
                           }`}>
                             {wth.status}
                           </span>
-                        </td>
-                        <td className="p-3 text-slate-400 text-[11px]">
-                          {new Date(wth.createdAt).toLocaleTimeString()}
                         </td>
                       </tr>
                     ))}
@@ -1061,59 +1170,25 @@ export const CashierView: React.FC<CashierViewProps> = ({
               </tbody>
             </table>
           </div>
-        </div>
+        </motion.div>
       )}
 
       {/* ========================================================================= */}
-      {/* 4. ARCHITECTURE & SECURITY GUIDE */}
+      {/* 6. SUBTLE FACTUAL TRUST FOOTER */}
       {/* ========================================================================= */}
-      {activeMode === 'ARCHITECTURE' && (
-        <div className="rounded-3xl border-2 border-emerald-700/50 bg-gradient-to-b from-emerald-950 to-[#03150e] p-6 sm:p-8 space-y-6 font-sans">
-          <div className="border-b border-emerald-800 pb-4">
-            <span className="text-[10px] font-mono uppercase font-bold text-amber-400 tracking-wider">
-              Gameplay 365 Core Engineering Specification
-            </span>
-            <h2 className="text-xl font-black text-white mt-1 flex items-center gap-2">
-              <ShieldCheck className="w-5 h-5 text-amber-400" />
-              <span>সম্পূর্ণ স্বয়ংক্রিয় গেটওয়ে ও ওয়ালেট আর্কিটেকচার নীতি</span>
-            </h2>
-          </div>
-
-          <div className="grid grid-cols-1 md:grid-cols-2 gap-4 text-xs font-mono">
-            <div className="bg-emerald-950 p-4 rounded-2xl border border-emerald-800 space-y-2">
-              <h4 className="font-bold text-amber-300 flex items-center gap-1.5">
-                <CheckCircle2 className="w-4 h-4 text-emerald-400" />
-                <span>৮-পয়েন্ট ডিপোজিট ভেরিফিকেশন নীতি</span>
-              </h4>
-              <ul className="space-y-1 text-slate-300 text-[11px]">
-                <li>✓ ১. TrxID অস্তিত্ব ও ফরম্যাট যাচাই</li>
-                <li>✓ ২. ইউনিক TrxID চেক (Duplicate TrxID নিষিদ্ধ)</li>
-                <li>✓ ৩. সঠিক টাকার পরিমাণ ও মেথড মেলানো</li>
-                <li>✓ ৪. নির্ধারিত গেটওয়ে একাউন্ট সঠিক থাকা</li>
-                <li>✓ ৫. ১৫ মিনিটের সময়সীমার মধ্যে পেমেন্ট</li>
-                <li>✓ ৬. প্রোভাইডার API দ্বারা অথরাইজড কনফার্মেশন</li>
-                <li>✓ ৭. ডাবল-এন্ট্রি লেজার এন্ট্রি ও সিস্টেম লায়াবিলিটি ডেবিট</li>
-                <li>✓ ৮. অ্যাটমিক রো-লেভেল মিউটেক্স লক সহ ওয়ালেট ক্রেডিট</li>
-              </ul>
-            </div>
-
-            <div className="bg-emerald-950 p-4 rounded-2xl border border-emerald-800 space-y-2">
-              <h4 className="font-bold text-amber-300 flex items-center gap-1.5">
-                <Lock className="w-4 h-4 text-amber-400" />
-                <span>ব্যালেন্স রিজার্ভেশন ও উইথড্রয়াল সুরক্ষা</span>
-              </h4>
-              <ul className="space-y-1 text-slate-300 text-[11px]">
-                <li>✓ উইথড্র রিকোয়েস্টের সঙ্গে সঙ্গে ব্যালেন্স সরাসরি হারায় না</li>
-                <li>✓ <span className="text-amber-300 font-bold">WITHDRAWAL_RESERVED</span> হিসেবে আটকে রাখা হয়</li>
-                <li>✓ পেআউট সফল হলে: <span className="text-emerald-400 font-bold">WITHDRAWAL_COMPLETED</span></li>
-                <li>✓ পেআউট ব্যর্থ হলে: <span className="text-cyan-300 font-bold">RESERVATION_RELEASED</span> ও টাকা ফেরত</li>
-                <li>✓ অ্যান্টি-ফ্রড রিস্ক স্কোরিং (০-১০০ স্কেল)</li>
-                <li>✓ Idempotency Key দ্বারা ডুপ্লিকেট উইথড্র রোধ</li>
-              </ul>
-            </div>
-          </div>
-        </div>
-      )}
-    </motion.div>
+      <footer
+        id="play369-cashier-trust-footer"
+        className="mt-5 pt-3 border-t border-emerald-800/40 flex flex-wrap items-center justify-center gap-x-4 gap-y-1.5 text-[10px] text-emerald-400/70 font-mono"
+      >
+        <span className="flex items-center gap-1">
+          <ShieldCheck className="w-3 h-3 text-amber-400/80" />
+          <span>সুরক্ষিত সার্ভার ভেরিফিকেশন</span>
+        </span>
+        <span>•</span>
+        <span>অপরিবর্তনযোগ্য ট্রানজেকশন ট্র্যাকিং</span>
+        <span>•</span>
+        <span>ভেরিফিকেশন পরবর্তী ওয়ালেট সেটেলমেন্ট</span>
+      </footer>
+    </div>
   );
 };
