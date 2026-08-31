@@ -14,6 +14,7 @@ import { validatePaymentAmount } from '../utils/paymentAmount';
 import { resolveAuthPaymentUser } from '../utils/paymentAuth';
 import { WalletLedgerService, walletLedgerService as defaultLedgerService } from '../ledger/walletLedgerService';
 import {
+  deriveWithdrawalTransactionId,
   InsufficientFundsError,
   WalletFrozenError,
   WalletNotFoundError,
@@ -172,7 +173,7 @@ export class PaymentController {
         return;
       }
 
-      // 2. Require strict Idempotency-Key HTTP header (PLAY369 Task 6.1.6.1)
+      // 2. Require strict Idempotency-Key HTTP header (PLAY369 Task 6.1.6.1 & 6.1.6.2)
       const rawIdempHeader = (
         (req.headers && req.headers['idempotency-key']) ||
         (typeof req.header === 'function' ? req.header('idempotency-key') : undefined)
@@ -186,6 +187,14 @@ export class PaymentController {
         return;
       }
       const idempotencyKey = rawIdempHeader.trim();
+      if (idempotencyKey.length < 8 || idempotencyKey.length > 128) {
+        res.status(400).json({
+          success: false,
+          error: 'Idempotency-Key header must be between 8 and 128 characters',
+          code: 'INVALID_IDEMPOTENCY_KEY'
+        });
+        return;
+      }
 
       if (!method || amount === undefined || amount === null || amount === '' || !receiverNumber) {
         res.status(400).json({ error: 'Missing required withdrawal parameters' });
@@ -225,9 +234,8 @@ export class PaymentController {
         return;
       }
 
-      // 3. Derive deterministic server-authoritative withdrawal transaction ID (PLAY369 Task 6.1.6.1)
-      const sanitizedKey = idempotencyKey.replace(/[^a-zA-Z0-9_-]/g, '_');
-      const withdrawalId = `WTH_RES_${authUser.id}_${sanitizedKey}`;
+      // 3. Derive deterministic server-authoritative withdrawal transaction ID (PLAY369 Task 6.1.6.2)
+      const withdrawalId = deriveWithdrawalTransactionId(authUser.id, idempotencyKey);
 
       const correlationId = (req.headers['x-correlation-id'] as string) || `corr_wth_${Date.now()}_${authUser.id}`;
 

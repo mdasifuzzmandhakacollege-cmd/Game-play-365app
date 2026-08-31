@@ -21,8 +21,22 @@ const SENSITIVE_KEY_PATTERNS = [
   /private[-_]?key/i,
   /credit[-_]?card/i,
   /cvv/i,
-  /pin/i
+  /pin/i,
+  /idempotency[-_]?key/i,
+  /idemp/i
 ];
+
+/**
+ * Masks raw idempotency key for safe logging (PLAY369 Task 6.1.6.2)
+ */
+export function maskIdempotencyKey(key?: string): string {
+  if (!key || typeof key !== 'string') return '';
+  const trimmed = key.trim();
+  if (trimmed.length <= 8) {
+    return `${trimmed.substring(0, 2)}***${trimmed.substring(trimmed.length - 2)}`;
+  }
+  return `${trimmed.substring(0, 4)}...${trimmed.substring(trimmed.length - 4)}`;
+}
 
 /**
  * Recursively masks sensitive fields in objects, arrays, and primitive strings

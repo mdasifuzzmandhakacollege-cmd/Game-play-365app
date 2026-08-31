@@ -21,7 +21,7 @@ import { InMemoryPostgresLedgerEngine } from '../ledger/db';
 import { WalletLedgerService } from '../ledger/walletLedgerService';
 import { paymentController } from '../controllers/paymentController';
 import { WageringService } from '../services/wageringService';
-import { IdempotencyConflictError } from '../ledger/types';
+import { deriveWithdrawalTransactionId, IdempotencyConflictError } from '../ledger/types';
 
 let passed = 0;
 let failed = 0;
@@ -202,7 +202,7 @@ async function runSuite() {
       throw new Error(`Security violation: client-supplied withdrawalId was trusted! Got: ${firstResult.trxId}`);
     }
 
-    const expectedServerId = `WTH_RES_${user1.id}_${stableKey1.replace(/[^a-zA-Z0-9_-]/g, '_')}`;
+    const expectedServerId = deriveWithdrawalTransactionId(user1.id, stableKey1);
     if (firstResult.trxId !== expectedServerId) {
       throw new Error(`Expected server withdrawal ID ${expectedServerId}, got ${firstResult.trxId}`);
     }

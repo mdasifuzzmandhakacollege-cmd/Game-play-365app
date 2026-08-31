@@ -17,6 +17,7 @@ import {
   BalanceTargetReconciliationSummary,
   BonusToRealTransferRequest,
   BonusToRealTransferResult,
+  deriveWithdrawalTransactionId,
   IdempotencyConflictError,
   InsufficientFundsError,
   LedgerBalanceTarget,
@@ -822,17 +823,32 @@ export class WalletLedgerService {
       operationType: 'WITHDRAWAL_RESERVATION'
     };
 
-    const idempotencyKey = req.idempotencyKey || this.generateIdempotencyKey(
-      normalizedUserId,
-      currency,
-      `wdraw_res:${req.withdrawalId || normalizedAmount + ':' + normalizedPaymentMethod}`
+    // Validate idempotencyKey length if explicitly provided
+    if (req.idempotencyKey !== undefined && req.idempotencyKey !== null) {
+      if (typeof req.idempotencyKey !== 'string') {
+        throw new LedgerValidationError("Idempotency key must be a string", { code: 'INVALID_IDEMPOTENCY_KEY' });
+      }
+      const trimmedKey = req.idempotencyKey.trim();
+      if (trimmedKey.length < 8 || trimmedKey.length > 128) {
+        throw new LedgerValidationError("Idempotency key must be between 8 and 128 characters", { code: 'INVALID_IDEMPOTENCY_KEY' });
+      }
+    }
+
+    const idempotencyKey = (
+      req.idempotencyKey && req.idempotencyKey.trim() !== ''
+        ? req.idempotencyKey.trim()
+        : this.generateIdempotencyKey(
+            normalizedUserId,
+            currency,
+            `wdraw_res:${req.withdrawalId || normalizedAmount + ':' + normalizedPaymentMethod}`
+          )
     );
 
-    // Derive deterministic transaction ID
+    // Derive deterministic transaction ID using cryptographic SHA-256 (PLAY369 Task 6.1.6.2)
     const rootTxId = (
       req.withdrawalId && String(req.withdrawalId).trim() !== ''
         ? String(req.withdrawalId).trim()
-        : `WTH_RES_${normalizedUserId}_${idempotencyKey.replace(/[^a-zA-Z0-9_-]/g, '_')}`
+        : deriveWithdrawalTransactionId(normalizedUserId, idempotencyKey)
     );
 
     const sanitizedAudit = maskSensitiveData(req.metadata || {});

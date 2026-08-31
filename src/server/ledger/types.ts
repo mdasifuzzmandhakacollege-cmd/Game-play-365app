@@ -12,6 +12,9 @@
  *    original committed outcome without duplicate financial debit/credit.
  */
 
+import { createHash } from 'crypto';
+import { maskIdempotencyKey } from '../gateway/masking';
+
 export type SupportedCurrency = 'BDT' | 'USD' | 'EUR' | 'INR';
 
 export const SUPPORTED_CURRENCIES: ReadonlySet<SupportedCurrency> = new Set(['BDT', 'USD', 'EUR', 'INR']);
@@ -229,12 +232,32 @@ export class LedgerValidationError extends Error {
   }
 }
 
+/**
+ * PLAY369 Task 6.1.6.2: Safe Idempotency Key -> Transaction ID Derivation
+ * Derives a deterministic cryptographic digest from authenticated userId + exact original Idempotency-Key.
+ * Collisions between differing keys (including punctuation variations) are practically negligible.
+ * 
+ * Formula: WTH_RES_<userId>_<SHA256(userId:idempotencyKey)[0..32]>
+ */
+export function deriveWithdrawalTransactionId(userId: string | number, idempotencyKey: string): string {
+  const normalizedUser = String(userId).trim();
+  const rawKey = String(idempotencyKey);
+  const hash = createHash('sha256')
+    .update(`${normalizedUser}:${rawKey}`)
+    .digest('hex');
+  return `WTH_RES_${normalizedUser}_${hash.substring(0, 32)}`;
+}
+
 export class IdempotencyConflictError extends Error {
   public readonly code: string = 'IDEMPOTENCY_CONFLICT';
   public readonly statusCode: number = 409;
   public readonly details?: Record<string, any>;
 
-  constructor(message: string, details?: Record<string, any>) {
+  constructor(keyOrMessage: string, details?: Record<string, any>) {
+    const isKey = keyOrMessage && !keyOrMessage.toLowerCase().includes('conflict');
+    const message = isKey
+      ? `Idempotency conflict for key '${maskIdempotencyKey(keyOrMessage)}'`
+      : keyOrMessage;
     super(message);
     this.name = 'IdempotencyConflictError';
     this.details = details;
