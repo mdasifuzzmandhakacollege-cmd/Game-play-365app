@@ -31,6 +31,7 @@ import {
 import { notificationService } from './notificationService';
 import { soundEngine } from './soundEngine';
 import { webhookLogger } from './webhookLogger';
+import { validatePaymentAmount, fromScale4, toScale4 } from '../server/utils/paymentAmount';
 
 export class PaymentGatewayEngine {
   // 1. Provider Adapter Registry
@@ -255,7 +256,7 @@ export class PaymentGatewayEngine {
   // ==========================================================================
   public analyzeRisk(params: {
     userId: string;
-    amount: number;
+    amount: string | number | bigint;
     provider: PaymentProviderId;
     trxId?: string;
     recipientAccount?: string;
@@ -274,10 +275,15 @@ export class PaymentGatewayEngine {
       }
     }
 
-    // Check 2: Amount Anomalies (e.g. unusually high single deposit)
-    if (params.amount > 100000) {
-      score += 25;
-      factors.push('HIGH_VALUE_TRANSACTION');
+    // Check 2: Amount Anomalies (e.g. unusually high single deposit > 100,000.0000 = 1000000000n)
+    try {
+      const amountMinor = typeof params.amount === 'bigint' ? params.amount : toScale4(String(params.amount));
+      if (amountMinor > 1000000000n) {
+        score += 25;
+        factors.push('HIGH_VALUE_TRANSACTION');
+      }
+    } catch {
+      // Ignored for non-standard inputs in risk pass
     }
 
     // Check 3: Velocity Check (Multiple rapid intents within 5 minutes)
@@ -320,6 +326,10 @@ export class PaymentGatewayEngine {
       return this.idempotencyStore.get(req.idempotencyKey);
     }
 
+    const parsed = validatePaymentAmount(req.amount);
+    const amountStr = parsed.decimalString;
+    const amountMinor = parsed.minorUnits;
+
     const now = new Date();
     const dateStr = now.toISOString().slice(0, 10).replace(/-/g, '');
     const randomSuffix = Math.random().toString(36).substring(2, 7).toUpperCase();
@@ -328,7 +338,7 @@ export class PaymentGatewayEngine {
 
     const risk = this.analyzeRisk({
       userId: req.userId,
-      amount: req.amount,
+      amount: amountMinor,
       provider: req.provider,
       type: 'DEPOSIT'
     });
@@ -341,7 +351,8 @@ export class PaymentGatewayEngine {
       username: req.username,
       provider: req.provider,
       method: req.method,
-      amount: req.amount,
+      amount: amountStr,
+      amountMinor: amountMinor.toString(),
       currency: req.currency,
       status: 'AWAITING_PAYMENT',
       destinationAccount: destination,
@@ -354,7 +365,7 @@ export class PaymentGatewayEngine {
         {
           status: 'CREATED',
           timestamp: now.toISOString(),
-          note: `Deposit Intent created for ৳${req.amount.toLocaleString()} via ${req.provider.toUpperCase()}`
+          note: `Deposit Intent created for ৳${amountStr} via ${req.provider.toUpperCase()}`
         },
         {
           status: 'AWAITING_PAYMENT',
@@ -376,7 +387,7 @@ export class PaymentGatewayEngine {
       resource: 'DEPOSIT',
       resourceId: depositId,
       ipAddress: req.clientIp || '127.0.0.1',
-      metadata: { amount: req.amount, provider: req.provider, destination: destination.accountNumber }
+      metadata: { amount: amountStr, amountMinor: amountMinor.toString(), provider: req.provider, destination: destination.accountNumber }
     });
 
     this.notifyChange();
@@ -514,7 +525,12 @@ export class PaymentGatewayEngine {
     });
 
     // Update Destination Account daily volume tracking
-    intent.destinationAccount.currentDayVolume += intent.amount;
+    try {
+      const addedVolume = Number(toScale4(String(intent.amount)) / 10000n);
+      intent.destinationAccount.currentDayVolume += addedVolume;
+    } catch {
+      // Ignore
+    }
 
     // Log Immutable Verification Audit (without emitting phantom WALLET_DEPOSIT_CREDITED)
     this.logAudit({
@@ -734,13 +750,30 @@ export class PaymentGatewayEngine {
     const withdrawals = Array.from(this.withdrawalRecords.values());
     const webhookStats = webhookLogger.getStats();
 
-    const totalDeposited = deposits
-      .filter((d) => d.status === 'CREDITED')
-      .reduce((sum, d) => sum + d.amount, 0);
+    let totalDepositedMinor = 0n;
+    for (const d of deposits) {
+      if (d.status === 'CREDITED') {
+        try {
+          totalDepositedMinor += toScale4(String(d.amount));
+        } catch {
+          // ignore
+        }
+      }
+    }
 
-    const totalWithdrawn = withdrawals
-      .filter((w) => w.status === 'WITHDRAWAL_COMPLETED')
-      .reduce((sum, w) => sum + w.amount, 0);
+    let totalWithdrawnMinor = 0n;
+    for (const w of withdrawals) {
+      if (w.status === 'WITHDRAWAL_COMPLETED') {
+        try {
+          totalWithdrawnMinor += toScale4(String(w.amount));
+        } catch {
+          // ignore
+        }
+      }
+    }
+
+    const totalDeposited = Number(fromScale4(totalDepositedMinor));
+    const totalWithdrawn = Number(fromScale4(totalWithdrawnMinor));
 
     const pendingDeposits = deposits.filter((d) => d.status === 'AWAITING_PAYMENT' || d.status === 'TRX_SUBMITTED').length;
     const pendingWithdrawals = withdrawals.filter((w) => w.status === 'WITHDRAWAL_RESERVED' || w.status === 'PAYOUT_PROCESSING').length;
@@ -769,7 +802,7 @@ export class PaymentGatewayEngine {
       username: 'Tamim_Sultana',
       provider: 'bkash',
       method: 'BKASH',
-      amount: 5000,
+      amount: '5000.0000',
       currency: 'BDT',
       status: 'CREDITED',
       destinationAccount: this.destinationPool[0],
@@ -798,13 +831,13 @@ export class PaymentGatewayEngine {
       username: 'Tamim_Sultana',
       provider: 'nagad',
       method: 'NAGAD',
-      amount: 3000,
+      amount: '3000.0000',
       currency: 'BDT',
       recipientAccount: '01844-992200',
       status: 'WITHDRAWAL_COMPLETED',
-      reservedBalanceBefore: 0,
-      availableBalanceBefore: 8000,
-      availableBalanceAfter: 5000,
+      reservedBalanceBefore: '0.0000',
+      availableBalanceBefore: '8000.0000',
+      availableBalanceAfter: '5000.0000',
       providerReference: 'NG_DISB_891028',
       createdAt: new Date(now - 7200000).toISOString(),
       processedAt: new Date(now - 7190000).toISOString(),

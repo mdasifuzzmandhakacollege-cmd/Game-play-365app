@@ -35,7 +35,7 @@ export interface AppNotification {
   title: string;
   message: string;
   type: NotificationType;
-  amount?: number;
+  amount?: number | string;
   currency?: 'BDT' | 'USD';
   isRead: boolean;
   actionTab?: string;

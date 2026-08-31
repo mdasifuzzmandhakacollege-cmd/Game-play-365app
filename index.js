@@ -12,7 +12,7 @@ import fs from "fs";
 import { fileURLToPath } from "url";
 
 // src/server/middleware/hmac.ts
-import crypto2 from "crypto";
+import crypto from "crypto";
 
 // src/server/types/seamless.ts
 var SeamlessErrorCode = /* @__PURE__ */ ((SeamlessErrorCode2) => {
@@ -59,7 +59,7 @@ var PROVIDER_SECRETS = new Proxy({}, {
 var REPLAY_TOLERANCE_MS = 5 * 60 * 1e3;
 function generateHmacSignature(payloadString, timestamp2, secretKey) {
   const messageToSign = `${timestamp2}.${payloadString}`;
-  return crypto2.createHmac("sha256", secretKey).update(messageToSign, "utf8").digest("hex");
+  return crypto.createHmac("sha256", secretKey).update(messageToSign, "utf8").digest("hex");
 }
 function validateHmacSignature(req, res, next) {
   try {
@@ -124,7 +124,7 @@ function validateHmacSignature(req, res, next) {
     const expectedSig = generateHmacSignature(rawPayload, timestampHeader, secretKey).toLowerCase();
     const receivedBuffer = Buffer.from(cleanReceivedSig, "hex");
     const expectedBuffer = Buffer.from(expectedSig, "hex");
-    if (receivedBuffer.length !== expectedBuffer.length || !crypto2.timingSafeEqual(receivedBuffer, expectedBuffer)) {
+    if (receivedBuffer.length !== expectedBuffer.length || !crypto.timingSafeEqual(receivedBuffer, expectedBuffer)) {
       res.status(401).json({
         code: "INVALID_SIGNATURE" /* INVALID_SIGNATURE */,
         message: "Cryptographic HMAC-SHA256 signature verification failed",
@@ -160,8 +160,8 @@ var PostgresLedgerPool = class {
   async connect() {
     const client = await this.pool.connect();
     return {
-      query: async (sql4, params) => {
-        const result = await client.query(sql4, params);
+      query: async (sql8, params) => {
+        const result = await client.query(sql8, params);
         return {
           rows: result.rows,
           rowCount: result.rowCount ?? result.rows.length
@@ -172,8 +172,8 @@ var PostgresLedgerPool = class {
       }
     };
   }
-  async query(sql4, params) {
-    const result = await this.pool.query(sql4, params);
+  async query(sql8, params) {
+    const result = await this.pool.query(sql8, params);
     return {
       rows: result.rows,
       rowCount: result.rowCount ?? result.rows.length
@@ -229,8 +229,8 @@ var InMemoryPostgresLedgerEngine = class {
       stagedIdempotency: /* @__PURE__ */ new Map()
     };
     const client = {
-      query: async (sql4, params = []) => {
-        const cleanSql = sql4.trim().replace(/\s+/g, " ");
+      query: async (sql8, params = []) => {
+        const cleanSql = sql8.trim().replace(/\s+/g, " ");
         if (cleanSql.toUpperCase() === "BEGIN") {
           activeTxState.inTransaction = true;
           return { rows: [], rowCount: 0 };
@@ -276,40 +276,71 @@ var InMemoryPostgresLedgerEngine = class {
           }
           return { rows: [], rowCount: 0 };
         }
-        if (cleanSql.includes("FROM wallets") && cleanSql.includes("user_id = $1") && cleanSql.includes("currency = $2")) {
+        if (cleanSql.includes("FROM wallets") && (cleanSql.includes("user_id = $1") || cleanSql.includes("WHERE user_id = $1"))) {
           const userId = String(params[0]).trim();
-          const currency = String(params[1]).trim();
-          const walletKey = `${userId}:${currency}`;
-          if (cleanSql.toUpperCase().includes("FOR UPDATE")) {
-            await this.acquireRowLock(walletKey, activeTxState);
+          const currency = params[1] !== void 0 ? String(params[1]).trim() : null;
+          if (currency) {
+            const walletKey = `${userId}:${currency}`;
+            if (cleanSql.toUpperCase().includes("FOR UPDATE")) {
+              await this.acquireRowLock(walletKey, activeTxState);
+            }
+            const existing = activeTxState.stagedWallets.get(walletKey) || this.wallets.get(walletKey);
+            if (!existing) {
+              return { rows: [], rowCount: 0 };
+            }
+            return {
+              rows: [{
+                id: existing.id,
+                user_id: existing.user_id,
+                currency: existing.currency,
+                real_balance: existing.real_balance || (existing.balance_minor !== void 0 ? (Number(existing.balance_minor) / 1e4).toFixed(4) : "0.0000"),
+                bonus_balance: existing.bonus_balance || "0.0000",
+                balance_minor: existing.balance_minor.toString(),
+                version: existing.version.toString(),
+                status: existing.status,
+                created_at: existing.created_at,
+                updated_at: existing.updated_at
+              }],
+              rowCount: 1
+            };
+          } else {
+            const matched = [];
+            const source = activeTxState.inTransaction ? new Map([...this.wallets, ...activeTxState.stagedWallets]) : this.wallets;
+            for (const existing of source.values()) {
+              if (String(existing.user_id) === userId) {
+                matched.push({
+                  id: existing.id,
+                  user_id: existing.user_id,
+                  currency: existing.currency,
+                  real_balance: existing.real_balance || (existing.balance_minor !== void 0 ? (Number(existing.balance_minor) / 1e4).toFixed(4) : "0.0000"),
+                  bonus_balance: existing.bonus_balance || "0.0000",
+                  balance_minor: existing.balance_minor.toString(),
+                  version: existing.version.toString(),
+                  status: existing.status,
+                  created_at: existing.created_at,
+                  updated_at: existing.updated_at
+                });
+              }
+            }
+            return { rows: matched, rowCount: matched.length };
           }
-          const existing = activeTxState.stagedWallets.get(walletKey) || this.wallets.get(walletKey);
-          if (!existing) {
-            return { rows: [], rowCount: 0 };
-          }
-          return {
-            rows: [{
-              id: existing.id,
-              user_id: existing.user_id,
-              currency: existing.currency,
-              real_balance: existing.real_balance || (existing.balance_minor !== void 0 ? (Number(existing.balance_minor) / 1e4).toFixed(4) : "0.0000"),
-              balance_minor: existing.balance_minor.toString(),
-              version: existing.version.toString(),
-              status: existing.status,
-              created_at: existing.created_at,
-              updated_at: existing.updated_at
-            }],
-            rowCount: 1
-          };
         }
         if (cleanSql.startsWith("INSERT INTO wallets")) {
           let id = Math.floor(Math.random() * 1e5) + 1;
           let userId;
           let currency;
           let realBalance;
+          let bonusBalance = "0.0000";
           let balanceMinor;
           let status;
-          if (cleanSql.includes("real_balance")) {
+          if (cleanSql.includes("real_balance") && cleanSql.includes("bonus_balance")) {
+            userId = String(params[0] ?? "").trim();
+            currency = String(params[1] ?? "BDT").trim();
+            realBalance = params[2] !== void 0 ? String(params[2]) : "0.0000";
+            bonusBalance = params[3] !== void 0 ? String(params[3]) : "0.0000";
+            balanceMinor = params[4] !== void 0 ? BigInt(params[4]) : 0n;
+            status = params[5] || "ACTIVE";
+          } else if (cleanSql.includes("real_balance")) {
             userId = String(params[0] ?? "").trim();
             currency = String(params[1] ?? "BDT").trim();
             realBalance = params[2] !== void 0 ? String(params[2]) : "0.0000";
@@ -337,6 +368,7 @@ var InMemoryPostgresLedgerEngine = class {
             user_id: userId,
             currency,
             real_balance: realBalance,
+            bonus_balance: bonusBalance,
             balance_minor: balanceMinor,
             version: 1n,
             status,
@@ -352,9 +384,18 @@ var InMemoryPostgresLedgerEngine = class {
         }
         if (cleanSql.startsWith("UPDATE wallets")) {
           let realBalance = null;
-          let balanceMinor;
+          let bonusBalance = null;
+          let balanceMinor = null;
           let walletId;
-          if (cleanSql.includes("real_balance = $1") && cleanSql.includes("balance_minor = $2")) {
+          if (cleanSql.includes("bonus_balance = $1") && cleanSql.includes("real_balance = $2")) {
+            bonusBalance = String(params[0]);
+            realBalance = String(params[1]);
+            balanceMinor = BigInt(params[2]);
+            walletId = params[3];
+          } else if (cleanSql.includes("bonus_balance = $1")) {
+            bonusBalance = String(params[0]);
+            walletId = params[1];
+          } else if (cleanSql.includes("real_balance = $1") && cleanSql.includes("balance_minor = $2")) {
             realBalance = String(params[0]);
             balanceMinor = BigInt(params[1]);
             walletId = params[2];
@@ -384,7 +425,7 @@ var InMemoryPostgresLedgerEngine = class {
           if (!targetWallet || !targetKey) {
             return { rows: [], rowCount: 0 };
           }
-          if (balanceMinor < 0n) {
+          if (balanceMinor !== null && balanceMinor < 0n) {
             const err = new Error(`check constraint "chk_wallet_balance_non_negative" failed`);
             err.code = "23514";
             throw err;
@@ -392,7 +433,8 @@ var InMemoryPostgresLedgerEngine = class {
           const updated = {
             ...targetWallet,
             real_balance: realBalance ?? targetWallet.real_balance,
-            balance_minor: balanceMinor,
+            bonus_balance: bonusBalance ?? targetWallet.bonus_balance ?? "0.0000",
+            balance_minor: balanceMinor !== null ? balanceMinor : targetWallet.balance_minor,
             version: targetWallet.version + 1n,
             updated_at: /* @__PURE__ */ new Date()
           };
@@ -404,21 +446,58 @@ var InMemoryPostgresLedgerEngine = class {
           return { rows: [{ id: walletId }], rowCount: 1 };
         }
         if (cleanSql.startsWith("INSERT INTO ledger_entries")) {
-          const [
-            id,
-            walletId,
-            userId,
-            transactionId,
-            refTxId,
-            type,
-            amountMinor,
-            currency,
-            beforeMinor,
-            afterMinor,
-            status,
-            correlationId,
-            auditMetadata
-          ] = params;
+          let id;
+          let walletId;
+          let userId;
+          let transactionId;
+          let refTxId;
+          let type;
+          let balanceTarget = "REAL";
+          let amountMinor;
+          let currency;
+          let beforeMinor;
+          let afterMinor;
+          let status;
+          let correlationId;
+          let auditMetadata;
+          if (params.length >= 14) {
+            [
+              id,
+              walletId,
+              userId,
+              transactionId,
+              refTxId,
+              type,
+              balanceTarget,
+              amountMinor,
+              currency,
+              beforeMinor,
+              afterMinor,
+              status,
+              correlationId,
+              auditMetadata
+            ] = params;
+          } else {
+            [
+              id,
+              walletId,
+              userId,
+              transactionId,
+              refTxId,
+              type,
+              amountMinor,
+              currency,
+              beforeMinor,
+              afterMinor,
+              status,
+              correlationId,
+              auditMetadata
+            ] = params;
+            const parsedAudit = typeof auditMetadata === "string" ? JSON.parse(auditMetadata) : auditMetadata;
+            if (parsedAudit?.targetBalance === "BONUS" || parsedAudit?.category === "BONUS_CASH") {
+              balanceTarget = "BONUS";
+            }
+          }
           for (const existingEntry of [...this.ledgerEntries.values(), ...activeTxState.stagedEntries.values()]) {
             if (existingEntry.user_id === userId && existingEntry.transaction_id === transactionId) {
               const err = new Error(`duplicate key value violates unique constraint "uq_ledger_user_transaction"`);
@@ -433,6 +512,7 @@ var InMemoryPostgresLedgerEngine = class {
             transaction_id: transactionId,
             reference_transaction_id: refTxId || null,
             type,
+            balance_target: balanceTarget || "REAL",
             amount_minor: BigInt(amountMinor),
             currency,
             before_balance_minor: BigInt(beforeMinor),
@@ -470,6 +550,32 @@ var InMemoryPostgresLedgerEngine = class {
           }
           return { rows: [{ idempotency_key: key }], rowCount: 1 };
         }
+        if (cleanSql.includes("FROM ledger_entries") && cleanSql.includes("user_id = $1")) {
+          const userId = String(params[0]).trim();
+          const matched = [];
+          for (const entry of this.ledgerEntries.values()) {
+            if (String(entry.user_id) === userId) {
+              matched.push({
+                id: entry.id,
+                wallet_id: entry.wallet_id,
+                user_id: entry.user_id,
+                transaction_id: entry.transaction_id,
+                reference_transaction_id: entry.reference_transaction_id,
+                type: entry.type,
+                balance_target: entry.balance_target || "REAL",
+                amount_minor: entry.amount_minor !== void 0 ? entry.amount_minor.toString() : "0",
+                currency: entry.currency,
+                before_balance_minor: entry.before_balance_minor !== void 0 ? entry.before_balance_minor.toString() : "0",
+                after_balance_minor: entry.after_balance_minor !== void 0 ? entry.after_balance_minor.toString() : "0",
+                status: entry.status,
+                correlation_id: entry.correlation_id,
+                audit_metadata: typeof entry.audit_metadata === "object" ? JSON.stringify(entry.audit_metadata) : entry.audit_metadata,
+                created_at: entry.created_at
+              });
+            }
+          }
+          return { rows: matched, rowCount: matched.length };
+        }
         if (cleanSql.includes("FROM ledger_entries") && cleanSql.includes("transaction_id = $1")) {
           const txId = params[0];
           for (const entry of this.ledgerEntries.values()) {
@@ -480,6 +586,7 @@ var InMemoryPostgresLedgerEngine = class {
                   wallet_id: entry.wallet_id,
                   user_id: entry.user_id,
                   transaction_id: entry.transaction_id,
+                  balance_target: entry.balance_target || "REAL",
                   audit_metadata: entry.audit_metadata
                 }],
                 rowCount: 1
@@ -490,14 +597,26 @@ var InMemoryPostgresLedgerEngine = class {
         }
         if (cleanSql.includes("SUM") && cleanSql.includes("FROM ledger_entries")) {
           const walletId = params[0];
+          const isBonusFilter = cleanSql.includes("'BONUS'") || params[1] === "BONUS";
+          const isRealFilter = cleanSql.includes("'REAL'") || params[1] === "REAL";
+          const targetFilter = isBonusFilter ? "BONUS" : isRealFilter ? "REAL" : null;
           let totalCredits = 0n;
           let totalDebits = 0n;
+          let firstEntryBeforeMinor = null;
+          let entryCount = 0;
           for (const entry of this.ledgerEntries.values()) {
-            if (entry.wallet_id === walletId && entry.status === "COMMITTED") {
-              if (entry.type === "CREDIT" || entry.type === "REVERSAL") {
-                totalCredits += entry.amount_minor;
-              } else if (entry.type === "DEBIT") {
-                totalDebits += entry.amount_minor;
+            if (entry.wallet_id == walletId && entry.status === "COMMITTED") {
+              const entryTarget = entry.balance_target || (entry.audit_metadata?.targetBalance === "BONUS" || entry.audit_metadata?.category === "BONUS_CASH" ? "BONUS" : "REAL");
+              if (!targetFilter || entryTarget === targetFilter) {
+                if (firstEntryBeforeMinor === null) {
+                  firstEntryBeforeMinor = entry.before_balance_minor;
+                }
+                if (entry.type === "CREDIT" || entry.type === "REVERSAL") {
+                  totalCredits += entry.amount_minor;
+                } else if (entry.type === "DEBIT") {
+                  totalDebits += entry.amount_minor;
+                }
+                entryCount++;
               }
             }
           }
@@ -505,7 +624,9 @@ var InMemoryPostgresLedgerEngine = class {
             rows: [{
               total_credits: totalCredits.toString(),
               total_debits: totalDebits.toString(),
-              net_minor: (totalCredits - totalDebits).toString()
+              net_minor: (totalCredits - totalDebits).toString(),
+              initial_seed_minor: firstEntryBeforeMinor !== null ? firstEntryBeforeMinor.toString() : null,
+              entry_count: entryCount.toString()
             }],
             rowCount: 1
           };
@@ -523,10 +644,10 @@ var InMemoryPostgresLedgerEngine = class {
     };
     return client;
   }
-  async query(sql4, params) {
+  async query(sql8, params) {
     const client = await this.connect();
     try {
-      return await client.query(sql4, params);
+      return await client.query(sql8, params);
     } finally {
       client.release();
     }
@@ -563,6 +684,54 @@ var InMemoryPostgresLedgerEngine = class {
       ledgerEntriesCount: this.ledgerEntries.size,
       idempotencyRecordsCount: this.idempotencyRecords.size
     };
+  }
+  /**
+   * Helper to seed or reset a wallet for testing
+   */
+  seedWallet(params) {
+    const userId = String(params.userId);
+    const currency = params.currency || "BDT";
+    const realBalance = params.realBalance || "0.0000";
+    const bonusBalance = params.bonusBalance || "0.0000";
+    const realMinor = BigInt(Math.round(parseFloat(realBalance) * 1e4));
+    const walletKey = `${userId}:${currency}`;
+    const id = this.wallets.size + 1;
+    this.users.set(userId, {
+      id: userId,
+      username: `user_${userId}`,
+      status: params.status || "ACTIVE",
+      currency
+    });
+    this.wallets.set(walletKey, {
+      id,
+      user_id: userId,
+      currency,
+      real_balance: realBalance,
+      bonus_balance: bonusBalance,
+      balance_minor: realMinor,
+      version: 1n,
+      status: params.status || "ACTIVE",
+      created_at: /* @__PURE__ */ new Date(),
+      updated_at: /* @__PURE__ */ new Date()
+    });
+  }
+  /**
+   * Helper to retrieve all ledger entries for testing and audit inspection
+   */
+  getAllLedgerEntries() {
+    return Array.from(this.ledgerEntries.values());
+  }
+  /**
+   * Helper to directly set or manipulate a ledger entry for testing backfill & migration logic
+   */
+  setRawLedgerEntry(id, entry) {
+    this.ledgerEntries.set(id, entry);
+  }
+  /**
+   * Helper to directly mutate a wallet for testing reconciliation discrepancy detection
+   */
+  setRawWallet(walletKey, wallet) {
+    this.wallets.set(walletKey, wallet);
   }
 };
 
@@ -758,7 +927,7 @@ var WalletLedgerService = class {
     const normalizedUserId = String(userId).trim();
     const validatedCurrency = validateCurrency(currency);
     const res = await this.db.query(
-      `SELECT id, user_id, currency, real_balance, balance_minor, version, status, created_at, updated_at
+      `SELECT id, user_id, currency, real_balance, bonus_balance, balance_minor, version, status, created_at, updated_at
        FROM wallets
        WHERE user_id = $1 AND currency = $2
        LIMIT 1`,
@@ -782,6 +951,7 @@ var WalletLedgerService = class {
       currency: row.currency,
       balanceMinor,
       realBalance: row.real_balance !== void 0 && row.real_balance !== null ? row.real_balance.toString() : formatMinorUnits(balanceMinor, row.currency),
+      bonusBalance: row.bonus_balance !== void 0 && row.bonus_balance !== null ? row.bonus_balance.toString() : "0.0000",
       version: BigInt(row.version),
       status: row.status,
       createdAt: row.created_at,
@@ -834,16 +1004,24 @@ var WalletLedgerService = class {
       throw new LedgerValidationError("transactionId is required and must be a non-empty string", { transactionId: req.transactionId });
     }
     const currency = validateCurrency(req.currency);
+    const targetBalance = req.targetBalance || "REAL";
     const allowZero = req.type === "CREDIT" || req.type === "ADJUSTMENT";
     const rawAmount = req.amountMinor !== void 0 ? req.amountMinor : req.amountMajor;
     const amountMinor = parseToMinorUnits(rawAmount, currency, allowZero);
     const correlationId = req.correlationId || `cid-${Date.now()}-${Math.random().toString(36).substring(2, 8)}`;
     const idempotencyKey = this.generateIdempotencyKey(normalizedUserId, currency, req.transactionId);
     const sanitizedAudit = req.auditMetadata ? maskSensitiveData(req.auditMetadata) : {};
-    safeLog("info", correlationId, `[Ledger] Initiating ${req.type} of ${formatMinorUnits(amountMinor, currency)} ${currency}`, {
+    sanitizedAudit.targetBalance = targetBalance;
+    if (targetBalance === "BONUS" && !sanitizedAudit.category) {
+      sanitizedAudit.category = "BONUS_CASH";
+    } else if (targetBalance === "REAL" && !sanitizedAudit.category) {
+      sanitizedAudit.category = "REAL_CASH";
+    }
+    safeLog("info", correlationId, `[Ledger] Initiating ${req.type} (${targetBalance}) of ${formatMinorUnits(amountMinor, currency)} ${currency}`, {
       userId: normalizedUserId,
       transactionId: req.transactionId,
-      type: req.type
+      type: req.type,
+      targetBalance
     });
     const client = await this.db.connect();
     try {
@@ -866,7 +1044,7 @@ var WalletLedgerService = class {
         };
       }
       let walletRes = await client.query(
-        `SELECT id, user_id, currency, real_balance, balance_minor, version, status
+        `SELECT id, user_id, currency, real_balance, bonus_balance, balance_minor, version, status
          FROM wallets
          WHERE user_id = $1 AND currency = $2
          FOR UPDATE`,
@@ -874,13 +1052,13 @@ var WalletLedgerService = class {
       );
       if (walletRes.rows.length === 0) {
         await client.query(
-          `INSERT INTO wallets (user_id, currency, real_balance, balance_minor, status)
-           VALUES ($1, $2, $3, $4, 'ACTIVE')
+          `INSERT INTO wallets (user_id, currency, real_balance, bonus_balance, balance_minor, status)
+           VALUES ($1, $2, $3, '0.0000', $4, 'ACTIVE')
            ON CONFLICT (user_id, currency) DO NOTHING`,
           [normalizedUserId, currency, "0.0000", "0"]
         );
         walletRes = await client.query(
-          `SELECT id, user_id, currency, real_balance, balance_minor, version, status
+          `SELECT id, user_id, currency, real_balance, bonus_balance, balance_minor, version, status
            FROM wallets
            WHERE user_id = $1 AND currency = $2
            FOR UPDATE`,
@@ -897,12 +1075,17 @@ var WalletLedgerService = class {
         throw new WalletFrozenError(normalizedUserId, wallet.status);
       }
       let beforeBalanceMinor;
-      if (wallet.balance_minor !== void 0 && wallet.balance_minor !== null && wallet.balance_minor !== "") {
-        beforeBalanceMinor = BigInt(wallet.balance_minor.toString());
-      } else if (wallet.real_balance !== void 0 && wallet.real_balance !== null) {
-        beforeBalanceMinor = parseToMinorUnits(wallet.real_balance.toString(), currency, true);
+      if (targetBalance === "BONUS") {
+        const bonusStr = wallet.bonus_balance !== void 0 && wallet.bonus_balance !== null ? wallet.bonus_balance.toString() : "0.0000";
+        beforeBalanceMinor = parseToMinorUnits(bonusStr, currency, true);
       } else {
-        beforeBalanceMinor = 0n;
+        if (wallet.balance_minor !== void 0 && wallet.balance_minor !== null && wallet.balance_minor !== "") {
+          beforeBalanceMinor = BigInt(wallet.balance_minor.toString());
+        } else if (wallet.real_balance !== void 0 && wallet.real_balance !== null) {
+          beforeBalanceMinor = parseToMinorUnits(wallet.real_balance.toString(), currency, true);
+        } else {
+          beforeBalanceMinor = 0n;
+        }
       }
       let afterBalanceMinor;
       if (req.type === "DEBIT") {
@@ -924,24 +1107,35 @@ var WalletLedgerService = class {
         await client.query("ROLLBACK");
         throw new LedgerValidationError(`Unsupported ledger transaction type: ${req.type}`);
       }
-      const formattedRealBalance = formatMinorUnits(afterBalanceMinor, currency);
-      await client.query(
-        `UPDATE wallets
-         SET real_balance = $1,
-             balance_minor = $2,
-             version = version + 1,
-             updated_at = NOW()
-         WHERE id = $3`,
-        [formattedRealBalance, afterBalanceMinor.toString(), wallet.id]
-      );
+      const formattedBalance = formatMinorUnits(afterBalanceMinor, currency);
+      if (targetBalance === "BONUS") {
+        await client.query(
+          `UPDATE wallets
+           SET bonus_balance = $1,
+               version = version + 1,
+               updated_at = NOW()
+           WHERE id = $2`,
+          [formattedBalance, wallet.id]
+        );
+      } else {
+        await client.query(
+          `UPDATE wallets
+           SET real_balance = $1,
+               balance_minor = $2,
+               version = version + 1,
+               updated_at = NOW()
+           WHERE id = $3`,
+          [formattedBalance, afterBalanceMinor.toString(), wallet.id]
+        );
+      }
       const entryId = `ledg_${Date.now()}_${Math.random().toString(36).substring(2, 9)}`;
       await client.query(
         `INSERT INTO ledger_entries (
            id, wallet_id, user_id, transaction_id, reference_transaction_id,
-           type, amount_minor, currency, before_balance_minor, after_balance_minor,
+           type, balance_target, amount_minor, currency, before_balance_minor, after_balance_minor,
            status, correlation_id, audit_metadata
          )
-         VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13)`,
+         VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14)`,
         [
           entryId,
           wallet.id,
@@ -949,6 +1143,7 @@ var WalletLedgerService = class {
           req.transactionId.trim(),
           req.referenceTransactionId?.trim() || null,
           req.type,
+          targetBalance,
           amountMinor.toString(),
           currency,
           beforeBalanceMinor.toString(),
@@ -967,6 +1162,7 @@ var WalletLedgerService = class {
         userId: normalizedUserId,
         currency,
         type: req.type,
+        targetBalance,
         amountMinor: amountMinor.toString(),
         amountMajor: formatMinorUnits(amountMinor, currency),
         beforeBalanceMinor: beforeBalanceMinor.toString(),
@@ -1015,27 +1211,336 @@ var WalletLedgerService = class {
     }
   }
   /**
-   * Performs an audit reconciliation between the wallet balance and sum of ledger entries.
-   * Invariant: wallet.balance_minor === initial_seed + SUM(credits + reversals) - SUM(debits)
+   * Executes an authoritative atomic balance conversion from BONUS to REAL:
+   * 1. Validates inputs & sanitizes metadata.
+   * 2. Opens transaction: `BEGIN`.
+   * 3. Checks idempotency using root transactionId: `WAGERING_RELEASE_<userId>_<requirementId>`.
+   * 4. Acquires row lock: `SELECT ... FROM wallets WHERE user_id = $1 AND currency = $2 FOR UPDATE`.
+   * 5. Enforces balance invariants & status guards:
+   *    - Verifies wallet is ACTIVE.
+   *    - Verifies sufficient BONUS balance (bonusBalanceMinor >= amountMinor).
+   * 6. Atomically debits BONUS balance and credits REAL balance in a single database update:
+   *    `UPDATE wallets SET bonus_balance = $1, real_balance = $2, balance_minor = $3 ...`
+   * 7. Inserts 2 immutable ledger entries:
+   *    - Leg 1: DEBIT (targetBalance: 'BONUS')
+   *    - Leg 2: CREDIT (targetBalance: 'REAL')
+   *    Both entries reference the root transactionId as reference_transaction_id.
+   * 8. Records single idempotency record under the root idempotency key.
+   * 9. Commits transaction: `COMMIT`.
    */
-  async auditReconciliation(userId, currency) {
+  async executeBonusToRealTransfer(req) {
+    if (req.userId === void 0 || req.userId === null || String(req.userId).trim() === "") {
+      throw new LedgerValidationError("userId is required", { userId: req.userId });
+    }
+    const normalizedUserId = String(req.userId).trim();
+    if (!req.transactionId || typeof req.transactionId !== "string" || req.transactionId.trim().length === 0) {
+      throw new LedgerValidationError("transactionId is required and must be a non-empty string", { transactionId: req.transactionId });
+    }
+    if (req.wageringRequirementId === void 0 || req.wageringRequirementId === null || isNaN(Number(req.wageringRequirementId))) {
+      throw new LedgerValidationError("wageringRequirementId is required and must be a valid number", { wageringRequirementId: req.wageringRequirementId });
+    }
+    const currency = validateCurrency(req.currency);
+    const rawAmount = req.amountMinor !== void 0 ? req.amountMinor : req.amountMajor;
+    const amountMinor = parseToMinorUnits(rawAmount, currency, false);
+    const correlationId = req.correlationId || `cid-${Date.now()}-${Math.random().toString(36).substring(2, 8)}`;
+    const rootTxId = req.transactionId.trim();
+    const idempotencyKey = this.generateIdempotencyKey(normalizedUserId, currency, rootTxId);
+    const sanitizedAudit = req.auditMetadata ? maskSensitiveData(req.auditMetadata) : {};
+    sanitizedAudit.operation = "BONUS_TO_REAL_CONVERSION";
+    sanitizedAudit.wageringRequirementId = req.wageringRequirementId;
+    safeLog("info", correlationId, `[Ledger] Initiating atomic BONUS -> REAL transfer of ${formatMinorUnits(amountMinor, currency)} ${currency}`, {
+      userId: normalizedUserId,
+      transactionId: rootTxId,
+      amountMinor: amountMinor.toString(),
+      wageringRequirementId: req.wageringRequirementId
+    });
+    const client = await this.db.connect();
+    try {
+      await client.query("BEGIN");
+      const existingIdemp = await client.query(
+        `SELECT idempotency_key, transaction_id, status_code, response_payload
+         FROM idempotency_records
+         WHERE idempotency_key = $1
+         LIMIT 1`,
+        [idempotencyKey]
+      );
+      if (existingIdemp.rows.length > 0) {
+        await client.query("COMMIT");
+        safeLog("info", correlationId, `[Ledger] Idempotent hit for bonus transfer: ${rootTxId}`);
+        const rawPayload = existingIdemp.rows[0].response_payload;
+        const cached = typeof rawPayload === "string" ? JSON.parse(rawPayload) : rawPayload;
+        return {
+          ...cached,
+          isIdempotent: true
+        };
+      }
+      let walletRes = await client.query(
+        `SELECT id, user_id, currency, real_balance, bonus_balance, balance_minor, version, status
+         FROM wallets
+         WHERE user_id = $1 AND currency = $2
+         FOR UPDATE`,
+        [normalizedUserId, currency]
+      );
+      const postLockIdemp = await client.query(
+        `SELECT idempotency_key, transaction_id, status_code, response_payload
+         FROM idempotency_records
+         WHERE idempotency_key = $1
+         LIMIT 1`,
+        [idempotencyKey]
+      );
+      if (postLockIdemp.rows.length > 0) {
+        await client.query("COMMIT");
+        safeLog("info", correlationId, `[Ledger] Idempotent hit (post-lock) for bonus transfer: ${rootTxId}`);
+        const rawPayload = postLockIdemp.rows[0].response_payload;
+        const cached = typeof rawPayload === "string" ? JSON.parse(rawPayload) : rawPayload;
+        return {
+          ...cached,
+          isIdempotent: true
+        };
+      }
+      if (walletRes.rows.length === 0) {
+        await client.query("ROLLBACK");
+        throw new WalletNotFoundError(normalizedUserId, currency);
+      }
+      const wallet = walletRes.rows[0];
+      if (wallet.status !== "ACTIVE") {
+        await client.query("ROLLBACK");
+        throw new WalletFrozenError(normalizedUserId, wallet.status);
+      }
+      const beforeBonusStr = wallet.bonus_balance !== void 0 && wallet.bonus_balance !== null ? wallet.bonus_balance.toString() : "0.0000";
+      const beforeBonusMinor = parseToMinorUnits(beforeBonusStr, currency, true);
+      let beforeRealMinor;
+      if (wallet.balance_minor !== void 0 && wallet.balance_minor !== null && wallet.balance_minor !== "") {
+        beforeRealMinor = BigInt(wallet.balance_minor.toString());
+      } else if (wallet.real_balance !== void 0 && wallet.real_balance !== null) {
+        beforeRealMinor = parseToMinorUnits(wallet.real_balance.toString(), currency, true);
+      } else {
+        beforeRealMinor = 0n;
+      }
+      if (beforeBonusMinor < amountMinor) {
+        await client.query("ROLLBACK");
+        safeLog("warn", correlationId, `[Ledger] Insufficient bonus funds for conversion: available=${beforeBonusMinor}, required=${amountMinor}`);
+        throw new InsufficientFundsError(beforeBonusMinor, amountMinor, currency);
+      }
+      const afterBonusMinor = beforeBonusMinor - amountMinor;
+      const afterRealMinor = beforeRealMinor + amountMinor;
+      const formattedAfterBonus = formatMinorUnits(afterBonusMinor, currency);
+      const formattedAfterReal = formatMinorUnits(afterRealMinor, currency);
+      await client.query(
+        `UPDATE wallets
+         SET bonus_balance = $1,
+             real_balance = $2,
+             balance_minor = $3,
+             version = version + 1,
+             updated_at = NOW()
+         WHERE id = $4`,
+        [formattedAfterBonus, formattedAfterReal, afterRealMinor.toString(), wallet.id]
+      );
+      const debitEntryId = `ledg_${Date.now()}_${Math.random().toString(36).substring(2, 9)}_deb`;
+      const creditEntryId = `ledg_${Date.now()}_${Math.random().toString(36).substring(2, 9)}_cred`;
+      const debitTxId = `${rootTxId}:BONUS_DEBIT`;
+      const creditTxId = `${rootTxId}:REAL_CREDIT`;
+      await client.query(
+        `INSERT INTO ledger_entries (
+           id, wallet_id, user_id, transaction_id, reference_transaction_id,
+           type, balance_target, amount_minor, currency, before_balance_minor, after_balance_minor,
+           status, correlation_id, audit_metadata
+         )
+         VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14)`,
+        [
+          debitEntryId,
+          wallet.id,
+          normalizedUserId,
+          debitTxId,
+          rootTxId,
+          "DEBIT",
+          "BONUS",
+          amountMinor.toString(),
+          currency,
+          beforeBonusMinor.toString(),
+          afterBonusMinor.toString(),
+          "COMMITTED",
+          correlationId,
+          JSON.stringify({
+            ...sanitizedAudit,
+            leg: "BONUS_DEBIT",
+            targetBalance: "BONUS",
+            transferType: "BONUS_TO_REAL",
+            wageringRequirementId: req.wageringRequirementId
+          })
+        ]
+      );
+      await client.query(
+        `INSERT INTO ledger_entries (
+           id, wallet_id, user_id, transaction_id, reference_transaction_id,
+           type, balance_target, amount_minor, currency, before_balance_minor, after_balance_minor,
+           status, correlation_id, audit_metadata
+         )
+         VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14)`,
+        [
+          creditEntryId,
+          wallet.id,
+          normalizedUserId,
+          creditTxId,
+          rootTxId,
+          "CREDIT",
+          "REAL",
+          amountMinor.toString(),
+          currency,
+          beforeRealMinor.toString(),
+          afterRealMinor.toString(),
+          "COMMITTED",
+          correlationId,
+          JSON.stringify({
+            ...sanitizedAudit,
+            leg: "REAL_CREDIT",
+            targetBalance: "REAL",
+            transferType: "BONUS_TO_REAL",
+            wageringRequirementId: req.wageringRequirementId
+          })
+        ]
+      );
+      const result = {
+        success: true,
+        isIdempotent: false,
+        transactionId: rootTxId,
+        userId: normalizedUserId,
+        currency,
+        amountMinor: amountMinor.toString(),
+        amountMajor: formatMinorUnits(amountMinor, currency),
+        debitEntryId,
+        creditEntryId,
+        beforeBonusBalanceMinor: beforeBonusMinor.toString(),
+        afterBonusBalanceMinor: afterBonusMinor.toString(),
+        beforeRealBalanceMinor: beforeRealMinor.toString(),
+        afterRealBalanceMinor: afterRealMinor.toString(),
+        bonusBalanceMajor: formattedAfterBonus,
+        realBalanceMajor: formattedAfterReal,
+        correlationId,
+        timestamp: (/* @__PURE__ */ new Date()).toISOString()
+      };
+      await client.query(
+        `INSERT INTO idempotency_records (
+           idempotency_key, transaction_id, status_code, response_payload
+         )
+         VALUES ($1, $2, $3, $4)`,
+        [idempotencyKey, rootTxId, 200, JSON.stringify(result)]
+      );
+      await client.query("COMMIT");
+      safeLog("info", correlationId, `[Ledger] Bonus-to-real transfer committed successfully: ${rootTxId}`, {
+        debitEntryId,
+        creditEntryId,
+        bonusAfter: formattedAfterBonus,
+        realAfter: formattedAfterReal
+      });
+      return result;
+    } catch (err) {
+      await client.query("ROLLBACK").catch(() => {
+      });
+      if (err.code === "23505") {
+        const recovery = await this.db.query(
+          `SELECT response_payload FROM idempotency_records WHERE idempotency_key = $1 LIMIT 1`,
+          [idempotencyKey]
+        );
+        if (recovery.rows.length > 0) {
+          const rawRec = recovery.rows[0].response_payload;
+          const cachedRec = typeof rawRec === "string" ? JSON.parse(rawRec) : rawRec;
+          return {
+            ...cachedRec,
+            isIdempotent: true
+          };
+        }
+      }
+      safeLog("error", correlationId, `[Ledger] Bonus-to-real transfer failed: ${err.message}`, {
+        code: err.code,
+        name: err.name
+      });
+      throw err;
+    } finally {
+      client.release();
+    }
+  }
+  /**
+   * Performs an audit reconciliation between the wallet balances (REAL & BONUS) and sum of ledger entries.
+   * Invariants:
+   * - REAL: wallet.balance_minor === initial_seed + SUM(REAL credits + reversals) - SUM(REAL debits)
+   * - BONUS: toMinor(wallet.bonus_balance) === initial_seed + SUM(BONUS credits + reversals) - SUM(BONUS debits)
+   * REAL and BONUS entries are strictly separated so BONUS rewards never cause false REAL discrepancies.
+   */
+  async auditReconciliation(userId, currency, targetBalance) {
     const wallet = await this.getWallet(userId, currency);
-    const res = await this.db.query(
+    const realRes = await this.db.query(
       `SELECT 
          COALESCE(SUM(CASE WHEN type IN ('CREDIT', 'REVERSAL') THEN amount_minor ELSE 0 END), 0) AS total_credits,
          COALESCE(SUM(CASE WHEN type = 'DEBIT' THEN amount_minor ELSE 0 END), 0) AS total_debits,
-         COALESCE(SUM(CASE WHEN type IN ('CREDIT', 'REVERSAL') THEN amount_minor ELSE -amount_minor END), 0) AS net_minor
+         COALESCE(SUM(CASE WHEN type IN ('CREDIT', 'REVERSAL') THEN amount_minor ELSE -amount_minor END), 0) AS net_minor,
+         (SELECT before_balance_minor FROM ledger_entries WHERE wallet_id = $1 AND COALESCE(balance_target, 'REAL') = 'REAL' AND status = 'COMMITTED' ORDER BY created_at ASC, id ASC LIMIT 1) AS initial_seed_minor,
+         COUNT(*) AS entry_count
        FROM ledger_entries
-       WHERE wallet_id = $1 AND status = 'COMMITTED'`,
+       WHERE wallet_id = $1 AND COALESCE(balance_target, 'REAL') = 'REAL' AND status = 'COMMITTED'`,
       [wallet.id]
     );
-    const netFromLedger = BigInt(res.rows[0]?.net_minor || "0");
+    const bonusRes = await this.db.query(
+      `SELECT 
+         COALESCE(SUM(CASE WHEN type IN ('CREDIT', 'REVERSAL') THEN amount_minor ELSE 0 END), 0) AS total_credits,
+         COALESCE(SUM(CASE WHEN type = 'DEBIT' THEN amount_minor ELSE 0 END), 0) AS total_debits,
+         COALESCE(SUM(CASE WHEN type IN ('CREDIT', 'REVERSAL') THEN amount_minor ELSE -amount_minor END), 0) AS net_minor,
+         (SELECT before_balance_minor FROM ledger_entries WHERE wallet_id = $1 AND COALESCE(balance_target, 'REAL') = 'BONUS' AND status = 'COMMITTED' ORDER BY created_at ASC, id ASC LIMIT 1) AS initial_seed_minor,
+         COUNT(*) AS entry_count
+       FROM ledger_entries
+       WHERE wallet_id = $1 AND COALESCE(balance_target, 'REAL') = 'BONUS' AND status = 'COMMITTED'`,
+      [wallet.id]
+    );
+    const realWalletMinor = wallet.balanceMinor;
+    const realRow = realRes.rows[0];
+    const realEntryCount = Number(realRow?.entry_count || 0);
+    const realNetLedgerMinor = BigInt(realRow?.net_minor || "0");
+    const realSeedMinor = realEntryCount > 0 && realRow?.initial_seed_minor !== void 0 && realRow?.initial_seed_minor !== null ? BigInt(realRow.initial_seed_minor) : realWalletMinor;
+    const expectedRealMinor = realEntryCount > 0 ? realSeedMinor + realNetLedgerMinor : realWalletMinor;
+    const realDiscrepancyMinor = (realWalletMinor - expectedRealMinor).toString();
+    const realIsReconciled = realDiscrepancyMinor === "0";
+    const bonusWalletStr = wallet.bonusBalance || "0.0000";
+    const bonusWalletMinor = parseToMinorUnits(bonusWalletStr, wallet.currency, true);
+    const bonusRow = bonusRes.rows[0];
+    const bonusEntryCount = Number(bonusRow?.entry_count || 0);
+    const bonusNetLedgerMinor = BigInt(bonusRow?.net_minor || "0");
+    const bonusSeedMinor = bonusEntryCount > 0 && bonusRow?.initial_seed_minor !== void 0 && bonusRow?.initial_seed_minor !== null ? BigInt(bonusRow.initial_seed_minor) : bonusWalletMinor;
+    const expectedBonusMinor = bonusEntryCount > 0 ? bonusSeedMinor + bonusNetLedgerMinor : bonusWalletMinor;
+    const bonusDiscrepancyMinor = (bonusWalletMinor - expectedBonusMinor).toString();
+    const bonusIsReconciled = bonusDiscrepancyMinor === "0";
+    const realSummary = {
+      isReconciled: realIsReconciled,
+      walletBalanceMinor: realWalletMinor.toString(),
+      walletBalanceMajor: wallet.realBalance || formatMinorUnits(realWalletMinor, wallet.currency),
+      computedLedgerNetMinor: realNetLedgerMinor.toString(),
+      discrepancyMinor: realDiscrepancyMinor
+    };
+    const bonusSummary = {
+      isReconciled: bonusIsReconciled,
+      walletBalanceMinor: bonusWalletMinor.toString(),
+      walletBalanceMajor: bonusWalletStr,
+      computedLedgerNetMinor: bonusNetLedgerMinor.toString(),
+      discrepancyMinor: bonusDiscrepancyMinor
+    };
+    if (targetBalance === "BONUS") {
+      return {
+        isReconciled: bonusIsReconciled,
+        walletBalanceMinor: bonusSummary.walletBalanceMinor,
+        walletBalanceMajor: bonusSummary.walletBalanceMajor,
+        computedLedgerNetMinor: bonusSummary.computedLedgerNetMinor,
+        discrepancyMinor: bonusSummary.discrepancyMinor,
+        real: realSummary,
+        bonus: bonusSummary
+      };
+    }
     return {
-      isReconciled: true,
-      walletBalanceMinor: wallet.balanceMinor.toString(),
-      walletBalanceMajor: wallet.realBalance || formatMinorUnits(wallet.balanceMinor, wallet.currency),
-      computedLedgerNetMinor: netFromLedger.toString(),
-      discrepancyMinor: "0"
+      isReconciled: realIsReconciled && bonusIsReconciled,
+      walletBalanceMinor: realSummary.walletBalanceMinor,
+      walletBalanceMajor: realSummary.walletBalanceMajor,
+      computedLedgerNetMinor: realSummary.computedLedgerNetMinor,
+      discrepancyMinor: realSummary.discrepancyMinor,
+      real: realSummary,
+      bonus: bonusSummary
     };
   }
 };
@@ -1345,11 +1850,13 @@ __export(schema_exports, {
   affiliateCommissions: () => affiliateCommissions,
   affiliateNodes: () => affiliateNodes,
   dailyCheckIns: () => dailyCheckIns,
+  freeSpinEntitlements: () => freeSpinEntitlements,
   gameProviders: () => gameProviders,
   gameProvidersRelations: () => gameProvidersRelations,
   gameRounds: () => gameRounds,
   gameRoundsRelations: () => gameRoundsRelations,
   idempotencyKeys: () => idempotencyKeys,
+  ledgerEntries: () => ledgerEntries,
   paymentRequests: () => paymentRequests,
   paymentRequestsRelations: () => paymentRequestsRelations,
   transactions: () => transactions,
@@ -1358,14 +1865,24 @@ __export(schema_exports, {
   users: () => users,
   usersRelations: () => usersRelations,
   vipLevels: () => vipLevels,
+  vipProgressionEvents: () => vipProgressionEvents,
+  vipProgressionEventsRelations: () => vipProgressionEventsRelations,
+  vipRewardClaims: () => vipRewardClaims,
+  vipRewardClaimsRelations: () => vipRewardClaimsRelations,
+  wageringProgressEvents: () => wageringProgressEvents,
+  wageringProgressEventsRelations: () => wageringProgressEventsRelations,
   wageringRequirements: () => wageringRequirements,
+  wageringRequirementsRelations: () => wageringRequirementsRelations,
   wallets: () => wallets,
   walletsRelations: () => walletsRelations,
   wheelSpins: () => wheelSpins
 });
-import { relations } from "drizzle-orm";
+import { relations, sql } from "drizzle-orm";
 import {
+  bigint,
   boolean,
+  check,
+  index,
   integer,
   jsonb,
   numeric,
@@ -1410,8 +1927,8 @@ var wallets = pgTable("wallets", {
   bonusBalance: numeric("bonus_balance", { precision: 18, scale: 4 }).default("0.0000").notNull(),
   lockedBalance: numeric("locked_balance", { precision: 18, scale: 4 }).default("0.0000").notNull(),
   commissionBalance: numeric("commission_balance", { precision: 18, scale: 4 }).default("0.0000").notNull(),
-  balanceMinor: numeric("balance_minor", { precision: 20, scale: 0 }).default("0").notNull(),
-  version: integer("version").default(1).notNull(),
+  balanceMinor: bigint("balance_minor", { mode: "bigint" }).default(0n).notNull(),
+  version: bigint("version", { mode: "bigint" }).default(1n).notNull(),
   status: varchar("status", { length: 32 }).default("ACTIVE").notNull(),
   createdAt: timestamp("created_at", { withTimezone: true }).defaultNow().notNull(),
   updatedAt: timestamp("updated_at", { withTimezone: true }).defaultNow().notNull()
@@ -1452,6 +1969,28 @@ var transactions = pgTable("transactions", {
   metadata: jsonb("metadata"),
   createdAt: timestamp("created_at", { withTimezone: true }).defaultNow().notNull()
 });
+var ledgerEntries = pgTable("ledger_entries", {
+  id: varchar("id", { length: 64 }).primaryKey(),
+  walletId: integer("wallet_id").references(() => wallets.id).notNull(),
+  userId: integer("user_id").references(() => users.id).notNull(),
+  transactionId: varchar("transaction_id", { length: 128 }).notNull(),
+  referenceTransactionId: varchar("reference_transaction_id", { length: 128 }),
+  type: varchar("type", { length: 32 }).notNull(),
+  // 'DEBIT', 'CREDIT', 'REVERSAL', 'ADJUSTMENT'
+  balanceTarget: varchar("balance_target", { length: 16 }).default("REAL").notNull(),
+  // 'REAL', 'BONUS'
+  amountMinor: bigint("amount_minor", { mode: "bigint" }).notNull(),
+  currency: varchar("currency", { length: 3 }).notNull(),
+  beforeBalanceMinor: bigint("before_balance_minor", { mode: "bigint" }).notNull(),
+  afterBalanceMinor: bigint("after_balance_minor", { mode: "bigint" }).notNull(),
+  status: varchar("status", { length: 32 }).default("COMMITTED").notNull(),
+  correlationId: varchar("correlation_id", { length: 128 }).notNull(),
+  auditMetadata: jsonb("audit_metadata").default({}),
+  createdAt: timestamp("created_at", { withTimezone: true }).defaultNow().notNull()
+}, (table) => ({
+  userTxIdx: uniqueIndex("ledger_entries_user_tx_idx").on(table.userId, table.transactionId),
+  walletTargetIdx: uniqueIndex("ledger_entries_wallet_target_idx").on(table.walletId, table.balanceTarget, table.id)
+}));
 var idempotencyKeys = pgTable("idempotency_keys", {
   idempotencyKey: varchar("idempotency_key", { length: 192 }).primaryKey(),
   providerId: varchar("provider_id", { length: 64 }).notNull(),
@@ -1555,27 +2094,71 @@ var userVipProgress = pgTable("user_vip_progress", {
   lastUpgradedAt: timestamp("last_upgraded_at", { withTimezone: true }).defaultNow().notNull(),
   updatedAt: timestamp("updated_at", { withTimezone: true }).defaultNow().notNull()
 });
+var vipRewardClaims = pgTable("vip_reward_claims", {
+  id: serial("id").primaryKey(),
+  userId: integer("user_id").references(() => users.id, { onDelete: "cascade" }).notNull(),
+  vipLevel: integer("vip_level").notNull(),
+  transactionId: varchar("transaction_id", { length: 128 }).notNull(),
+  rewardAmount: numeric("reward_amount", { precision: 18, scale: 4 }).notNull(),
+  currency: varchar("currency", { length: 3 }).default("BDT").notNull(),
+  status: varchar("status", { length: 32 }).default("PENDING").notNull(),
+  // 'PENDING', 'CREDITED'
+  createdAt: timestamp("created_at", { withTimezone: true }).defaultNow().notNull(),
+  creditedAt: timestamp("credited_at", { withTimezone: true })
+}, (table) => ({
+  userLevelIdx: uniqueIndex("vip_reward_claims_user_level_idx").on(table.userId, table.vipLevel),
+  transactionIdIdx: uniqueIndex("vip_reward_claims_transaction_id_idx").on(table.transactionId),
+  userStatusIdx: index("vip_reward_claims_user_status_idx").on(table.userId, table.status),
+  chkAmountPositive: check("chk_vip_reward_claims_amount_positive", sql`${table.rewardAmount} > 0`),
+  chkStatusValid: check("chk_vip_reward_claims_status_valid", sql`${table.status} IN ('PENDING', 'CREDITED')`),
+  chkLevelRange: check("chk_vip_reward_claims_level_range", sql`${table.vipLevel} >= 1 AND ${table.vipLevel} <= 10`)
+}));
+var vipProgressionEvents = pgTable("vip_progression_events", {
+  id: serial("id").primaryKey(),
+  userId: integer("user_id").references(() => users.id, { onDelete: "cascade" }).notNull(),
+  sourceTransactionId: varchar("source_transaction_id", { length: 128 }).notNull(),
+  sourceType: varchar("source_type", { length: 32 }).notNull(),
+  // 'DEPOSIT' | 'BET'
+  amount: numeric("amount", { precision: 18, scale: 4 }).notNull(),
+  currency: varchar("currency", { length: 3 }).default("BDT").notNull(),
+  processedAt: timestamp("processed_at", { withTimezone: true }).defaultNow().notNull()
+}, (table) => ({
+  userSourceIdx: uniqueIndex("vip_progression_events_user_source_idx").on(table.userId, table.sourceTransactionId, table.sourceType),
+  sourceTxIdx: index("vip_progression_events_source_tx_idx").on(table.sourceTransactionId),
+  userTypeIdx: index("vip_progression_events_user_type_idx").on(table.userId, table.sourceType),
+  chkAmountPositive: check("chk_vip_progression_events_amount_positive", sql`${table.amount} > 0`),
+  chkSourceTypeValid: check("chk_vip_progression_events_source_type_valid", sql`${table.sourceType} IN ('DEPOSIT', 'BET')`)
+}));
 var dailyCheckIns = pgTable("daily_check_ins", {
   id: serial("id").primaryKey(),
   userId: integer("user_id").references(() => users.id, { onDelete: "cascade" }).notNull(),
   checkInDate: timestamp("check_in_date", { withTimezone: true }).notNull(),
+  claimDateUtc: varchar("claim_date_utc", { length: 10 }).notNull(),
+  // Authoritative 'YYYY-MM-DD' UTC calendar date
   streakDay: integer("streak_day").notNull(),
   // 1 to 7
   rewardAmount: numeric("reward_amount", { precision: 18, scale: 4 }).notNull(),
   rewardType: varchar("reward_type", { length: 32 }).default("BONUS_CREDIT").notNull(),
   createdAt: timestamp("created_at", { withTimezone: true }).defaultNow().notNull()
-});
+}, (table) => ({
+  userClaimDateUtcIdx: uniqueIndex("daily_check_ins_user_claim_date_utc_idx").on(table.userId, table.claimDateUtc)
+}));
 var wheelSpins = pgTable("wheel_spins", {
   id: serial("id").primaryKey(),
   userId: integer("user_id").references(() => users.id, { onDelete: "cascade" }).notNull(),
+  spinDateUtc: varchar("spin_date_utc", { length: 10 }).notNull(),
+  // Authoritative 'YYYY-MM-DD' UTC calendar date
   prizeType: varchar("prize_type", { length: 32 }).notNull(),
   // 'REAL_CASH', 'BONUS_CASH', 'FREE_SPINS', 'JACKPOT_TICKET'
   prizeLabel: varchar("prize_label", { length: 64 }).notNull(),
   prizeValue: numeric("prize_value", { precision: 18, scale: 4 }).notNull(),
   currency: varchar("currency", { length: 3 }).notNull(),
   isClaimed: boolean("is_claimed").default(true).notNull(),
+  auditMetadata: jsonb("audit_metadata").default({}),
   createdAt: timestamp("created_at", { withTimezone: true }).defaultNow().notNull()
-});
+}, (table) => ({
+  userSpinDateUtcIdx: uniqueIndex("wheel_spins_user_spin_date_utc_idx").on(table.userId, table.spinDateUtc)
+}));
 var wageringRequirements = pgTable("wagering_requirements", {
   id: serial("id").primaryKey(),
   userId: integer("user_id").references(() => users.id, { onDelete: "cascade" }).notNull(),
@@ -1587,10 +2170,63 @@ var wageringRequirements = pgTable("wagering_requirements", {
   completedTurnoverAmount: numeric("completed_turnover_amount", { precision: 18, scale: 4 }).default("0.0000").notNull(),
   status: varchar("status", { length: 32 }).default("ACTIVE").notNull(),
   // 'ACTIVE', 'COMPLETED', 'EXPIRED'
+  isReleased: boolean("is_released").default(false).notNull(),
+  releasedAt: timestamp("released_at", { withTimezone: true }),
+  releaseTransactionId: varchar("release_transaction_id", { length: 128 }),
+  auditMetadata: jsonb("audit_metadata").default({}),
   expiresAt: timestamp("expires_at", { withTimezone: true }).notNull(),
   createdAt: timestamp("created_at", { withTimezone: true }).defaultNow().notNull(),
   completedAt: timestamp("completed_at", { withTimezone: true })
-});
+}, (table) => ({
+  userStatusIdx: index("wagering_requirements_user_status_idx").on(table.userId, table.status),
+  userReleasedIdx: index("wagering_requirements_released_idx").on(table.userId, table.isReleased),
+  expiresAtIdx: index("wagering_requirements_expires_at_idx").on(table.expiresAt),
+  chkBonusPositive: check("chk_wagering_requirements_bonus_positive", sql`${table.bonusAmountGranted} > 0`),
+  chkTargetPositive: check("chk_wagering_requirements_target_positive", sql`${table.targetTurnoverAmount} > 0`),
+  chkCompletedNonNegative: check("chk_wagering_requirements_completed_non_negative", sql`${table.completedTurnoverAmount} >= 0`),
+  chkStatusValid: check("chk_wagering_requirements_status_valid", sql`${table.status} IN ('ACTIVE', 'COMPLETED', 'EXPIRED')`)
+}));
+var wageringProgressEvents = pgTable("wagering_progress_events", {
+  id: serial("id").primaryKey(),
+  wageringRequirementId: integer("wagering_requirement_id").references(() => wageringRequirements.id, { onDelete: "cascade" }).notNull(),
+  userId: integer("user_id").references(() => users.id, { onDelete: "cascade" }).notNull(),
+  sourceTransactionId: varchar("source_transaction_id", { length: 128 }).notNull(),
+  qualifiedAmount: numeric("qualified_amount", { precision: 18, scale: 4 }).notNull(),
+  currency: varchar("currency", { length: 3 }).default("BDT").notNull(),
+  processedAt: timestamp("processed_at", { withTimezone: true }).defaultNow().notNull()
+}, (table) => ({
+  requirementSourceTxIdx: uniqueIndex("wagering_progress_events_req_source_idx").on(
+    table.wageringRequirementId,
+    table.sourceTransactionId
+  ),
+  userIdx: index("wagering_progress_events_user_idx").on(table.userId),
+  sourceTxIdx: index("wagering_progress_events_source_tx_idx").on(table.sourceTransactionId),
+  requirementIdx: index("wagering_progress_events_requirement_idx").on(table.wageringRequirementId),
+  chkAmountPositive: check("chk_wagering_progress_events_amount_positive", sql`${table.qualifiedAmount} > 0`)
+}));
+var freeSpinEntitlements = pgTable("free_spin_entitlements", {
+  id: serial("id").primaryKey(),
+  userId: integer("user_id").references(() => users.id, { onDelete: "cascade" }).notNull(),
+  source: varchar("source", { length: 32 }).default("LUCKY_WHEEL").notNull(),
+  sourceReference: varchar("source_reference", { length: 128 }).notNull(),
+  quantity: integer("quantity").notNull(),
+  remainingQuantity: integer("remaining_quantity").notNull(),
+  status: varchar("status", { length: 32 }).default("ACTIVE").notNull(),
+  // 'ACTIVE', 'CONSUMED', 'EXPIRED', 'REVOKED'
+  spinDateUtc: varchar("spin_date_utc", { length: 10 }).notNull(),
+  // 'YYYY-MM-DD'
+  expiresAt: timestamp("expires_at", { withTimezone: true }),
+  grantedAt: timestamp("granted_at", { withTimezone: true }).defaultNow().notNull(),
+  createdAt: timestamp("created_at", { withTimezone: true }).defaultNow().notNull()
+}, (table) => ({
+  sourceRefIdx: uniqueIndex("free_spin_entitlements_source_ref_idx").on(table.sourceReference),
+  userSourceDateIdx: uniqueIndex("free_spin_entitlements_user_source_date_idx").on(table.userId, table.source, table.spinDateUtc),
+  userStatusIdx: index("free_spin_entitlements_user_status_idx").on(table.userId, table.status),
+  chkQuantityPositive: check("chk_free_spin_quantity_positive", sql`${table.quantity} > 0`),
+  chkRemainingNonNegative: check("chk_free_spin_remaining_non_negative", sql`${table.remainingQuantity} >= 0`),
+  chkRemainingLteQuantity: check("chk_free_spin_remaining_lte_quantity", sql`${table.remainingQuantity} <= ${table.quantity}`),
+  chkStatusValid: check("chk_free_spin_status_valid", sql`${table.status} IN ('ACTIVE', 'CONSUMED', 'EXPIRED', 'REVOKED')`)
+}));
 var usersRelations = relations(users, ({ one, many }) => ({
   wallets: many(wallets),
   gameRounds: many(gameRounds),
@@ -1606,7 +2242,11 @@ var usersRelations = relations(users, ({ one, many }) => ({
   }),
   checkIns: many(dailyCheckIns),
   wheelSpins: many(wheelSpins),
-  wageringRequirements: many(wageringRequirements)
+  freeSpinEntitlements: many(freeSpinEntitlements),
+  wageringRequirements: many(wageringRequirements),
+  vipRewardClaims: many(vipRewardClaims),
+  vipProgressionEvents: many(vipProgressionEvents),
+  wageringProgressEvents: many(wageringProgressEvents)
 }));
 var walletsRelations = relations(wallets, ({ one, many }) => ({
   user: one(users, {
@@ -1659,6 +2299,35 @@ var paymentRequestsRelations = relations(paymentRequests, ({ one }) => ({
     references: [wallets.id]
   })
 }));
+var vipRewardClaimsRelations = relations(vipRewardClaims, ({ one }) => ({
+  user: one(users, {
+    fields: [vipRewardClaims.userId],
+    references: [users.id]
+  })
+}));
+var vipProgressionEventsRelations = relations(vipProgressionEvents, ({ one }) => ({
+  user: one(users, {
+    fields: [vipProgressionEvents.userId],
+    references: [users.id]
+  })
+}));
+var wageringRequirementsRelations = relations(wageringRequirements, ({ one, many }) => ({
+  user: one(users, {
+    fields: [wageringRequirements.userId],
+    references: [users.id]
+  }),
+  progressEvents: many(wageringProgressEvents)
+}));
+var wageringProgressEventsRelations = relations(wageringProgressEvents, ({ one }) => ({
+  user: one(users, {
+    fields: [wageringProgressEvents.userId],
+    references: [users.id]
+  }),
+  wageringRequirement: one(wageringRequirements, {
+    fields: [wageringProgressEvents.wageringRequirementId],
+    references: [wageringRequirements.id]
+  })
+}));
 
 // src/db/index.ts
 var createPool = () => {
@@ -1681,10 +2350,732 @@ var pool = createPool();
 var db = drizzle(pool, { schema: schema_exports });
 
 // src/server/controllers/paymentController.ts
-import { eq, desc } from "drizzle-orm";
+import { eq as eq2, desc, sql as sql3 } from "drizzle-orm";
+
+// src/server/services/wageringService.ts
+import { eq, and, lte } from "drizzle-orm";
+var toScale4 = (val) => {
+  if (typeof val === "bigint") return val;
+  if (typeof val === "number") {
+    throw new Error("Unsafe JS number monetary input is rejected. Use exact decimal string or bigint minor units.");
+  }
+  if (typeof val !== "string") {
+    throw new Error("Monetary input must be an exact decimal string or bigint minor units.");
+  }
+  const s = val.trim();
+  if (!s || !/^-?\d+(\.\d+)?$/.test(s)) {
+    throw new Error(`Invalid monetary decimal string format: "${val}"`);
+  }
+  const [intPart = "0", fracPart = ""] = s.split(".");
+  if (fracPart.length > 4) {
+    throw new Error(`Over-precision monetary input rejected: "${val}" has ${fracPart.length} decimal places (maximum 4 allowed).`);
+  }
+  const paddedFrac = fracPart.padEnd(4, "0");
+  const isNeg = intPart.startsWith("-");
+  const cleanInt = isNeg ? intPart.slice(1) : intPart;
+  const combined = BigInt((cleanInt || "0") + paddedFrac);
+  return isNeg ? -combined : combined;
+};
+var fromScale4 = (val) => {
+  const isNeg = val < 0n;
+  const abs = isNeg ? -val : val;
+  const str = abs.toString().padStart(5, "0");
+  const intPart = str.slice(0, -4) || "0";
+  const fracPart = str.slice(-4);
+  return `${isNeg ? "-" : ""}${intPart}.${fracPart}`;
+};
+var WageringService = class _WageringService {
+  static {
+    this.ledgerService = null;
+  }
+  static setLedgerService(service) {
+    _WageringService.ledgerService = service;
+  }
+  static getLedgerService() {
+    return _WageringService.ledgerService;
+  }
+  /**
+   * Processes an authoritative BET transaction toward the user's active wagering requirement.
+   * Executes entirely within a single PostgreSQL ACID transaction with row-level locks.
+   */
+  static async processAuthoritativeBet(params) {
+    if (!params.userId || typeof params.userId !== "number" || params.userId <= 0) {
+      throw new Error("Valid numeric userId is required");
+    }
+    if (!params.sourceTransactionId || typeof params.sourceTransactionId !== "string" || params.sourceTransactionId.trim() === "") {
+      throw new Error("sourceTransactionId is required for wagering progression");
+    }
+    const runner = async (tx) => {
+      const [betTx] = await tx.select().from(transactions).where(eq(transactions.transactionId, params.sourceTransactionId)).for("update");
+      if (!betTx) {
+        return {
+          success: false,
+          reason: "SOURCE_TRANSACTION_NOT_FOUND",
+          userId: params.userId,
+          sourceTransactionId: params.sourceTransactionId
+        };
+      }
+      if (betTx.userId !== params.userId) {
+        return {
+          success: false,
+          reason: "TRANSACTION_USER_MISMATCH",
+          userId: params.userId,
+          sourceTransactionId: params.sourceTransactionId
+        };
+      }
+      if (betTx.type !== "BET") {
+        return {
+          success: false,
+          reason: "INVALID_TRANSACTION_TYPE",
+          userId: params.userId,
+          sourceTransactionId: params.sourceTransactionId
+        };
+      }
+      const isSettled = betTx.status === "COMPLETED" || betTx.status === "SETTLED";
+      if (!isSettled) {
+        return {
+          success: false,
+          reason: "TRANSACTION_NOT_SETTLED",
+          userId: params.userId,
+          sourceTransactionId: params.sourceTransactionId
+        };
+      }
+      const meta = betTx.metadata;
+      if (meta && (meta.freeSpin === true || meta.isFreeSpin === true || meta.source === "FREE_SPIN" || meta.isPromo === true || meta.demo === true || meta.isDemo === true || meta.promotional === true)) {
+        return {
+          success: false,
+          reason: "EXCLUDED_PROMOTIONAL_STAKE",
+          userId: params.userId,
+          sourceTransactionId: params.sourceTransactionId
+        };
+      }
+      const authoritativeAmount = String(betTx.amount);
+      const authoritativeCurrency = betTx.currency || "BDT";
+      const qualifiedAmountScale4 = toScale4(authoritativeAmount);
+      if (qualifiedAmountScale4 <= 0n) {
+        return {
+          success: false,
+          reason: "INVALID_AMOUNT",
+          userId: params.userId,
+          sourceTransactionId: params.sourceTransactionId
+        };
+      }
+      if (params.amount !== void 0 && params.amount !== null) {
+        const callerAmountScale4 = toScale4(params.amount);
+        if (callerAmountScale4 !== qualifiedAmountScale4) {
+          return {
+            success: false,
+            reason: "BET_AMOUNT_MISMATCH",
+            userId: params.userId,
+            sourceTransactionId: params.sourceTransactionId
+          };
+        }
+      }
+      if (params.currency && typeof params.currency === "string" && params.currency.trim() !== "") {
+        if (params.currency.trim().toUpperCase() !== authoritativeCurrency.trim().toUpperCase()) {
+          return {
+            success: false,
+            reason: "CURRENCY_MISMATCH",
+            userId: params.userId,
+            sourceTransactionId: params.sourceTransactionId
+          };
+        }
+      }
+      let requirement;
+      if (params.requirementId) {
+        const [found] = await tx.select().from(wageringRequirements).where(
+          and(
+            eq(wageringRequirements.id, params.requirementId),
+            eq(wageringRequirements.userId, params.userId)
+          )
+        ).for("update");
+        requirement = found;
+      } else {
+        const [found] = await tx.select().from(wageringRequirements).where(
+          and(
+            eq(wageringRequirements.userId, params.userId),
+            eq(wageringRequirements.status, "ACTIVE")
+          )
+        ).orderBy(wageringRequirements.createdAt, wageringRequirements.id).limit(1).for("update");
+        requirement = found;
+      }
+      if (!requirement) {
+        return {
+          success: true,
+          noActiveRequirement: true,
+          userId: params.userId,
+          sourceTransactionId: params.sourceTransactionId,
+          completed: false,
+          message: "No active wagering requirement found for user"
+        };
+      }
+      const now = /* @__PURE__ */ new Date();
+      if (requirement.expiresAt && new Date(requirement.expiresAt).getTime() <= now.getTime()) {
+        if (requirement.status === "ACTIVE") {
+          await tx.update(wageringRequirements).set({ status: "EXPIRED" }).where(eq(wageringRequirements.id, requirement.id));
+        }
+        return {
+          success: false,
+          reason: "REQUIREMENT_EXPIRED",
+          requirementId: requirement.id,
+          userId: params.userId,
+          sourceTransactionId: params.sourceTransactionId,
+          status: "EXPIRED",
+          completedTurnover: requirement.completedTurnoverAmount,
+          targetTurnover: requirement.targetTurnoverAmount
+        };
+      }
+      if (requirement.status !== "ACTIVE") {
+        return {
+          success: false,
+          reason: "REQUIREMENT_NOT_ACTIVE",
+          requirementId: requirement.id,
+          userId: params.userId,
+          sourceTransactionId: params.sourceTransactionId,
+          status: requirement.status,
+          completedTurnover: requirement.completedTurnoverAmount,
+          targetTurnover: requirement.targetTurnoverAmount
+        };
+      }
+      const [existingEvent] = await tx.select().from(wageringProgressEvents).where(
+        and(
+          eq(wageringProgressEvents.wageringRequirementId, requirement.id),
+          eq(wageringProgressEvents.sourceTransactionId, params.sourceTransactionId)
+        )
+      ).for("update");
+      if (existingEvent) {
+        return {
+          success: true,
+          duplicate: true,
+          reason: "ALREADY_PROCESSED",
+          requirementId: requirement.id,
+          userId: params.userId,
+          sourceTransactionId: params.sourceTransactionId,
+          qualifiedAmount: existingEvent.qualifiedAmount,
+          completedTurnover: requirement.completedTurnoverAmount,
+          targetTurnover: requirement.targetTurnoverAmount,
+          status: requirement.status,
+          completed: requirement.status === "COMPLETED"
+        };
+      }
+      const [insertedEvent] = await tx.insert(wageringProgressEvents).values({
+        wageringRequirementId: requirement.id,
+        userId: params.userId,
+        sourceTransactionId: params.sourceTransactionId,
+        qualifiedAmount: fromScale4(qualifiedAmountScale4),
+        currency: authoritativeCurrency,
+        processedAt: now
+      }).onConflictDoNothing().returning();
+      if (!insertedEvent) {
+        const [freshReq] = await tx.select().from(wageringRequirements).where(eq(wageringRequirements.id, requirement.id));
+        return {
+          success: true,
+          duplicate: true,
+          reason: "ALREADY_PROCESSED",
+          requirementId: requirement.id,
+          userId: params.userId,
+          sourceTransactionId: params.sourceTransactionId,
+          completedTurnover: freshReq?.completedTurnoverAmount || requirement.completedTurnoverAmount,
+          targetTurnover: freshReq?.targetTurnoverAmount || requirement.targetTurnoverAmount,
+          status: freshReq?.status || requirement.status,
+          completed: (freshReq?.status || requirement.status) === "COMPLETED"
+        };
+      }
+      const currentCompletedScale4 = toScale4(requirement.completedTurnoverAmount || "0.0000");
+      const targetTurnoverScale4 = toScale4(requirement.targetTurnoverAmount || "0.0000");
+      const newCalculatedScale4 = currentCompletedScale4 + qualifiedAmountScale4;
+      let cappedScale4;
+      let newStatus = "ACTIVE";
+      let completedAt = null;
+      let isCompleted = false;
+      if (newCalculatedScale4 >= targetTurnoverScale4) {
+        cappedScale4 = targetTurnoverScale4;
+        newStatus = "COMPLETED";
+        completedAt = now;
+        isCompleted = true;
+      } else {
+        cappedScale4 = newCalculatedScale4;
+        newStatus = "ACTIVE";
+        completedAt = null;
+        isCompleted = false;
+      }
+      const completedTurnoverStr = fromScale4(cappedScale4);
+      await tx.update(wageringRequirements).set({
+        completedTurnoverAmount: completedTurnoverStr,
+        status: newStatus,
+        completedAt
+      }).where(eq(wageringRequirements.id, requirement.id));
+      return {
+        success: true,
+        duplicate: false,
+        requirementId: requirement.id,
+        userId: params.userId,
+        sourceTransactionId: params.sourceTransactionId,
+        qualifiedAmount: fromScale4(qualifiedAmountScale4),
+        previousCompletedTurnover: fromScale4(currentCompletedScale4),
+        completedTurnover: completedTurnoverStr,
+        targetTurnover: fromScale4(targetTurnoverScale4),
+        status: newStatus,
+        completed: isCompleted,
+        completedAt
+      };
+    };
+    if (params.tx) {
+      return await runner(params.tx);
+    }
+    return await db.transaction(runner);
+  }
+  /**
+   * Creates a new authoritative Wagering Requirement record.
+   * Target turnover is calculated via pure Scale-4 BigInt arithmetic: bonusAmountGranted * requiredMultiplier.
+   */
+  static async createRequirement(params) {
+    const {
+      userId,
+      promoName,
+      bonusAmountGranted,
+      requiredMultiplier = 10,
+      expiryDays = 7,
+      expiryHours,
+      expiresAt: customExpiresAt,
+      tx
+    } = params;
+    if (!userId || typeof userId !== "number" || userId <= 0) {
+      throw new Error("Valid numeric userId is required");
+    }
+    if (!promoName || typeof promoName !== "string" || promoName.trim() === "") {
+      throw new Error("promoName is required");
+    }
+    const bonusScale4 = toScale4(bonusAmountGranted);
+    if (bonusScale4 <= 0n) {
+      throw new Error("bonusAmountGranted must be greater than zero");
+    }
+    if (!Number.isInteger(requiredMultiplier) || requiredMultiplier <= 0) {
+      throw new Error("requiredMultiplier must be a positive integer");
+    }
+    const targetTurnoverScale4 = bonusScale4 * BigInt(requiredMultiplier);
+    const targetTurnoverStr = fromScale4(targetTurnoverScale4);
+    const bonusAmountStr = fromScale4(bonusScale4);
+    const now = /* @__PURE__ */ new Date();
+    let calculatedExpiresAt;
+    if (customExpiresAt) {
+      calculatedExpiresAt = customExpiresAt;
+    } else if (expiryHours !== void 0) {
+      calculatedExpiresAt = new Date(now.getTime() + expiryHours * 60 * 60 * 1e3);
+    } else {
+      calculatedExpiresAt = new Date(now.getTime() + expiryDays * 24 * 60 * 60 * 1e3);
+    }
+    const executor = tx || db;
+    const [record] = await executor.insert(wageringRequirements).values({
+      userId,
+      promoName: promoName.trim(),
+      bonusAmountGranted: bonusAmountStr,
+      requiredMultiplier,
+      targetTurnoverAmount: targetTurnoverStr,
+      completedTurnoverAmount: "0.0000",
+      status: "ACTIVE",
+      expiresAt: calculatedExpiresAt,
+      createdAt: now
+    }).returning();
+    if (!record) {
+      throw new Error(`Failed to create wagering requirement for user ${userId}`);
+    }
+    return record;
+  }
+  /**
+   * Retrieves active, non-expired wagering requirements for a given user.
+   * Stale requirements with expires_at <= NOW() are automatically marked EXPIRED.
+   */
+  static async getUserActiveRequirements(userId) {
+    if (!userId || typeof userId !== "number" || userId <= 0) {
+      throw new Error("Valid numeric userId is required");
+    }
+    const now = /* @__PURE__ */ new Date();
+    await db.update(wageringRequirements).set({ status: "EXPIRED" }).where(
+      and(
+        eq(wageringRequirements.userId, userId),
+        eq(wageringRequirements.status, "ACTIVE"),
+        lte(wageringRequirements.expiresAt, now)
+      )
+    );
+    const activeList = await db.select().from(wageringRequirements).where(
+      and(
+        eq(wageringRequirements.userId, userId),
+        eq(wageringRequirements.status, "ACTIVE")
+      )
+    ).orderBy(wageringRequirements.createdAt, wageringRequirements.id);
+    return activeList;
+  }
+  /**
+   * Retrieves a specific wagering requirement by ID.
+   */
+  static async getRequirementById(id) {
+    if (!id || typeof id !== "number" || id <= 0) return null;
+    const [record] = await db.select().from(wageringRequirements).where(eq(wageringRequirements.id, id));
+    return record || null;
+  }
+  /**
+   * Evaluates authoritative wagering gate for withdrawal or cashout requests.
+   * Fails closed by default.
+   * Blocks withdrawal if the user has:
+   * - any incomplete ACTIVE wagering requirement, OR
+   * - any unresolved EXPIRED wagering requirement (where isReleased is false).
+   */
+  static async enforceWithdrawalWageringGate(params) {
+    const { userId, tx } = params;
+    if (!userId || typeof userId !== "number" || userId <= 0) {
+      throw new Error("Valid numeric userId is required");
+    }
+    try {
+      const now = /* @__PURE__ */ new Date();
+      const executor = tx || db;
+      await executor.update(wageringRequirements).set({ status: "EXPIRED" }).where(
+        and(
+          eq(wageringRequirements.userId, userId),
+          eq(wageringRequirements.status, "ACTIVE"),
+          lte(wageringRequirements.expiresAt, now)
+        )
+      );
+      const activeList = await executor.select().from(wageringRequirements).where(
+        and(
+          eq(wageringRequirements.userId, userId),
+          eq(wageringRequirements.status, "ACTIVE")
+        )
+      ).orderBy(wageringRequirements.createdAt, wageringRequirements.id);
+      if (activeList.length > 0) {
+        return {
+          allowed: false,
+          reason: "ACTIVE_WAGERING_REQUIREMENT_INCOMPLETE",
+          userId,
+          hasActiveWagering: true,
+          activeRequirementsCount: activeList.length,
+          activeRequirements: activeList,
+          auditMetadata: {
+            gatingDecision: "BLOCKED",
+            reason: "ACTIVE_WAGERING_REQUIREMENT_INCOMPLETE",
+            activeCount: activeList.length,
+            requirementIds: activeList.map((r) => r.id)
+          }
+        };
+      }
+      const unresolvedExpiredList = await executor.select().from(wageringRequirements).where(
+        and(
+          eq(wageringRequirements.userId, userId),
+          eq(wageringRequirements.status, "EXPIRED"),
+          eq(wageringRequirements.isReleased, false)
+        )
+      ).orderBy(wageringRequirements.createdAt, wageringRequirements.id);
+      if (unresolvedExpiredList.length > 0) {
+        return {
+          allowed: false,
+          reason: "EXPIRED_WAGERING_REQUIREMENT_UNRESOLVED",
+          userId,
+          hasActiveWagering: true,
+          activeRequirementsCount: 0,
+          activeRequirements: [],
+          expiredRequirementsCount: unresolvedExpiredList.length,
+          expiredRequirements: unresolvedExpiredList,
+          auditMetadata: {
+            gatingDecision: "BLOCKED",
+            reason: "EXPIRED_WAGERING_REQUIREMENT_UNRESOLVED",
+            expiredCount: unresolvedExpiredList.length,
+            requirementIds: unresolvedExpiredList.map((r) => r.id)
+          }
+        };
+      }
+      return {
+        allowed: true,
+        reason: "WAGERING_CLEAR",
+        userId,
+        hasActiveWagering: false,
+        activeRequirementsCount: 0,
+        activeRequirements: [],
+        auditMetadata: {
+          gatingDecision: "ALLOWED",
+          reason: "NO_ACTIVE_OR_UNRESOLVED_EXPIRED_WAGERING_REQUIREMENT"
+        }
+      };
+    } catch (err) {
+      console.error(`[WageringService] enforceWithdrawalWageringGate error for user ${userId}:`, err);
+      return {
+        allowed: false,
+        reason: "WAGERING_GATE_DEPENDENCY_ERROR",
+        userId,
+        hasActiveWagering: true,
+        activeRequirementsCount: 0,
+        activeRequirements: [],
+        auditMetadata: {
+          gatingDecision: "BLOCKED_FAIL_CLOSED",
+          error: err.message
+        }
+      };
+    }
+  }
+  /**
+   * Authoritatively converts or releases a completed bonus requirement to REAL balance.
+   * Operates strictly through WalletLedgerService.
+   * Enforces row-level locks, ownership validation, state-machine verification, and deterministic idempotency.
+   */
+  static async convertOrReleaseBonus(params) {
+    const { userId, requirementId, currency = "BDT", idempotencyKey } = params;
+    if (!userId || typeof userId !== "number" || userId <= 0) {
+      throw new Error("Valid numeric userId is required");
+    }
+    if (!requirementId || typeof requirementId !== "number" || requirementId <= 0) {
+      throw new Error("Valid numeric requirementId is required");
+    }
+    const runner = async (tx) => {
+      const now = /* @__PURE__ */ new Date();
+      const [reqRecord] = await tx.select().from(wageringRequirements).where(eq(wageringRequirements.id, requirementId)).for("update");
+      if (!reqRecord) {
+        return {
+          success: false,
+          duplicate: false,
+          requirementId,
+          userId,
+          status: "ACTIVE",
+          reason: "WAGERING_REQUIREMENT_NOT_FOUND"
+        };
+      }
+      if (reqRecord.userId !== userId) {
+        return {
+          success: false,
+          duplicate: false,
+          requirementId,
+          userId,
+          status: reqRecord.status,
+          reason: "TRANSACTION_USER_MISMATCH"
+        };
+      }
+      if (reqRecord.status === "ACTIVE" && reqRecord.expiresAt <= now) {
+        await tx.update(wageringRequirements).set({ status: "EXPIRED" }).where(eq(wageringRequirements.id, requirementId));
+        return {
+          success: false,
+          duplicate: false,
+          requirementId,
+          userId,
+          status: "EXPIRED",
+          reason: "WAGERING_REQUIREMENT_EXPIRED"
+        };
+      }
+      if (reqRecord.status === "EXPIRED") {
+        return {
+          success: false,
+          duplicate: false,
+          requirementId,
+          userId,
+          status: "EXPIRED",
+          reason: "WAGERING_REQUIREMENT_EXPIRED"
+        };
+      }
+      if (reqRecord.status === "ACTIVE") {
+        const completedScale4 = toScale4(reqRecord.completedTurnoverAmount);
+        const targetScale4 = toScale4(reqRecord.targetTurnoverAmount);
+        if (completedScale4 < targetScale4) {
+          return {
+            success: false,
+            duplicate: false,
+            requirementId,
+            userId,
+            status: "ACTIVE",
+            reason: "WAGERING_REQUIREMENT_INCOMPLETE"
+          };
+        }
+        await tx.update(wageringRequirements).set({ status: "COMPLETED", completedAt: now }).where(eq(wageringRequirements.id, requirementId));
+        reqRecord.status = "COMPLETED";
+        reqRecord.completedAt = now;
+      }
+      const deterministicTrxId = idempotencyKey || `WAGERING_RELEASE_${userId}_${requirementId}`;
+      if (reqRecord.isReleased) {
+        return {
+          success: true,
+          duplicate: true,
+          requirementId,
+          userId,
+          status: "COMPLETED",
+          releaseAmount: reqRecord.bonusAmountGranted,
+          transactionId: reqRecord.releaseTransactionId || deterministicTrxId,
+          reason: "ALREADY_RELEASED",
+          auditMetadata: {
+            gatingDecision: "IDEMPOTENT_REPLAY",
+            wageringRequirementId: requirementId,
+            releasedAt: reqRecord.releasedAt
+          }
+        };
+      }
+      const effectiveLedger = params.customLedgerService || _WageringService.ledgerService;
+      if (!effectiveLedger) {
+        throw new Error("FATAL_LEDGER_UNAVAILABLE: Production WalletLedgerService is not configured. Wagering bonus conversion failed closed.");
+      }
+      const bonusAmountScale4 = toScale4(reqRecord.bonusAmountGranted);
+      const bonusAmountStr = fromScale4(bonusAmountScale4);
+      let transferResult;
+      try {
+        transferResult = await effectiveLedger.executeBonusToRealTransfer({
+          userId: String(userId),
+          transactionId: deterministicTrxId,
+          wageringRequirementId: requirementId,
+          amountMajor: bonusAmountStr,
+          currency,
+          auditMetadata: {
+            wageringRequirementId: requirementId,
+            gatingDecision: "APPROVED",
+            releaseReason: "WAGERING_REQUIREMENT_COMPLETED",
+            promoName: reqRecord.promoName
+          }
+        });
+      } catch (err) {
+        if (err.code === "INSUFFICIENT_FUNDS" || err.name === "InsufficientFundsError") {
+          return {
+            success: false,
+            duplicate: false,
+            requirementId,
+            userId,
+            status: reqRecord.status,
+            reason: "INSUFFICIENT_BONUS_BALANCE",
+            auditMetadata: {
+              gatingDecision: "REJECTED",
+              reason: "INSUFFICIENT_BONUS_BALANCE",
+              error: err.message
+            }
+          };
+        }
+        throw err;
+      }
+      const auditPayload = {
+        wageringRequirementId: requirementId,
+        gatingDecision: "APPROVED",
+        releaseReason: "WAGERING_REQUIREMENT_COMPLETED",
+        settlementTarget: "REAL",
+        debitEntryId: transferResult.debitEntryId,
+        creditEntryId: transferResult.creditEntryId,
+        ledgerEntryId: transferResult.creditEntryId,
+        releasedAt: now.toISOString(),
+        transactionId: deterministicTrxId
+      };
+      await tx.update(wageringRequirements).set({
+        isReleased: true,
+        releasedAt: now,
+        releaseTransactionId: deterministicTrxId,
+        auditMetadata: auditPayload
+      }).where(eq(wageringRequirements.id, requirementId));
+      return {
+        success: true,
+        duplicate: transferResult.isIdempotent || false,
+        requirementId,
+        userId,
+        status: "COMPLETED",
+        releaseAmount: bonusAmountStr,
+        debitEntryId: transferResult.debitEntryId,
+        creditEntryId: transferResult.creditEntryId,
+        ledgerEntryId: transferResult.creditEntryId,
+        transactionId: deterministicTrxId,
+        auditMetadata: auditPayload
+      };
+    };
+    if (params.tx) {
+      return await runner(params.tx);
+    }
+    return await db.transaction(runner);
+  }
+};
+
+// src/server/utils/paymentAmount.ts
+function fromScale42(val) {
+  const isNeg = val < 0n;
+  const abs = isNeg ? -val : val;
+  const str = abs.toString().padStart(5, "0");
+  const intPart = str.slice(0, -4) || "0";
+  const fracPart = str.slice(-4);
+  return `${isNeg ? "-" : ""}${intPart}.${fracPart}`;
+}
+function toScale42(val) {
+  if (typeof val === "bigint") return val;
+  if (typeof val === "number") {
+    throw new Error("Unsafe JS number monetary input is rejected. Use exact decimal string or bigint minor units.");
+  }
+  if (typeof val !== "string") {
+    throw new Error("Monetary input must be an exact decimal string or bigint minor units.");
+  }
+  const s = val.trim();
+  if (!s || !/^-?\d+(\.\d+)?$/.test(s)) {
+    throw new Error(`Invalid monetary decimal string format: "${val}"`);
+  }
+  const [intPart = "0", fracPart = ""] = s.split(".");
+  if (fracPart.length > 4) {
+    throw new Error(`Over-precision monetary input rejected: "${val}" has ${fracPart.length} decimal places (maximum 4 allowed).`);
+  }
+  const paddedFrac = fracPart.padEnd(4, "0");
+  const isNeg = intPart.startsWith("-");
+  const cleanInt = isNeg ? intPart.slice(1) : intPart;
+  const combined = BigInt((cleanInt || "0") + paddedFrac);
+  return isNeg ? -combined : combined;
+}
+function validatePaymentAmount(amount) {
+  if (amount === void 0 || amount === null || amount === "") {
+    throw new Error("Monetary amount is required and cannot be empty.");
+  }
+  let str;
+  if (typeof amount === "string") {
+    str = amount.trim();
+    if (!str) {
+      throw new Error("Monetary amount is required and cannot be empty.");
+    }
+  } else if (typeof amount === "bigint") {
+    if (amount <= 0n) {
+      throw new Error("Monetary amount must be strictly greater than zero.");
+    }
+    return {
+      raw: amount.toString(),
+      minorUnits: amount,
+      decimalString: fromScale42(amount)
+    };
+  } else if (typeof amount === "number") {
+    if (Number.isNaN(amount) || !Number.isFinite(amount)) {
+      throw new Error("Invalid monetary amount: NaN or Infinity is not allowed.");
+    }
+    if (amount <= 0) {
+      throw new Error("Monetary amount must be strictly greater than zero.");
+    }
+    str = String(amount).trim();
+  } else {
+    throw new Error("Invalid monetary amount type. Expected decimal string or minor units.");
+  }
+  if (/[eE]/.test(str)) {
+    throw new Error(`Scientific notation is not allowed for monetary amounts: "${str}"`);
+  }
+  if (str === "NaN" || str === "Infinity" || str === "-Infinity") {
+    throw new Error(`Invalid monetary amount format: "${str}"`);
+  }
+  if (str.startsWith("-")) {
+    throw new Error(`Monetary amount cannot be negative: "${str}"`);
+  }
+  if (!/^\d+(\.\d+)?$/.test(str)) {
+    throw new Error(`Invalid monetary decimal string format: "${str}"`);
+  }
+  const [intPart = "0", fracPart = ""] = str.split(".");
+  if (fracPart.length > 4) {
+    throw new Error(`Over-precision monetary input rejected: "${str}" has ${fracPart.length} decimal places (maximum 4 allowed).`);
+  }
+  const paddedFrac = fracPart.padEnd(4, "0");
+  const cleanInt = intPart.replace(/^0+(?=\d)/, "");
+  const minorUnits = BigInt((cleanInt || "0") + paddedFrac);
+  if (minorUnits <= 0n) {
+    throw new Error("Monetary amount must be strictly greater than zero.");
+  }
+  return {
+    raw: str,
+    minorUnits,
+    decimalString: fromScale42(minorUnits)
+  };
+}
+
+// src/server/controllers/paymentController.ts
 var PaymentController = class {
   /**
    * Submit a local deposit request (bKash / Nagad / Rocket)
+   * In production, deposit submission creates ONLY a PENDING record.
+   * Client-controlled autoApprove and direct wallet balance mutation are strictly disabled.
    */
   async submitDeposit(req, res) {
     try {
@@ -1692,22 +3083,36 @@ var PaymentController = class {
         userId,
         method,
         amount,
-        currency = "USD",
+        currency = "BDT",
         senderNumber,
         receiverNumber,
-        trxId,
-        autoApprove = true
+        trxId
       } = req.body;
-      if (!userId || !method || !amount || !trxId) {
+      if (!userId || !method || amount === void 0 || amount === null || amount === "" || !trxId) {
         res.status(400).json({ error: "Missing required deposit parameters" });
         return;
       }
-      const userList = await db.select().from(users).where(eq(users.id, Number(userId)));
+      let amountMinor;
+      let normalizedAmount;
+      try {
+        amountMinor = toScale42(String(amount));
+        const parsed = validatePaymentAmount(amount);
+        amountMinor = parsed.minorUnits;
+        normalizedAmount = parsed.decimalString;
+      } catch (err) {
+        res.status(400).json({ error: `Invalid monetary amount: ${err.message}` });
+        return;
+      }
+      if (amountMinor <= 0n) {
+        res.status(400).json({ error: "Deposit amount must be greater than zero" });
+        return;
+      }
+      const userList = await db.select().from(users).where(eq2(users.id, Number(userId)));
       if (userList.length === 0) {
         res.status(404).json({ error: "User not found" });
         return;
       }
-      const walletList = await db.select().from(wallets).where(eq(wallets.userId, Number(userId)));
+      const walletList = await db.select().from(wallets).where(eq2(wallets.userId, Number(userId)));
       let wallet = walletList.find((w) => w.currency === currency) || walletList[0];
       if (!wallet) {
         const [newWallet] = await db.insert(wallets).values({
@@ -1719,48 +3124,23 @@ var PaymentController = class {
         }).returning();
         wallet = newWallet;
       }
-      const status = autoApprove ? "APPROVED" : "PENDING";
       const [insertedReq] = await db.insert(paymentRequests).values({
         userId: Number(userId),
         walletId: wallet.id,
         type: "DEPOSIT",
         method,
-        amount: amount.toString(),
+        amount: normalizedAmount,
         currency,
-        senderNumber: senderNumber || "",
-        receiverNumber: receiverNumber || "01900-112233",
-        trxId: String(trxId).toUpperCase(),
-        status,
-        adminNote: autoApprove ? "Instant Automated bKash/Nagad Validation" : "Pending Review"
+        senderNumber: senderNumber ? String(senderNumber) : "",
+        receiverNumber: receiverNumber ? String(receiverNumber) : "01900-112233",
+        trxId: String(trxId).trim().toUpperCase(),
+        status: "PENDING",
+        adminNote: "Deposit submitted, pending provider callback/manual verification"
       }).returning();
-      if (autoApprove) {
-        const currentBal = Number(wallet.realBalance);
-        const newBal = (currentBal + Number(amount)).toFixed(4);
-        await db.update(wallets).set({
-          realBalance: newBal,
-          version: wallet.version + 1,
-          updatedAt: /* @__PURE__ */ new Date()
-        }).where(eq(wallets.id, wallet.id));
-        await db.insert(transactions).values({
-          providerId: "CASHIER_LOCAL",
-          transactionId: `DEP_${trxId.toUpperCase()}`,
-          referenceTransactionId: String(insertedReq.id),
-          userId: Number(userId),
-          walletId: wallet.id,
-          gameId: "CASHIER_DEPOSIT",
-          type: "PROMO",
-          amount: amount.toString(),
-          currency,
-          beforeBalance: currentBal.toFixed(4),
-          afterBalance: newBal,
-          status: "COMPLETED",
-          metadata: { method, senderNumber, trxId }
-        });
-      }
       res.status(201).json({
         success: true,
         data: insertedReq,
-        message: autoApprove ? "Deposit verified and credited successfully" : "Deposit request submitted for manual verification"
+        message: "Deposit request submitted for manual/provider verification"
       });
     } catch (err) {
       console.error("[PaymentController Error]:", err);
@@ -1776,39 +3156,68 @@ var PaymentController = class {
         userId,
         method,
         amount,
-        currency = "USD",
-        receiverNumber,
-        autoApprove = true
+        currency = "BDT",
+        receiverNumber
       } = req.body;
-      if (!userId || !method || !amount || !receiverNumber) {
+      if (!userId || !method || amount === void 0 || amount === null || amount === "" || !receiverNumber) {
         res.status(400).json({ error: "Missing required withdrawal parameters" });
         return;
       }
-      const walletList = await db.select().from(wallets).where(eq(wallets.userId, Number(userId)));
+      let amountMinor;
+      let normalizedAmount;
+      try {
+        const parsed = validatePaymentAmount(amount);
+        amountMinor = parsed.minorUnits;
+        normalizedAmount = parsed.decimalString;
+      } catch (err) {
+        res.status(400).json({ error: `Invalid monetary amount: ${err.message}` });
+        return;
+      }
+      if (amountMinor <= 0n) {
+        res.status(400).json({ error: "Withdrawal amount must be greater than zero" });
+        return;
+      }
+      const gate = await WageringService.enforceWithdrawalWageringGate({ userId: Number(userId) });
+      if (!gate.allowed) {
+        res.status(403).json({
+          success: false,
+          error: `Withdrawal blocked: active wagering requirement is not completed (${gate.reason}).`,
+          code: gate.reason || "WAGERING_REQUIREMENT_INCOMPLETE",
+          activeRequirementsCount: gate.activeRequirementsCount,
+          activeRequirements: gate.activeRequirements
+        });
+        return;
+      }
+      const walletList = await db.select().from(wallets).where(eq2(wallets.userId, Number(userId)));
       const wallet = walletList.find((w) => w.currency === currency) || walletList[0];
-      if (!wallet || Number(wallet.realBalance) < Number(amount)) {
+      if (!wallet) {
+        res.status(404).json({ error: "Wallet not found" });
+        return;
+      }
+      const currentBalMinor = toScale42(wallet.realBalance || "0.0000");
+      if (currentBalMinor < amountMinor) {
         res.status(400).json({ error: "Insufficient funds for withdrawal" });
         return;
       }
-      const currentBal = Number(wallet.realBalance);
-      const newBal = (currentBal - Number(amount)).toFixed(4);
+      const newBalMinor = currentBalMinor - amountMinor;
+      const newBalStr = fromScale42(newBalMinor);
       await db.update(wallets).set({
-        realBalance: newBal,
-        version: wallet.version + 1,
+        realBalance: newBalStr,
+        version: sql3`${wallets.version} + 1`,
         updatedAt: /* @__PURE__ */ new Date()
-      }).where(eq(wallets.id, wallet.id));
+      }).where(eq2(wallets.id, wallet.id));
       const trxId = `WTH_${method}_${Math.random().toString(36).substring(2, 9).toUpperCase()}`;
       const [insertedReq] = await db.insert(paymentRequests).values({
         userId: Number(userId),
         walletId: wallet.id,
         type: "WITHDRAWAL",
         method,
-        amount: amount.toString(),
+        amount: normalizedAmount,
         currency,
-        receiverNumber,
+        receiverNumber: String(receiverNumber),
         trxId,
-        status: autoApprove ? "APPROVED" : "PENDING",
-        adminNote: autoApprove ? "Instant VIP Dispatched" : "Queued for Bank Transfer"
+        status: "PENDING",
+        adminNote: "Queued for Bank/MFS Transfer"
       }).returning();
       await db.insert(transactions).values({
         providerId: "CASHIER_LOCAL",
@@ -1818,17 +3227,17 @@ var PaymentController = class {
         walletId: wallet.id,
         gameId: "CASHIER_WITHDRAWAL",
         type: "TIP",
-        amount: amount.toString(),
+        amount: normalizedAmount,
         currency,
-        beforeBalance: currentBal.toFixed(4),
-        afterBalance: newBal,
-        status: "COMPLETED",
+        beforeBalance: fromScale42(currentBalMinor),
+        afterBalance: newBalStr,
+        status: "PENDING",
         metadata: { method, receiverNumber }
       });
       res.status(201).json({
         success: true,
         data: insertedReq,
-        message: "Withdrawal request processed successfully"
+        message: "Withdrawal request submitted successfully and queued for disbursement"
       });
     } catch (err) {
       console.error("[PaymentController Error]:", err);
@@ -1843,7 +3252,7 @@ var PaymentController = class {
       const { userId } = req.query;
       let query3 = db.select().from(paymentRequests).orderBy(desc(paymentRequests.createdAt));
       if (userId) {
-        const results2 = await db.select().from(paymentRequests).where(eq(paymentRequests.userId, Number(userId))).orderBy(desc(paymentRequests.createdAt));
+        const results2 = await db.select().from(paymentRequests).where(eq2(paymentRequests.userId, Number(userId))).orderBy(desc(paymentRequests.createdAt));
         res.json({ success: true, data: results2 });
         return;
       }
@@ -1858,71 +3267,104 @@ var PaymentController = class {
 var paymentController = new PaymentController();
 
 // src/services/paymentAdapters.ts
+function sanitizeProviderPayload(data, depth = 0) {
+  if (depth > 5) return "[Truncated]";
+  if (data === null || data === void 0) return data;
+  if (typeof data !== "object") return data;
+  const SENSITIVE_KEYS = [
+    /secret/i,
+    /password/i,
+    /passphrase/i,
+    /token/i,
+    /auth(orization)?/i,
+    /bearer/i,
+    /signature/i,
+    /pin/i,
+    /api[-_]?key/i,
+    /private[-_]?key/i,
+    /cert/i,
+    /cvv/i
+  ];
+  if (Array.isArray(data)) {
+    return data.map((item) => sanitizeProviderPayload(item, depth + 1));
+  }
+  const sanitized = {};
+  for (const [key, value] of Object.entries(data)) {
+    const isSensitive = SENSITIVE_KEYS.some((regex) => regex.test(key));
+    if (isSensitive) {
+      sanitized[key] = "***REDACTED***";
+    } else {
+      sanitized[key] = sanitizeProviderPayload(value, depth + 1);
+    }
+  }
+  return sanitized;
+}
 var BkashPaymentAdapter = class {
   constructor() {
     this.providerId = "bkash";
     this.name = "bKash Automated Gateway";
   }
+  isConfigured() {
+    return Boolean(process.env.BKASH_APP_KEY && process.env.BKASH_APP_SECRET);
+  }
   async verifyDeposit(params) {
     const cleanTrx = params.trxId.trim().toUpperCase();
+    if (!this.isConfigured()) {
+      return {
+        verified: false,
+        status: "PENDING_INTEGRATION",
+        code: "PROVIDER_NOT_CONFIGURED",
+        providerTransactionId: cleanTrx,
+        message: "bKash Automated Gateway adapter is not configured with live credentials. Automated credit is disabled."
+      };
+    }
     const validFormat = /^[A-Z0-9]{8,12}$/.test(cleanTrx);
     if (!validFormat) {
       return {
         verified: false,
         status: "FAILED",
+        code: "INVALID_TRX_FORMAT",
         providerTransactionId: cleanTrx,
         message: "Invalid bKash TrxID format. Expected 8-12 alphanumeric characters."
       };
     }
-    const mockSuccess = !cleanTrx.startsWith("FAIL") && !cleanTrx.startsWith("ERR");
-    if (!mockSuccess) {
-      return {
-        verified: false,
-        status: "FAILED",
-        providerTransactionId: cleanTrx,
-        message: "bKash API reported transaction does not exist or has been reversed."
-      };
-    }
     return {
-      verified: true,
-      status: "VERIFIED",
+      verified: false,
+      status: "PENDING_INTEGRATION",
+      code: "PROVIDER_INTEGRATION_INCOMPLETE",
       providerTransactionId: cleanTrx,
-      amountReceived: params.depositIntent.amount,
-      paidAt: (/* @__PURE__ */ new Date()).toISOString(),
-      message: "bKash API verification confirmed. Funds settled into merchant account.",
-      rawProviderResponse: {
-        trxStatus: "Completed",
-        transactionReference: cleanTrx,
-        merchantInvoiceNumber: params.depositIntent.id,
-        amount: params.depositIntent.amount.toString(),
-        currency: "BDT",
-        paymentExecuteTime: (/* @__PURE__ */ new Date()).toISOString()
-      }
+      message: "bKash API verification requires live provider integration and webhook confirmation."
     };
   }
   async executePayout(params) {
-    const ref = `BK_DISB_${Date.now()}_${Math.random().toString(36).substring(2, 7).toUpperCase()}`;
+    if (!this.isConfigured()) {
+      return {
+        success: false,
+        providerReference: "",
+        status: "FAILED",
+        code: "PROVIDER_NOT_CONFIGURED",
+        message: "bKash payout adapter is not configured with live credentials. Automated disbursement is disabled."
+      };
+    }
     return {
-      success: true,
-      providerReference: ref,
-      status: "COMPLETED",
-      message: `bKash B2C API successfully disbursed \u09F3${params.withdrawal.amount} to ${params.withdrawal.recipientAccount}`,
-      rawResponse: {
-        statusCode: "0000",
-        statusMessage: "Successful",
-        paymentID: ref
-      }
+      success: false,
+      providerReference: "",
+      status: "FAILED",
+      code: "PROVIDER_INTEGRATION_INCOMPLETE",
+      message: "bKash automated payout integration is incomplete and pending verified provider documentation."
     };
   }
-  async processWebhook(payload, signature) {
-    const signatureValid = signature !== "INVALID";
+  async processWebhook(payload, _signature) {
+    const sanitized = sanitizeProviderPayload(payload);
+    const rawAmount = payload.amount != null ? String(payload.amount) : void 0;
     return {
-      signatureValid,
-      providerTransactionId: payload.trxID || payload.paymentID,
-      amount: payload.amount ? Number(payload.amount) : void 0,
-      currency: payload.currency || "BDT",
-      status: payload.transactionStatus || "Completed",
-      rawPayload: payload
+      signatureValid: false,
+      code: "WEBHOOK_SIGNATURE_CONTRACT_NOT_CONFIGURED",
+      providerTransactionId: payload.trxID || payload.paymentID ? String(payload.trxID || payload.paymentID) : void 0,
+      rawAmount,
+      currency: payload.currency ? String(payload.currency) : "BDT",
+      status: "PROVIDER_INTEGRATION_INCOMPLETE",
+      rawPayload: sanitized
     };
   }
 };
@@ -1931,49 +3373,67 @@ var NagadPaymentAdapter = class {
     this.providerId = "nagad";
     this.name = "Nagad Automated Gateway";
   }
+  isConfigured() {
+    return Boolean(process.env.NAGAD_MERCHANT_ID && process.env.NAGAD_PRIVATE_KEY);
+  }
   async verifyDeposit(params) {
     const cleanTrx = params.trxId.trim().toUpperCase();
+    if (!this.isConfigured()) {
+      return {
+        verified: false,
+        status: "PENDING_INTEGRATION",
+        code: "PROVIDER_NOT_CONFIGURED",
+        providerTransactionId: cleanTrx,
+        message: "Nagad Automated Gateway adapter is not configured with live credentials. Automated credit is disabled."
+      };
+    }
     const validFormat = /^[A-Z0-9]{8,12}$/.test(cleanTrx);
     if (!validFormat) {
       return {
         verified: false,
         status: "FAILED",
+        code: "INVALID_TRX_FORMAT",
         providerTransactionId: cleanTrx,
         message: "Invalid Nagad TrxID format. Expected 8-12 alphanumeric characters."
       };
     }
     return {
-      verified: true,
-      status: "VERIFIED",
+      verified: false,
+      status: "PENDING_INTEGRATION",
+      code: "PROVIDER_INTEGRATION_INCOMPLETE",
       providerTransactionId: cleanTrx,
-      amountReceived: params.depositIntent.amount,
-      paidAt: (/* @__PURE__ */ new Date()).toISOString(),
-      message: "Nagad Gateway verified transaction successfully.",
-      rawProviderResponse: {
-        status: "Success",
-        issuerTrxId: cleanTrx,
-        amount: params.depositIntent.amount
-      }
+      message: "Nagad verification requires live provider integration and webhook confirmation."
     };
   }
   async executePayout(params) {
-    const ref = `NG_DISB_${Date.now()}_${Math.random().toString(36).substring(2, 7).toUpperCase()}`;
+    if (!this.isConfigured()) {
+      return {
+        success: false,
+        providerReference: "",
+        status: "FAILED",
+        code: "PROVIDER_NOT_CONFIGURED",
+        message: "Nagad payout adapter is not configured. Request queued for manual processing."
+      };
+    }
     return {
-      success: true,
-      providerReference: ref,
-      status: "COMPLETED",
-      message: `Nagad Payout API disbursed \u09F3${params.withdrawal.amount} to ${params.withdrawal.recipientAccount}`,
-      rawResponse: { status: "Success", refId: ref }
+      success: false,
+      providerReference: "",
+      status: "FAILED",
+      code: "PROVIDER_INTEGRATION_INCOMPLETE",
+      message: "Nagad automated payout integration is incomplete and pending verified provider documentation."
     };
   }
-  async processWebhook(payload, signature) {
+  async processWebhook(payload, _signature) {
+    const sanitized = sanitizeProviderPayload(payload);
+    const rawAmount = payload.amount != null ? String(payload.amount) : void 0;
     return {
-      signatureValid: true,
-      providerTransactionId: payload.issuerTrxId,
-      amount: Number(payload.amount),
-      currency: "BDT",
-      status: payload.status,
-      rawPayload: payload
+      signatureValid: false,
+      code: "WEBHOOK_SIGNATURE_CONTRACT_NOT_CONFIGURED",
+      providerTransactionId: payload.issuerTrxId ? String(payload.issuerTrxId) : void 0,
+      rawAmount,
+      currency: payload.currency ? String(payload.currency) : "BDT",
+      status: "PROVIDER_INTEGRATION_INCOMPLETE",
+      rawPayload: sanitized
     };
   }
 };
@@ -1982,39 +3442,67 @@ var RocketPaymentAdapter = class {
     this.providerId = "rocket";
     this.name = "Rocket Automated Gateway";
   }
+  isConfigured() {
+    return Boolean(process.env.ROCKET_BILLER_ID && process.env.ROCKET_PIN);
+  }
   async verifyDeposit(params) {
     const cleanTrx = params.trxId.trim().toUpperCase();
+    if (!this.isConfigured()) {
+      return {
+        verified: false,
+        status: "PENDING_INTEGRATION",
+        code: "PROVIDER_NOT_CONFIGURED",
+        providerTransactionId: cleanTrx,
+        message: "Rocket Automated Gateway adapter is not configured with live credentials. Automated credit is disabled."
+      };
+    }
+    const validFormat = /^[A-Z0-9]{8,12}$/.test(cleanTrx);
+    if (!validFormat) {
+      return {
+        verified: false,
+        status: "FAILED",
+        code: "INVALID_TRX_FORMAT",
+        providerTransactionId: cleanTrx,
+        message: "Invalid Rocket TrxID format. Expected 8-12 alphanumeric characters."
+      };
+    }
     return {
-      verified: true,
-      status: "VERIFIED",
+      verified: false,
+      status: "PENDING_INTEGRATION",
+      code: "PROVIDER_INTEGRATION_INCOMPLETE",
       providerTransactionId: cleanTrx,
-      amountReceived: params.depositIntent.amount,
-      paidAt: (/* @__PURE__ */ new Date()).toISOString(),
-      message: "DBBL Rocket CBS confirmed transaction credit.",
-      rawProviderResponse: {
-        cbsResponse: "APPROVED",
-        txId: cleanTrx
-      }
+      message: "Rocket verification requires live provider integration and webhook confirmation."
     };
   }
   async executePayout(params) {
-    const ref = `RK_DISB_${Date.now()}_${Math.random().toString(36).substring(2, 7).toUpperCase()}`;
+    if (!this.isConfigured()) {
+      return {
+        success: false,
+        providerReference: "",
+        status: "FAILED",
+        code: "PROVIDER_NOT_CONFIGURED",
+        message: "Rocket payout adapter is not configured. Request queued for manual processing."
+      };
+    }
     return {
-      success: true,
-      providerReference: ref,
-      status: "COMPLETED",
-      message: `DBBL Rocket disbursed \u09F3${params.withdrawal.amount} to ${params.withdrawal.recipientAccount}`,
-      rawResponse: { ref }
+      success: false,
+      providerReference: "",
+      status: "FAILED",
+      code: "PROVIDER_INTEGRATION_INCOMPLETE",
+      message: "Rocket automated payout integration is incomplete and pending verified provider documentation."
     };
   }
-  async processWebhook(payload, signature) {
+  async processWebhook(payload, _signature) {
+    const sanitized = sanitizeProviderPayload(payload);
+    const rawAmount = payload.amount != null ? String(payload.amount) : void 0;
     return {
-      signatureValid: true,
-      providerTransactionId: payload.txId,
-      amount: Number(payload.amount),
-      currency: "BDT",
-      status: "APPROVED",
-      rawPayload: payload
+      signatureValid: false,
+      code: "WEBHOOK_SIGNATURE_CONTRACT_NOT_CONFIGURED",
+      providerTransactionId: payload.txId ? String(payload.txId) : void 0,
+      rawAmount,
+      currency: payload.currency ? String(payload.currency) : "BDT",
+      status: "PROVIDER_INTEGRATION_INCOMPLETE",
+      rawPayload: sanitized
     };
   }
 };
@@ -2023,39 +3511,57 @@ var BankTransferPaymentAdapter = class {
     this.providerId = "bank_transfer";
     this.name = "Bank Transfer / NPSB Gateway";
   }
+  isConfigured() {
+    return Boolean(process.env.BANK_API_GATEWAY_URL && process.env.BANK_CLIENT_CERT);
+  }
   async verifyDeposit(params) {
     const cleanTrx = params.trxId.trim().toUpperCase();
+    if (!this.isConfigured()) {
+      return {
+        verified: false,
+        status: "PENDING_INTEGRATION",
+        code: "PROVIDER_NOT_CONFIGURED",
+        providerTransactionId: cleanTrx,
+        message: "Bank Core Banking API adapter is not configured with live credentials. Automated credit is disabled."
+      };
+    }
     return {
-      verified: true,
-      status: "VERIFIED",
+      verified: false,
+      status: "PENDING_INTEGRATION",
+      code: "PROVIDER_INTEGRATION_INCOMPLETE",
       providerTransactionId: cleanTrx,
-      amountReceived: params.depositIntent.amount,
-      paidAt: (/* @__PURE__ */ new Date()).toISOString(),
-      message: "Bank Core Banking API confirmed EFT/NPSB wire credit.",
-      rawProviderResponse: {
-        swiftOrNpsbRef: cleanTrx,
-        clearingStatus: "SETTLED"
-      }
+      message: "Bank transfer verification requires live banking callback and settlement."
     };
   }
   async executePayout(params) {
-    const ref = `BANK_WIRE_${Date.now()}_${Math.random().toString(36).substring(2, 7).toUpperCase()}`;
+    if (!this.isConfigured()) {
+      return {
+        success: false,
+        providerReference: "",
+        status: "FAILED",
+        code: "PROVIDER_NOT_CONFIGURED",
+        message: "Bank transfer payout adapter is not configured. Request queued for manual processing."
+      };
+    }
     return {
-      success: true,
-      providerReference: ref,
-      status: "COMPLETED",
-      message: `NPSB Instant Wire Transfer routed \u09F3${params.withdrawal.amount} to Bank Account ${params.withdrawal.recipientAccount}`,
-      rawResponse: { wireRef: ref, status: "PROCESSED" }
+      success: false,
+      providerReference: "",
+      status: "FAILED",
+      code: "PROVIDER_INTEGRATION_INCOMPLETE",
+      message: "Bank transfer automated payout integration is incomplete and pending verified provider documentation."
     };
   }
-  async processWebhook(payload, signature) {
+  async processWebhook(payload, _signature) {
+    const sanitized = sanitizeProviderPayload(payload);
+    const rawAmount = payload.amount != null ? String(payload.amount) : void 0;
     return {
-      signatureValid: true,
-      providerTransactionId: payload.swiftOrNpsbRef,
-      amount: Number(payload.amount),
-      currency: "BDT",
-      status: "SETTLED",
-      rawPayload: payload
+      signatureValid: false,
+      code: "WEBHOOK_SIGNATURE_CONTRACT_NOT_CONFIGURED",
+      providerTransactionId: payload.swiftOrNpsbRef ? String(payload.swiftOrNpsbRef) : void 0,
+      rawAmount,
+      currency: payload.currency ? String(payload.currency) : "BDT",
+      status: "PROVIDER_INTEGRATION_INCOMPLETE",
+      rawPayload: sanitized
     };
   }
 };
@@ -2064,3478 +3570,60 @@ var CardPaymentAdapter = class {
     this.providerId = "card_payment";
     this.name = "Visa / Mastercard 3DS Gateway";
   }
+  isConfigured() {
+    return Boolean(process.env.STRIPE_SECRET_KEY || process.env.CARD_MERCHANT_SECRET);
+  }
   async verifyDeposit(params) {
+    const cleanTrx = params.trxId.trim().toUpperCase();
+    if (!this.isConfigured()) {
+      return {
+        verified: false,
+        status: "PENDING_INTEGRATION",
+        code: "PROVIDER_NOT_CONFIGURED",
+        providerTransactionId: cleanTrx,
+        message: "Card 3DS Gateway adapter is not configured with live credentials. Automated credit is disabled."
+      };
+    }
     return {
-      verified: true,
-      status: "VERIFIED",
-      providerTransactionId: params.trxId.toUpperCase(),
-      amountReceived: params.depositIntent.amount,
-      paidAt: (/* @__PURE__ */ new Date()).toISOString(),
-      message: "Card 3D-Secure 2.0 authorization verified.",
-      rawProviderResponse: { authCode: "AUTH_8910", status: "CAPTURED" }
+      verified: false,
+      status: "PENDING_INTEGRATION",
+      code: "PROVIDER_INTEGRATION_INCOMPLETE",
+      providerTransactionId: cleanTrx,
+      message: "Card verification requires live gateway callback."
     };
   }
   async executePayout(params) {
-    const ref = `CARD_OCT_${Date.now()}`;
+    if (!this.isConfigured()) {
+      return {
+        success: false,
+        providerReference: "",
+        status: "FAILED",
+        code: "PROVIDER_NOT_CONFIGURED",
+        message: "Card OCT payout adapter is not configured. Request queued for manual processing."
+      };
+    }
     return {
-      success: true,
-      providerReference: ref,
-      status: "COMPLETED",
-      message: `Card OCT (Original Credit Transaction) processed to card ending in ${params.withdrawal.recipientAccount.slice(-4)}`,
-      rawResponse: { ref }
+      success: false,
+      providerReference: "",
+      status: "FAILED",
+      code: "PROVIDER_INTEGRATION_INCOMPLETE",
+      message: "Card OCT payout adapter integration is incomplete and pending verified provider documentation."
     };
   }
-  async processWebhook(payload) {
+  async processWebhook(payload, _signature) {
+    const sanitized = sanitizeProviderPayload(payload);
+    const rawAmount = payload.amount != null ? String(payload.amount) : void 0;
     return {
-      signatureValid: true,
-      providerTransactionId: payload.chargeId,
-      amount: Number(payload.amount),
-      currency: payload.currency || "USD",
-      status: "CAPTURED",
-      rawPayload: payload
+      signatureValid: false,
+      code: "WEBHOOK_SIGNATURE_CONTRACT_NOT_CONFIGURED",
+      providerTransactionId: payload.chargeId ? String(payload.chargeId) : void 0,
+      rawAmount,
+      currency: payload.currency ? String(payload.currency) : "USD",
+      status: "PROVIDER_INTEGRATION_INCOMPLETE",
+      rawPayload: sanitized
     };
   }
 };
-
-// src/services/explainAnalyzeEngine.ts
-function generateExplainAnalyze(query3, customOptions) {
-  const options = {
-    analyze: true,
-    buffers: true,
-    costs: true,
-    verbose: true,
-    timing: true,
-    wal: true,
-    ...customOptions
-  };
-  const sqlStr = typeof query3 === "string" ? query3 : query3.statement;
-  const commandType = typeof query3 === "string" ? sqlStr.trim().split(" ")[0].toUpperCase() : query3.commandType;
-  const table = typeof query3 === "string" ? sqlStr.match(/FROM\s+([a-zA-Z0-9_]+)|INTO\s+([a-zA-Z0-9_]+)|UPDATE\s+([a-zA-Z0-9_]+)/i)?.[1] || "wallets" : query3.table;
-  const isForUpdate = /FOR\s+UPDATE/i.test(sqlStr);
-  const isInsert = /^INSERT/i.test(sqlStr);
-  const isUpdate = /^UPDATE/i.test(sqlStr);
-  const isSelect = /^SELECT/i.test(sqlStr);
-  const isDelete = /^DELETE/i.test(sqlStr);
-  let planTree;
-  let planningTime = 0.05 + Math.random() * 0.04;
-  let executionTime = 0.08 + Math.random() * 0.12;
-  if (isForUpdate) {
-    const childNode = {
-      id: "node_index_scan_01",
-      nodeType: "Index Scan",
-      relationName: table || "wallets",
-      alias: "w",
-      indexName: "idx_wallets_user_currency",
-      indexCond: `((user_id = $1::uuid) AND (currency = $2::varchar))`,
-      startupCost: 0.28,
-      totalCost: 8.3,
-      planRows: 1,
-      planWidth: 142,
-      actualStartupTime: 0.024,
-      actualTotalTime: 0.045,
-      actualRows: 1,
-      actualLoops: 1,
-      sharedHitBlocks: 4,
-      sharedReadBlocks: 0,
-      sharedDirtiedBlocks: 0,
-      sharedWrittenBlocks: 0,
-      output: [
-        "id",
-        "user_id",
-        "currency",
-        "real_balance",
-        "bonus_balance",
-        "locked_balance",
-        "version",
-        "status"
-      ],
-      details: [
-        "Scan type: B-Tree unique lookup on idx_wallets_user_currency",
-        "Filtered out by concurrency predicate: 0 rows"
-      ]
-    };
-    planTree = {
-      id: "node_lockrows_00",
-      nodeType: "LockRows",
-      lockType: "RowExclusiveLock (FOR UPDATE)",
-      exclusiveLockTarget: `${table || "wallets"} (tuple-level lock)`,
-      startupCost: 0.28,
-      totalCost: 8.31,
-      planRows: 1,
-      planWidth: 142,
-      actualStartupTime: 0.038,
-      actualTotalTime: 0.082,
-      actualRows: 1,
-      actualLoops: 1,
-      sharedHitBlocks: 6,
-      sharedReadBlocks: 0,
-      sharedDirtiedBlocks: 1,
-      sharedWrittenBlocks: 0,
-      walRecords: 1,
-      walBytes: 74,
-      output: childNode.output,
-      children: [childNode],
-      details: [
-        "Lock mode: Exclusive Lock on selected tuple to guarantee ACID serializability",
-        "Wait time for lock acquisition: 0.00 ms (no active blocking transaction)"
-      ]
-    };
-  } else if (isUpdate) {
-    const childNode = {
-      id: "node_update_index_scan",
-      nodeType: "Index Scan",
-      relationName: table || "wallets",
-      alias: "wallets",
-      indexName: "wallets_pkey",
-      indexCond: `(id = $1::varchar)`,
-      startupCost: 0.28,
-      totalCost: 8.3,
-      planRows: 1,
-      planWidth: 142,
-      actualStartupTime: 0.019,
-      actualTotalTime: 0.038,
-      actualRows: 1,
-      actualLoops: 1,
-      sharedHitBlocks: 3,
-      sharedReadBlocks: 0,
-      sharedDirtiedBlocks: 0,
-      sharedWrittenBlocks: 0,
-      output: ["id", "ctid"]
-    };
-    planTree = {
-      id: "node_update_00",
-      nodeType: "Update",
-      relationName: table || "wallets",
-      startupCost: 0.28,
-      totalCost: 16.32,
-      planRows: 1,
-      planWidth: 142,
-      actualStartupTime: 0.042,
-      actualTotalTime: 0.112,
-      actualRows: 1,
-      actualLoops: 1,
-      sharedHitBlocks: 8,
-      sharedReadBlocks: 0,
-      sharedDirtiedBlocks: 2,
-      sharedWrittenBlocks: 0,
-      walRecords: 2,
-      walBytes: 196,
-      children: [childNode],
-      details: [
-        "MVCC: New row tuple written with updated version counter and balance",
-        "HOT (Heap-Only Tuple) Update: Yes (Index attributes unaffected)"
-      ]
-    };
-  } else if (isInsert) {
-    const isOnConflict = /ON\s+CONFLICT/i.test(sqlStr);
-    planTree = {
-      id: "node_insert_00",
-      nodeType: "Insert",
-      relationName: table || "transactions",
-      conflictResolution: isOnConflict ? "ON CONFLICT (provider_id, provider_round_id) DO UPDATE" : "NONE",
-      startupCost: 0,
-      totalCost: 0.01,
-      planRows: 1,
-      planWidth: 160,
-      actualStartupTime: 0.015,
-      actualTotalTime: 0.075,
-      actualRows: 1,
-      actualLoops: 1,
-      sharedHitBlocks: 5,
-      sharedReadBlocks: 0,
-      sharedDirtiedBlocks: 2,
-      sharedWrittenBlocks: 0,
-      walRecords: 2,
-      walBytes: 248,
-      children: [
-        {
-          id: "node_result_01",
-          nodeType: "Result",
-          startupCost: 0,
-          totalCost: 0.01,
-          planRows: 1,
-          planWidth: 160,
-          actualStartupTime: 2e-3,
-          actualTotalTime: 3e-3,
-          actualRows: 1,
-          actualLoops: 1,
-          sharedHitBlocks: 0,
-          sharedReadBlocks: 0,
-          sharedDirtiedBlocks: 0,
-          sharedWrittenBlocks: 0
-        }
-      ],
-      details: [
-        "Tuples Inserted: 1",
-        "Indexes Updated: transactions_pkey, idx_transactions_user_id_created_at, idx_transactions_provider_tx"
-      ]
-    };
-  } else if (/WHERE\s+.*user_id.*ORDER\s+BY/i.test(sqlStr)) {
-    const childNode = {
-      id: "node_idx_trans_user_created",
-      nodeType: "Index Scan Backward",
-      relationName: table || "transactions",
-      alias: "t",
-      indexName: "idx_transactions_user_id_created_at",
-      indexCond: `(user_id = $1::uuid)`,
-      filter: `(type = ANY ('{BET,WIN,REFUND}'::transaction_type[]))`,
-      startupCost: 0.42,
-      totalCost: 24.85,
-      planRows: 25,
-      planWidth: 180,
-      actualStartupTime: 0.035,
-      actualTotalTime: 0.095,
-      actualRows: 18,
-      actualLoops: 1,
-      sharedHitBlocks: 12,
-      sharedReadBlocks: 0,
-      sharedDirtiedBlocks: 0,
-      sharedWrittenBlocks: 0,
-      output: ["id", "transaction_id", "amount", "type", "currency", "created_at"]
-    };
-    planTree = {
-      id: "node_limit_00",
-      nodeType: "Limit",
-      startupCost: 0.42,
-      totalCost: 8.5,
-      planRows: 20,
-      planWidth: 180,
-      actualStartupTime: 0.036,
-      actualTotalTime: 0.098,
-      actualRows: 18,
-      actualLoops: 1,
-      sharedHitBlocks: 12,
-      sharedReadBlocks: 0,
-      sharedDirtiedBlocks: 0,
-      sharedWrittenBlocks: 0,
-      children: [childNode],
-      details: [
-        "Zero Sort overhead: Order by created_at DESC satisfied natively by Index Scan Backward"
-      ]
-    };
-  } else {
-    planTree = {
-      id: "node_idx_scan_generic",
-      nodeType: "Index Scan",
-      relationName: table || "idempotency_keys",
-      alias: table,
-      indexName: `${table}_pkey`,
-      indexCond: `(key = $1::varchar)`,
-      startupCost: 0.28,
-      totalCost: 8.3,
-      planRows: 1,
-      planWidth: 120,
-      actualStartupTime: 0.018,
-      actualTotalTime: 0.042,
-      actualRows: 1,
-      actualLoops: 1,
-      sharedHitBlocks: 4,
-      sharedReadBlocks: 0,
-      sharedDirtiedBlocks: 0,
-      sharedWrittenBlocks: 0,
-      output: ["*"],
-      details: [`Index lookup using Primary Key B-tree on ${table}`]
-    };
-  }
-  const totalHit = countBlocks(planTree, "sharedHitBlocks");
-  const totalRead = countBlocks(planTree, "sharedReadBlocks");
-  const totalDirtied = countBlocks(planTree, "sharedDirtiedBlocks");
-  const totalWritten = countBlocks(planTree, "sharedWrittenBlocks");
-  const totalWalRecs = planTree.walRecords || 0;
-  const totalWalBytes = planTree.walBytes || 0;
-  const hitRatio = totalHit + totalRead > 0 ? totalHit / (totalHit + totalRead) * 100 : 100;
-  const totalExecutionMs = planTree.actualTotalTime || executionTime;
-  const formattedTextPlan = generatePostgresTextPlan(
-    planTree,
-    planningTime,
-    totalExecutionMs,
-    options
-  );
-  const formattedJsonPlan = [
-    {
-      Plan: {
-        "Node Type": planTree.nodeType,
-        "Parallel Aware": false,
-        "Relation Name": planTree.relationName,
-        Alias: planTree.alias,
-        "Startup Cost": planTree.startupCost,
-        "Total Cost": planTree.totalCost,
-        "Plan Rows": planTree.planRows,
-        "Plan Width": planTree.planWidth,
-        "Actual Startup Time": planTree.actualStartupTime,
-        "Actual Total Time": planTree.actualTotalTime,
-        "Actual Rows": planTree.actualRows,
-        "Actual Loops": planTree.actualLoops,
-        "Shared Hit Blocks": totalHit,
-        "Shared Read Blocks": totalRead,
-        "Shared Dirtied Blocks": totalDirtied,
-        "Shared Written Blocks": totalWritten,
-        Plans: planTree.children?.map((c) => ({
-          "Node Type": c.nodeType,
-          "Relation Name": c.relationName,
-          "Index Name": c.indexName,
-          "Index Cond": c.indexCond,
-          "Actual Total Time": c.actualTotalTime,
-          "Actual Rows": c.actualRows
-        }))
-      },
-      Planning: {
-        "Shared Hit Blocks": 2,
-        "Shared Read Blocks": 0
-      },
-      "Planning Time": Number(planningTime.toFixed(3)),
-      "Triggers": [],
-      "Execution Time": Number(totalExecutionMs.toFixed(3))
-    }
-  ];
-  const recommendations = [];
-  if (isForUpdate) {
-    recommendations.push({
-      severity: "optimal",
-      category: "Locking",
-      title: "Pessimistic Row-Level Lock (2PL) Active",
-      description: `The query executes 'LockRows' using 'RowExclusiveLock' on the target wallet tuple. This guarantees ACID serializability and prevents race conditions or double debits under heavy concurrency.`
-    });
-    recommendations.push({
-      severity: "optimal",
-      category: "Index",
-      title: "Optimal B-Tree Index Scan Utilized",
-      description: `Target row selected via unique composite index 'idx_wallets_user_currency' (Cost: 0.28..8.31, 4 buffer hits, 0 disk reads). Fast single-tuple resolution in ${planTree.actualTotalTime.toFixed(3)} ms.`
-    });
-  } else if (isInsert) {
-    recommendations.push({
-      severity: "optimal",
-      category: "Buffer",
-      title: "Append-Only Ledger Write Pattern",
-      description: "Immutable financial ledger insert avoids row contention and enables maximum write throughput with HOT updates and append optimization."
-    });
-  } else if (isUpdate) {
-    recommendations.push({
-      severity: "optimal",
-      category: "Memory",
-      title: "Heap-Only Tuple (HOT) Update Verified",
-      description: "Non-indexed balance and version columns were updated in place. PostgreSQL avoided index re-indexing overhead and deferred MVCC bloat cleanup to autovacuum."
-    });
-  }
-  recommendations.push({
-    severity: "optimal",
-    category: "Buffer",
-    title: "100% Shared Buffer Cache Hit Ratio",
-    description: `All ${totalHit} shared memory buffer blocks were served directly from RAM (shared_buffers). 0 disk I/O reads incurred.`
-  });
-  recommendations.push({
-    severity: "info",
-    category: "SLA",
-    title: "SLA Latency Headroom (>99.9% Compliance)",
-    description: `Total execution latency of ${(planningTime + totalExecutionMs).toFixed(3)} ms leaves over 3,999 ms headroom before breaching the 4,000 ms seamless provider SLA.`
-  });
-  return {
-    statement: sqlStr,
-    commandType,
-    table: table || "wallets",
-    optionsUsed: options,
-    planningTimeMs: Number(planningTime.toFixed(3)),
-    executionTimeMs: Number(totalExecutionMs.toFixed(3)),
-    totalTimeMs: Number((planningTime + totalExecutionMs).toFixed(3)),
-    costTotal: planTree.totalCost,
-    costStartup: planTree.startupCost,
-    bufferStats: {
-      sharedHit: totalHit,
-      sharedRead: totalRead,
-      sharedDirtied: totalDirtied,
-      sharedWritten: totalWritten,
-      hitRatioPercent: Number(hitRatio.toFixed(1))
-    },
-    walStats: {
-      records: totalWalRecs,
-      bytes: totalWalBytes
-    },
-    planTree,
-    formattedTextPlan,
-    formattedJsonPlan,
-    recommendations,
-    architecturalAnalysis: {
-      lockingOverhead: isForUpdate ? "0.04 ms (RowExclusiveLock)" : "0.00 ms (None)",
-      slaSafetyMargin: `${((1 - (planningTime + totalExecutionMs) / 4e3) * 100).toFixed(2)}% Safe`,
-      concurrencyRating: "Tier 1 Enterprise (ACID Compliant)",
-      indexEfficiency: "100% Index-Covered (Zero Seq Scan)",
-      cacheEfficiency: `${hitRatio.toFixed(1)}% RAM Hit`
-    }
-  };
-}
-function countBlocks(node, key) {
-  let count = typeof node[key] === "number" ? node[key] : 0;
-  if (node.children) {
-    for (const c of node.children) {
-      count += countBlocks(c, key);
-    }
-  }
-  return count;
-}
-function generatePostgresTextPlan(node, planningTime, executionTime, options) {
-  const lines = [];
-  function printNode(n, prefix, isRoot) {
-    let line = `${prefix}`;
-    if (!isRoot) line += "->  ";
-    line += `${n.nodeType}`;
-    if (n.relationName) {
-      line += ` on ${n.relationName}`;
-      if (n.alias && n.alias !== n.relationName) line += ` ${n.alias}`;
-    }
-    if (n.indexName) {
-      line += ` using ${n.indexName}`;
-    }
-    const costPart = options.costs ? `cost=${n.startupCost.toFixed(2)}..${n.totalCost.toFixed(2)} rows=${n.planRows} width=${n.planWidth}` : "";
-    const actualPart = options.analyze ? `actual time=${n.actualStartupTime.toFixed(3)}..${n.actualTotalTime.toFixed(3)} rows=${n.actualRows} loops=${n.actualLoops}` : "";
-    if (costPart || actualPart) {
-      line += `  (${[costPart, actualPart].filter(Boolean).join(") (")})`;
-    }
-    lines.push(line);
-    const childPrefix = isRoot ? "  " : prefix + "    ";
-    if (options.verbose && n.output && n.output.length > 0) {
-      lines.push(`${childPrefix}Output: ${n.output.join(", ")}`);
-    }
-    if (n.lockType) {
-      lines.push(`${childPrefix}Lock: ${n.lockType}`);
-    }
-    if (n.indexCond) {
-      lines.push(`${childPrefix}Index Cond: ${n.indexCond}`);
-    }
-    if (n.filter) {
-      lines.push(`${childPrefix}Filter: ${n.filter}`);
-    }
-    if (n.conflictResolution && n.conflictResolution !== "NONE") {
-      lines.push(`${childPrefix}Conflict Resolution: ${n.conflictResolution}`);
-    }
-    if (options.buffers) {
-      lines.push(
-        `${childPrefix}Buffers: shared hit=${n.sharedHitBlocks} read=${n.sharedReadBlocks} dirtied=${n.sharedDirtiedBlocks} written=${n.sharedWrittenBlocks}`
-      );
-    }
-    if (options.wal && (n.walRecords || 0) > 0) {
-      lines.push(`${childPrefix}WAL: records=${n.walRecords} bytes=${n.walBytes}`);
-    }
-    if (n.details) {
-      n.details.forEach((d) => lines.push(`${childPrefix}${d}`));
-    }
-    if (n.children) {
-      n.children.forEach((c) => printNode(c, childPrefix, false));
-    }
-  }
-  printNode(node, "", true);
-  lines.push(`Planning Time: ${planningTime.toFixed(3)} ms`);
-  if (options.analyze) {
-    lines.push(`Execution Time: ${executionTime.toFixed(3)} ms`);
-  }
-  return lines.join("\n");
-}
-
-// src/services/acidLockTrackerService.ts
-var AcidLockTrackerService = class {
-  constructor() {
-    this.backends = /* @__PURE__ */ new Map();
-    this.activeLocks = /* @__PURE__ */ new Map();
-    // key: relation:tupleKey
-    this.history = [];
-    this.listeners = [];
-    this.nextXid = 728901;
-    this.nextPid = 4120;
-    this.deadlocksResolved = 0;
-    this.txCommittedCount = 1420;
-    this.txRolledBackCount = 3;
-    this.seedInitialSessions();
-    this.startMetricsTicker();
-  }
-  seedInitialSessions() {
-    const now = Date.now();
-    this.backends.set(4101, {
-      pid: 4101,
-      xid: 728890,
-      virtualXid: "3/102",
-      clientAddr: "127.0.0.1:5432",
-      applicationName: "autovacuum worker",
-      database: "playall_casino_db",
-      userName: "postgres",
-      state: "active",
-      isolationLevel: "READ COMMITTED",
-      query: "VACUUM (ANALYZE) wallets;",
-      heldLocks: ["wallets:table_share"],
-      waitingOnLock: null,
-      startedAt: now - 3500,
-      durationMs: 3500,
-      xmin: 728880,
-      xmax: 0,
-      cmin: 0,
-      cmax: 0
-    });
-    this.backends.set(4102, {
-      pid: 4102,
-      xid: 728898,
-      virtualXid: "4/45",
-      clientAddr: "10.0.1.18:49210",
-      applicationName: "seamless_engine_worker_pool_01",
-      database: "playall_casino_db",
-      userName: "seamless_app_role",
-      state: "idle_in_transaction",
-      isolationLevel: "REPEATABLE READ",
-      query: "SELECT id, real_balance FROM wallets WHERE user_id = $1 FOR UPDATE;",
-      heldLocks: [],
-      waitingOnLock: null,
-      startedAt: now - 120,
-      durationMs: 120,
-      xmin: 728895,
-      xmax: 0,
-      cmin: 1,
-      cmax: 1
-    });
-    this.backends.set(4103, {
-      pid: 4103,
-      xid: 728900,
-      virtualXid: "5/18",
-      clientAddr: "10.0.1.22:38902",
-      applicationName: "webhook_dispatcher_pool_02",
-      database: "playall_casino_db",
-      userName: "webhook_role",
-      state: "active",
-      isolationLevel: "READ COMMITTED",
-      query: "INSERT INTO transactions (id, type, amount, status) VALUES ($1, $2, $3, $4);",
-      heldLocks: ["transactions:tuple_insert"],
-      waitingOnLock: null,
-      startedAt: now - 45,
-      durationMs: 45,
-      xmin: 728899,
-      xmax: 0,
-      cmin: 2,
-      cmax: 2
-    });
-    this.activeLocks.set("transactions:tuple_insert", {
-      id: "lock_init_01",
-      relation: "transactions",
-      tupleKey: "tx_latest_head",
-      lockMode: "ExclusiveLock (UPDATE/INSERT)",
-      holderPid: 4103,
-      holderXid: 728900,
-      granted: true,
-      waitQueue: [],
-      acquiredAt: now - 45,
-      durationMs: 45
-    });
-    this.addHistoryEntry({
-      pid: 4103,
-      xid: 728900,
-      relation: "transactions",
-      tupleKey: "tx_latest_head",
-      lockMode: "ExclusiveLock (UPDATE/INSERT)",
-      action: "LOCK_GRANTED",
-      durationMs: 45,
-      details: "Exclusive row lock acquired for atomic ledger insert."
-    });
-  }
-  startMetricsTicker() {
-    setInterval(() => {
-      const now = Date.now();
-      this.backends.forEach((backend) => {
-        if (backend.state === "active" || backend.state === "waiting_on_lock" || backend.state === "idle_in_transaction") {
-          backend.durationMs = now - backend.startedAt;
-        }
-      });
-      this.activeLocks.forEach((lock) => {
-        if (lock.granted) {
-          lock.durationMs = now - lock.acquiredAt;
-        }
-      });
-      this.emitChange();
-    }, 1e3);
-  }
-  addHistoryEntry(entry) {
-    const now = Date.now();
-    const newEntry = {
-      ...entry,
-      id: `lhist_${now}_${Math.random().toString(36).substring(2, 6)}`,
-      timestamp: now,
-      timeLabel: new Date(now).toLocaleTimeString([], {
-        hour: "2-digit",
-        minute: "2-digit",
-        second: "2-digit",
-        fractionalSecondDigits: 3
-      })
-    };
-    this.history.unshift(newEntry);
-    if (this.history.length > 250) {
-      this.history.pop();
-    }
-  }
-  getSnapshot() {
-    const backendsList = Array.from(this.backends.values());
-    const locksList = Array.from(this.activeLocks.values());
-    const metrics = this.computeMetrics();
-    return {
-      backends: backendsList,
-      locks: locksList,
-      history: [...this.history],
-      metrics
-    };
-  }
-  subscribe(callback) {
-    this.listeners.push(callback);
-    callback(this.getSnapshot());
-    return () => {
-      this.listeners = this.listeners.filter((cb) => cb !== callback);
-    };
-  }
-  emitChange() {
-    const snapshot = this.getSnapshot();
-    this.listeners.forEach((cb) => {
-      try {
-        cb(snapshot);
-      } catch (err) {
-        console.error("Error in ACID Lock Tracker listener:", err);
-      }
-    });
-  }
-  computeMetrics() {
-    const backends = Array.from(this.backends.values());
-    const activeBackends = backends.filter((b) => b.state !== "committed" && b.state !== "aborted");
-    const locks = Array.from(this.activeLocks.values());
-    const totalHeld = locks.filter((l) => l.granted).length;
-    const totalWaiting = locks.reduce((acc, l) => acc + l.waitQueue.length, 0);
-    let totalDuration = 0;
-    locks.forEach((l) => totalDuration += l.durationMs);
-    const avgDuration = locks.length > 0 ? totalDuration / locks.length : 0.42;
-    return {
-      activeBackendsCount: activeBackends.length,
-      activeTransactionsCount: backends.filter((b) => b.state === "active" || b.state === "waiting_on_lock" || b.state === "idle_in_transaction").length,
-      totalLocksHeld: totalHeld,
-      lockWaitQueueLength: totalWaiting,
-      deadlocksResolvedCount: this.deadlocksResolved,
-      totalTransactionsCommitted: this.txCommittedCount,
-      totalTransactionsRolledBack: this.txRolledBackCount,
-      averageLockDurationMs: Number(avgDuration.toFixed(2)),
-      mvccSnapshotIsolationOk: true
-    };
-  }
-  /**
-   * Registers a real-time row lock when an actual seamless engine operation executes.
-   */
-  registerLiveRowLock(relation, tupleKey, lockMode = "RowExclusiveLock (FOR UPDATE)", query3 = "SELECT * FROM wallets WHERE id = $1 FOR UPDATE;") {
-    const pid = this.nextPid++;
-    const xid = this.nextXid++;
-    const now = Date.now();
-    const lockKey = `${relation}:${tupleKey}`;
-    const session = {
-      pid,
-      xid,
-      virtualXid: `${Math.floor(pid / 1e3)}/${pid % 1e3}`,
-      clientAddr: "10.0.1.45:51200",
-      applicationName: `seamless_api_${relation}_handler`,
-      database: "playall_casino_db",
-      userName: "seamless_app_role",
-      state: "active",
-      isolationLevel: "REPEATABLE READ",
-      query: query3,
-      currentLockTarget: lockKey,
-      heldLocks: [lockKey],
-      waitingOnLock: null,
-      startedAt: now,
-      durationMs: 0,
-      xmin: xid - 2,
-      xmax: 0,
-      cmin: 0,
-      cmax: 0
-    };
-    this.backends.set(pid, session);
-    const existingLock = this.activeLocks.get(lockKey);
-    if (!existingLock || !existingLock.granted) {
-      this.activeLocks.set(lockKey, {
-        id: `lock_${now}_${pid}`,
-        relation,
-        tupleKey,
-        lockMode,
-        holderPid: pid,
-        holderXid: xid,
-        granted: true,
-        waitQueue: [],
-        acquiredAt: now,
-        durationMs: 0
-      });
-      this.addHistoryEntry({
-        pid,
-        xid,
-        relation,
-        tupleKey,
-        lockMode,
-        action: "LOCK_GRANTED",
-        durationMs: 0,
-        details: `Granted ${lockMode} on tuple [${tupleKey}]`
-      });
-    } else {
-      existingLock.waitQueue.push({
-        pid,
-        xid,
-        appName: session.applicationName,
-        requestedMode: lockMode,
-        waitingSince: now
-      });
-      session.state = "waiting_on_lock";
-      session.waitingOnLock = lockKey;
-      session.waitingSince = now;
-      this.addHistoryEntry({
-        pid,
-        xid,
-        relation,
-        tupleKey,
-        lockMode,
-        action: "WAIT_ENQUEUED",
-        durationMs: 0,
-        details: `Lock conflict: PID ${pid} enqueued in wait queue behind holder PID ${existingLock.holderPid}`
-      });
-    }
-    this.emitChange();
-    return () => {
-      const releaseNow = Date.now();
-      const holdDuration = releaseNow - now;
-      const currentLock = this.activeLocks.get(lockKey);
-      if (currentLock && currentLock.holderPid === pid) {
-        if (currentLock.waitQueue.length > 0) {
-          const nextWaiter = currentLock.waitQueue.shift();
-          currentLock.holderPid = nextWaiter.pid;
-          currentLock.holderXid = nextWaiter.xid;
-          currentLock.acquiredAt = releaseNow;
-          currentLock.durationMs = 0;
-          const nextBackend = this.backends.get(nextWaiter.pid);
-          if (nextBackend) {
-            nextBackend.state = "active";
-            nextBackend.waitingOnLock = null;
-            nextBackend.heldLocks.push(lockKey);
-          }
-          this.addHistoryEntry({
-            pid: nextWaiter.pid,
-            xid: nextWaiter.xid,
-            relation,
-            tupleKey,
-            lockMode: nextWaiter.requestedMode,
-            action: "LOCK_GRANTED",
-            durationMs: releaseNow - nextWaiter.waitingSince,
-            details: `Lock granted to queued waiter PID ${nextWaiter.pid} after ${releaseNow - nextWaiter.waitingSince}ms wait.`
-          });
-        } else {
-          this.activeLocks.delete(lockKey);
-        }
-      }
-      const closedSession = this.backends.get(pid);
-      if (closedSession) {
-        closedSession.state = "committed";
-        closedSession.durationMs = holdDuration;
-        this.txCommittedCount++;
-      }
-      this.addHistoryEntry({
-        pid,
-        xid,
-        relation,
-        tupleKey,
-        lockMode,
-        action: "LOCK_RELEASED",
-        durationMs: holdDuration,
-        details: `Transaction committed and released row lock on [${tupleKey}] in ${holdDuration}ms.`
-      });
-      setTimeout(() => {
-        this.backends.delete(pid);
-        this.emitChange();
-      }, 4e3);
-      this.emitChange();
-    };
-  }
-  // --------------------------------------------------------------------------
-  // INTERACTIVE SIMULATION DEMOS FOR IGAMING ARCHITECTS
-  // --------------------------------------------------------------------------
-  /**
-   * Scenario 1: High Concurrency Contention on Single Wallet Row
-   * Demonstrates 5 parallel transactions serializing cleanly via Two-Phase Locking without race conditions.
-   */
-  async simulateConcurrentContention(walletKey = "wallet:player_sakib:BDT", workersCount = 5) {
-    const promises = [];
-    for (let i = 0; i < workersCount; i++) {
-      const p = new Promise((resolve) => {
-        setTimeout(() => {
-          const release = this.registerLiveRowLock(
-            "wallets",
-            walletKey,
-            "RowExclusiveLock (FOR UPDATE)",
-            `-- Worker Thread #${i + 1} (Concurrent Bet)
-SELECT id, real_balance FROM wallets WHERE id = '${walletKey}' FOR UPDATE;`
-          );
-          const holdTime = 300 + Math.random() * 400;
-          setTimeout(() => {
-            release();
-            resolve();
-          }, holdTime);
-        }, i * 80);
-      });
-      promises.push(p);
-    }
-    await Promise.all(promises);
-  }
-  /**
-   * Scenario 2: Two-Phase Commit / 2PL Distributed Transfer
-   * Transaction acquires locks on Wallet A then Wallet B in deterministic sorted order.
-   */
-  async simulateTwoPhaseTransfer(walletA = "wallet:user_alpha:USD", walletB = "wallet:user_beta:USD", amount = 100) {
-    const sortedKeys = [walletA, walletB].sort();
-    const releaseA = this.registerLiveRowLock(
-      "wallets",
-      sortedKeys[0],
-      "RowExclusiveLock (FOR UPDATE)",
-      `BEGIN; -- 2PL Distributed Transfer
-SELECT * FROM wallets WHERE id = '${sortedKeys[0]}' FOR UPDATE;`
-    );
-    await new Promise((r) => setTimeout(r, 250));
-    const releaseB = this.registerLiveRowLock(
-      "wallets",
-      sortedKeys[1],
-      "RowExclusiveLock (FOR UPDATE)",
-      `SELECT * FROM wallets WHERE id = '${sortedKeys[1]}' FOR UPDATE;
-UPDATE wallets SET real_balance = real_balance + ${amount} WHERE id = '${sortedKeys[1]}';`
-    );
-    await new Promise((r) => setTimeout(r, 450));
-    releaseA();
-    releaseB();
-  }
-  /**
-   * Scenario 3: Deadlock Cycle Simulation & Automatic 40P01 Error Resolution
-   * Tx 1 locks A -> tries to lock B
-   * Tx 2 locks B -> tries to lock A
-   * PostgreSQL Deadlock Detector fires after timeout, aborts Tx 2 with 40P01, Tx 1 succeeds!
-   */
-  async simulateDeadlockDetection(walletA = "wallet:account_01:USD", walletB = "wallet:account_02:USD") {
-    const pid1 = this.nextPid++;
-    const xid1 = this.nextXid++;
-    const pid2 = this.nextPid++;
-    const xid2 = this.nextXid++;
-    const now = Date.now();
-    const session1 = {
-      pid: pid1,
-      xid: xid1,
-      virtualXid: `7/${pid1 % 100}`,
-      clientAddr: "10.0.1.50:48201",
-      applicationName: "tx1_worker_thread",
-      database: "playall_casino_db",
-      userName: "seamless_app_role",
-      state: "active",
-      isolationLevel: "REPEATABLE READ",
-      query: `BEGIN; SELECT * FROM wallets WHERE id = '${walletA}' FOR UPDATE;`,
-      currentLockTarget: `wallets:${walletA}`,
-      heldLocks: [`wallets:${walletA}`],
-      waitingOnLock: null,
-      startedAt: now,
-      durationMs: 0,
-      xmin: xid1 - 1,
-      xmax: 0,
-      cmin: 0,
-      cmax: 0
-    };
-    const session2 = {
-      pid: pid2,
-      xid: xid2,
-      virtualXid: `8/${pid2 % 100}`,
-      clientAddr: "10.0.1.51:48202",
-      applicationName: "tx2_worker_thread",
-      database: "playall_casino_db",
-      userName: "seamless_app_role",
-      state: "active",
-      isolationLevel: "REPEATABLE READ",
-      query: `BEGIN; SELECT * FROM wallets WHERE id = '${walletB}' FOR UPDATE;`,
-      currentLockTarget: `wallets:${walletB}`,
-      heldLocks: [`wallets:${walletB}`],
-      waitingOnLock: null,
-      startedAt: now,
-      durationMs: 0,
-      xmin: xid2 - 1,
-      xmax: 0,
-      cmin: 0,
-      cmax: 0
-    };
-    this.backends.set(pid1, session1);
-    this.backends.set(pid2, session2);
-    this.activeLocks.set(`wallets:${walletA}`, {
-      id: `lock_dl_${pid1}`,
-      relation: "wallets",
-      tupleKey: walletA,
-      lockMode: "RowExclusiveLock (FOR UPDATE)",
-      holderPid: pid1,
-      holderXid: xid1,
-      granted: true,
-      waitQueue: [],
-      acquiredAt: now,
-      durationMs: 0
-    });
-    this.activeLocks.set(`wallets:${walletB}`, {
-      id: `lock_dl_${pid2}`,
-      relation: "wallets",
-      tupleKey: walletB,
-      lockMode: "RowExclusiveLock (FOR UPDATE)",
-      holderPid: pid2,
-      holderXid: xid2,
-      granted: true,
-      waitQueue: [],
-      acquiredAt: now,
-      durationMs: 0
-    });
-    this.addHistoryEntry({
-      pid: pid1,
-      xid: xid1,
-      relation: "wallets",
-      tupleKey: walletA,
-      lockMode: "RowExclusiveLock (FOR UPDATE)",
-      action: "LOCK_GRANTED",
-      durationMs: 0,
-      details: `Tx1 (PID ${pid1}) acquired exclusive row lock on [${walletA}]`
-    });
-    this.addHistoryEntry({
-      pid: pid2,
-      xid: xid2,
-      relation: "wallets",
-      tupleKey: walletB,
-      lockMode: "RowExclusiveLock (FOR UPDATE)",
-      action: "LOCK_GRANTED",
-      durationMs: 0,
-      details: `Tx2 (PID ${pid2}) acquired exclusive row lock on [${walletB}]`
-    });
-    this.emitChange();
-    await new Promise((r) => setTimeout(r, 400));
-    session1.query = `SELECT * FROM wallets WHERE id = '${walletB}' FOR UPDATE; -- BLOCKED`;
-    session1.state = "waiting_on_lock";
-    session1.waitingOnLock = `wallets:${walletB}`;
-    session1.waitingSince = Date.now();
-    const lockB = this.activeLocks.get(`wallets:${walletB}`);
-    if (lockB) {
-      lockB.waitQueue.push({
-        pid: pid1,
-        xid: xid1,
-        appName: session1.applicationName,
-        requestedMode: "RowExclusiveLock (FOR UPDATE)",
-        waitingSince: Date.now()
-      });
-    }
-    this.addHistoryEntry({
-      pid: pid1,
-      xid: xid1,
-      relation: "wallets",
-      tupleKey: walletB,
-      lockMode: "RowExclusiveLock (FOR UPDATE)",
-      action: "WAIT_ENQUEUED",
-      durationMs: 0,
-      details: `Tx1 wants lock on [${walletB}] -> enqueued in wait queue (blocked by Tx2 PID ${pid2})`
-    });
-    this.emitChange();
-    await new Promise((r) => setTimeout(r, 400));
-    session2.query = `SELECT * FROM wallets WHERE id = '${walletA}' FOR UPDATE; -- DEADLOCK CYCLE`;
-    session2.state = "waiting_on_lock";
-    session2.waitingOnLock = `wallets:${walletA}`;
-    session2.waitingSince = Date.now();
-    const lockA = this.activeLocks.get(`wallets:${walletA}`);
-    if (lockA) {
-      lockA.waitQueue.push({
-        pid: pid2,
-        xid: xid2,
-        appName: session2.applicationName,
-        requestedMode: "RowExclusiveLock (FOR UPDATE)",
-        waitingSince: Date.now()
-      });
-    }
-    this.addHistoryEntry({
-      pid: pid2,
-      xid: xid2,
-      relation: "wallets",
-      tupleKey: walletA,
-      lockMode: "RowExclusiveLock (FOR UPDATE)",
-      action: "DEADLOCK_DETECTED",
-      durationMs: 0,
-      details: `DEADLOCK CYCLE DETECTED! Cycle: Tx1 (PID ${pid1}) waits on [${walletB}] held by Tx2; Tx2 (PID ${pid2}) waits on [${walletA}] held by Tx1.`
-    });
-    this.emitChange();
-    await new Promise((r) => setTimeout(r, 800));
-    this.deadlocksResolved++;
-    this.txRolledBackCount++;
-    session2.state = "deadlock_rolled_back";
-    session2.query = `ROLLBACK; -- ERROR: deadlock detected (SQLSTATE 40P01)`;
-    session2.waitingOnLock = null;
-    session2.heldLocks = [];
-    if (lockA) {
-      lockA.waitQueue = lockA.waitQueue.filter((w) => w.pid !== pid2);
-    }
-    this.activeLocks.delete(`wallets:${walletB}`);
-    this.addHistoryEntry({
-      pid: pid2,
-      xid: xid2,
-      relation: "wallets",
-      tupleKey: walletB,
-      lockMode: "RowExclusiveLock (FOR UPDATE)",
-      action: "ROLLED_BACK",
-      durationMs: Date.now() - session2.startedAt,
-      details: `PostgreSQL Deadlock Detector aborted victim Tx2 (PID ${pid2}) with error 40P01. Released [${walletB}].`
-    });
-    session1.state = "active";
-    session1.waitingOnLock = null;
-    session1.heldLocks.push(`wallets:${walletB}`);
-    this.activeLocks.set(`wallets:${walletB}`, {
-      id: `lock_dl_${pid1}_b`,
-      relation: "wallets",
-      tupleKey: walletB,
-      lockMode: "RowExclusiveLock (FOR UPDATE)",
-      holderPid: pid1,
-      holderXid: xid1,
-      granted: true,
-      waitQueue: [],
-      acquiredAt: Date.now(),
-      durationMs: 0
-    });
-    this.emitChange();
-    await new Promise((r) => setTimeout(r, 600));
-    session1.state = "committed";
-    session1.query = `COMMIT; -- SUCCESS`;
-    this.activeLocks.delete(`wallets:${walletA}`);
-    this.activeLocks.delete(`wallets:${walletB}`);
-    this.txCommittedCount++;
-    this.addHistoryEntry({
-      pid: pid1,
-      xid: xid1,
-      relation: "wallets",
-      tupleKey: walletA,
-      lockMode: "RowExclusiveLock (FOR UPDATE)",
-      action: "COMMITTED",
-      durationMs: Date.now() - session1.startedAt,
-      details: `Tx1 (PID ${pid1}) acquired all locks and committed successfully.`
-    });
-    this.emitChange();
-    setTimeout(() => {
-      this.backends.delete(pid1);
-      this.backends.delete(pid2);
-      this.emitChange();
-    }, 4e3);
-  }
-  /**
-   * Scenario 4: MVCC Non-blocking Snapshot Read
-   * Demonstrates PostgreSQL MVCC: long-running SELECT reporting query reads consistent snapshot tuple
-   * without blocking or being blocked by concurrent UPDATE / FOR UPDATE locks!
-   */
-  async simulateMvccSnapshotRead(walletKey = "wallet:player_maria:USD") {
-    const readerPid = this.nextPid++;
-    const readerXid = this.nextXid++;
-    const writerPid = this.nextPid++;
-    const writerXid = this.nextXid++;
-    const now = Date.now();
-    const readerSession = {
-      pid: readerPid,
-      xid: readerXid,
-      virtualXid: `9/${readerPid % 100}`,
-      clientAddr: "10.0.1.60:50100",
-      applicationName: "reporting_dashboard_stream",
-      database: "playall_casino_db",
-      userName: "readonly_analytics",
-      state: "active",
-      isolationLevel: "REPEATABLE READ",
-      query: `SELECT SUM(real_balance) FROM wallets; -- MVCC Snapshot (xmin: ${readerXid})`,
-      currentLockTarget: `wallets:${walletKey}`,
-      heldLocks: [`wallets:${walletKey}:access_share`],
-      waitingOnLock: null,
-      startedAt: now,
-      durationMs: 0,
-      xmin: readerXid,
-      xmax: 0,
-      cmin: 0,
-      cmax: 0
-    };
-    this.backends.set(readerPid, readerSession);
-    this.addHistoryEntry({
-      pid: readerPid,
-      xid: readerXid,
-      relation: "wallets",
-      tupleKey: walletKey,
-      lockMode: "AccessShareLock (SELECT)",
-      action: "LOCK_GRANTED",
-      durationMs: 0,
-      details: `MVCC Snapshot Created: Reader PID ${readerPid} reading snapshot with AccessShareLock (Non-blocking).`
-    });
-    this.emitChange();
-    await new Promise((r) => setTimeout(r, 200));
-    const writerSession = {
-      pid: writerPid,
-      xid: writerXid,
-      virtualXid: `10/${writerPid % 100}`,
-      clientAddr: "10.0.1.61:50101",
-      applicationName: "seamless_bet_processor",
-      database: "playall_casino_db",
-      userName: "seamless_app_role",
-      state: "active",
-      isolationLevel: "READ COMMITTED",
-      query: `UPDATE wallets SET real_balance = real_balance - 50 WHERE id = '${walletKey}';`,
-      currentLockTarget: `wallets:${walletKey}`,
-      heldLocks: [`wallets:${walletKey}`],
-      waitingOnLock: null,
-      startedAt: Date.now(),
-      durationMs: 0,
-      xmin: writerXid,
-      xmax: 0,
-      cmin: 1,
-      cmax: 1
-    };
-    this.backends.set(writerPid, writerSession);
-    this.activeLocks.set(`wallets:${walletKey}`, {
-      id: `lock_writer_${writerPid}`,
-      relation: "wallets",
-      tupleKey: walletKey,
-      lockMode: "RowExclusiveLock (FOR UPDATE)",
-      holderPid: writerPid,
-      holderXid: writerXid,
-      granted: true,
-      waitQueue: [],
-      acquiredAt: Date.now(),
-      durationMs: 0
-    });
-    this.addHistoryEntry({
-      pid: writerPid,
-      xid: writerXid,
-      relation: "wallets",
-      tupleKey: walletKey,
-      lockMode: "RowExclusiveLock (FOR UPDATE)",
-      action: "LOCK_GRANTED",
-      durationMs: 0,
-      details: `Writer PID ${writerPid} acquired RowExclusiveLock without waiting for Reader! MVCC allows simultaneous read & write.`
-    });
-    this.emitChange();
-    await new Promise((r) => setTimeout(r, 600));
-    this.activeLocks.delete(`wallets:${walletKey}`);
-    readerSession.state = "committed";
-    writerSession.state = "committed";
-    this.txCommittedCount += 2;
-    this.addHistoryEntry({
-      pid: readerPid,
-      xid: readerXid,
-      relation: "wallets",
-      tupleKey: walletKey,
-      lockMode: "AccessShareLock (SELECT)",
-      action: "COMMITTED",
-      durationMs: Date.now() - readerSession.startedAt,
-      details: `MVCC demonstration completed. Zero lock contention between SELECT reader and UPDATE writer.`
-    });
-    this.emitChange();
-    setTimeout(() => {
-      this.backends.delete(readerPid);
-      this.backends.delete(writerPid);
-      this.emitChange();
-    }, 4e3);
-  }
-  /**
-   * Resets all simulated state to baseline.
-   */
-  resetToDefault() {
-    this.backends.clear();
-    this.activeLocks.clear();
-    this.history = [];
-    this.seedInitialSessions();
-    this.emitChange();
-  }
-};
-var acidLockTrackerService = new AcidLockTrackerService();
-
-// src/services/simulatedWalletEngine.ts
-var PROVIDER_SECRETS2 = {
-  pragmatic_play: "sk_live_pragmatic_seamless_88492048102",
-  evolution: "sk_live_evolution_seamless_39104859103",
-  pgsoft: "sk_live_pgsoft_seamless_91823019482",
-  spribe: "sk_live_spribe_seamless_74910284910",
-  custom_provider: "sk_live_custom_seamless_secret_123456"
-};
-async function computeHmac(secretKey, message) {
-  const encoder = new TextEncoder();
-  const keyData = encoder.encode(secretKey);
-  const cryptoKey = await crypto.subtle.importKey(
-    "raw",
-    keyData,
-    { name: "HMAC", hash: "SHA-256" },
-    false,
-    ["sign"]
-  );
-  const signature = await crypto.subtle.sign("HMAC", cryptoKey, encoder.encode(message));
-  const hashArray = Array.from(new Uint8Array(signature));
-  return hashArray.map((b) => b.toString(16).padStart(2, "0")).join("");
-}
-var SimulatedSeamlessEngine = class {
-  constructor() {
-    this.users = /* @__PURE__ */ new Map();
-    this.wallets = /* @__PURE__ */ new Map();
-    // key: `${userId}:${currency}`
-    this.transactions = [];
-    this.gameRounds = /* @__PURE__ */ new Map();
-    // key: `${providerId}:${roundId}`
-    this.idempotencyStore = /* @__PURE__ */ new Map();
-    this.paymentRequests = [];
-    this.wageringRequirements = [];
-    this.latencyHistory = [];
-    this.latencyListeners = [];
-    // SQL Query Audit Logs and Real-time Emitter
-    this.sqlQueryLogs = [];
-    this.sqlListeners = [];
-    // Real-time Endpoint Payload Logs (/balance, /bet, /win, /refund)
-    this.endpointPayloadLogs = [];
-    this.endpointPayloadListeners = [];
-    // Real-time Transaction Commit Listeners for Live Audit Exporters
-    this.transactionListeners = [];
-    // Rate Limiting & Load Balancer Throttling (Redis Sliding Window)
-    this.rateLimitEnabled = false;
-    this.rateLimitMaxRps = 10;
-    this.rateLimitHistory = [];
-    // Simulated Row-Level Lock Mutex queues per wallet
-    this.walletLocks = /* @__PURE__ */ new Map();
-    // Simulated provider latency in ms
-    this.simulatedLatencyMin = 15;
-    this.simulatedLatencyMax = 45;
-    this.seedInitialData();
-  }
-  seedInitialData() {
-    this.users.clear();
-    this.wallets.clear();
-    this.transactions = [];
-    this.gameRounds.clear();
-    this.idempotencyStore.clear();
-    this.paymentRequests = [];
-    this.wageringRequirements = [];
-    this.walletLocks.clear();
-    const now = (/* @__PURE__ */ new Date()).toISOString();
-    const u1 = {
-      id: "a0000000-0000-0000-0000-000000000001",
-      username: "high_roller_alex",
-      operator_id: "GAMEPLAY365_GLOBAL",
-      currency: "USD",
-      status: "ACTIVE",
-      country_code: "US",
-      created_at: now,
-      updated_at: now
-    };
-    const u2 = {
-      id: "a0000000-0000-0000-0000-000000000002",
-      username: "slot_queen_maria",
-      operator_id: "GAMEPLAY365_GLOBAL",
-      currency: "USD",
-      status: "ACTIVE",
-      country_code: "DE",
-      created_at: now,
-      updated_at: now
-    };
-    const u3 = {
-      id: "a0000000-0000-0000-0000-000000000003",
-      username: "suspended_user_dave",
-      operator_id: "GAMEPLAY365_GLOBAL",
-      currency: "USD",
-      status: "SUSPENDED",
-      country_code: "UK",
-      created_at: now,
-      updated_at: now
-    };
-    const u4 = {
-      id: "a0000000-0000-0000-0000-000000000004",
-      username: "sakib_vip_dhaka",
-      operator_id: "GAMEPLAY365_BD",
-      currency: "BDT",
-      status: "ACTIVE",
-      country_code: "BD",
-      created_at: now,
-      updated_at: now
-    };
-    this.users.set(u1.id, u1);
-    this.users.set(u2.id, u2);
-    this.users.set(u3.id, u3);
-    this.users.set(u4.id, u4);
-    const w1 = {
-      id: "b0000000-0000-0000-0000-000000000001",
-      user_id: u1.id,
-      currency: "USD",
-      real_balance: 0,
-      bonus_balance: 0,
-      locked_balance: 0,
-      turnover_ratio: 10,
-      version: 1,
-      status: "ACTIVE",
-      created_at: now,
-      updated_at: now
-    };
-    const w2 = {
-      id: "b0000000-0000-0000-0000-000000000002",
-      user_id: u2.id,
-      currency: "USD",
-      real_balance: 0,
-      bonus_balance: 0,
-      locked_balance: 0,
-      turnover_ratio: 10,
-      version: 1,
-      status: "ACTIVE",
-      created_at: now,
-      updated_at: now
-    };
-    const w3 = {
-      id: "b0000000-0000-0000-0000-000000000003",
-      user_id: u3.id,
-      currency: "USD",
-      real_balance: 0,
-      bonus_balance: 0,
-      locked_balance: 0,
-      turnover_ratio: 10,
-      version: 1,
-      status: "FROZEN",
-      created_at: now,
-      updated_at: now
-    };
-    const w4 = {
-      id: "b0000000-0000-0000-0000-000000000004",
-      user_id: u4.id,
-      currency: "BDT",
-      real_balance: 0,
-      bonus_balance: 0,
-      locked_balance: 0,
-      turnover_ratio: 10,
-      version: 1,
-      status: "ACTIVE",
-      created_at: now,
-      updated_at: now
-    };
-    this.wallets.set(`${u1.id}:USD`, w1);
-    this.wallets.set(`${u2.id}:USD`, w2);
-    this.wallets.set(`${u3.id}:USD`, w3);
-    this.wallets.set(`${u4.id}:BDT`, w4);
-    this.paymentRequests = [];
-    this.wageringRequirements = [];
-    this.latencyHistory = [];
-    const endpoints = ["balance", "bet", "win", "balance", "bet", "win", "refund"];
-    const providers = ["pragmatic_play", "evolution", "pgsoft", "spribe"];
-    for (let i = 29; i >= 0; i--) {
-      const ep = endpoints[i % endpoints.length];
-      const prov = providers[i % providers.length];
-      const baseLatency = ep === "balance" ? 14 : ep === "bet" ? 28 : ep === "win" ? 24 : 18;
-      const jitter = Math.floor(Math.random() * 20) - 5;
-      const latencyMs = Math.max(8, baseLatency + jitter + (i === 12 ? 45 : 0));
-      const recordTime = new Date(Date.now() - i * 15e3);
-      this.latencyHistory.push({
-        id: `LAT_${Date.now() - i * 15e3}_${i}`,
-        endpoint: ep,
-        provider_id: prov,
-        latencyMs,
-        statusCode: 200,
-        isSuccess: true,
-        slaLimitMs: 4e3,
-        slaCompliant: latencyMs <= 4e3,
-        timestamp: recordTime.getTime(),
-        timeLabel: recordTime.toLocaleTimeString([], { hour: "2-digit", minute: "2-digit", second: "2-digit" })
-      });
-    }
-    this.seedSqlAuditLogs();
-  }
-  seedSqlAuditLogs() {
-    this.sqlQueryLogs = [];
-    const sampleQueries = [
-      {
-        commandType: "SELECT",
-        table: "wallets",
-        lockLevel: "ROW EXCLUSIVE (FOR UPDATE)",
-        statement: `SELECT id, user_id, currency, real_balance, bonus_balance, version FROM wallets WHERE user_id = 'a0000000-0000-0000-0000-000000000001' AND currency = 'USD' FOR UPDATE;`,
-        bindParams: { user_id: "a0000000-0000-0000-0000-000000000001", currency: "USD" },
-        durationMs: 0.142,
-        source: "POST /api/seamless/bet",
-        txId: "tx_seed_101",
-        roundId: "round_pragmatic_8819",
-        userId: "a0000000-0000-0000-0000-000000000001",
-        status: "SUCCESS",
-        affectedRows: 1
-      },
-      {
-        commandType: "UPDATE",
-        table: "wallets",
-        lockLevel: "EXCLUSIVE",
-        statement: `UPDATE wallets SET real_balance = real_balance - 10.0000, version = version + 1, updated_at = NOW() WHERE id = 'b0000000-0000-0000-0000-000000000001';`,
-        bindParams: { amount: 10, wallet_id: "b0000000-0000-0000-0000-000000000001" },
-        durationMs: 0.188,
-        source: "POST /api/seamless/bet",
-        txId: "tx_seed_101",
-        roundId: "round_pragmatic_8819",
-        userId: "a0000000-0000-0000-0000-000000000001",
-        status: "SUCCESS",
-        affectedRows: 1
-      },
-      {
-        commandType: "INSERT",
-        table: "transactions",
-        lockLevel: "NONE",
-        statement: `INSERT INTO transactions (id, provider_id, transaction_id, user_id, wallet_id, type, amount, currency, before_balance, after_balance, status, created_at) VALUES ('tx_seed_101', 'pragmatic_play', 'prag_bet_88190', 'a0000000-0000-0000-0000-000000000001', 'b0000000-0000-0000-0000-000000000001', 'BET', 10.00, 'USD', 2500.00, 2490.00, 'COMPLETED', NOW());`,
-        bindParams: { id: "tx_seed_101", provider_id: "pragmatic_play", amount: 10 },
-        durationMs: 0.215,
-        source: "POST /api/seamless/bet",
-        txId: "tx_seed_101",
-        roundId: "round_pragmatic_8819",
-        userId: "a0000000-0000-0000-0000-000000000001",
-        status: "SUCCESS",
-        affectedRows: 1
-      },
-      {
-        commandType: "SELECT",
-        table: "idempotency_keys",
-        lockLevel: "ACCESS SHARE",
-        statement: `SELECT * FROM idempotency_keys WHERE key = 'idempotency:pragmatic_play:bet:prag_bet_88190';`,
-        bindParams: { key: "idempotency:pragmatic_play:bet:prag_bet_88190" },
-        durationMs: 0.068,
-        source: "POST /api/seamless/bet",
-        txId: "tx_seed_101",
-        status: "SUCCESS",
-        affectedRows: 0
-      },
-      {
-        commandType: "INSERT",
-        table: "game_rounds",
-        lockLevel: "NONE",
-        statement: `INSERT INTO game_rounds (id, provider_id, provider_round_id, user_id, game_id, currency, status, total_bet, total_win, net_payout, created_at) VALUES ('rnd_seed_501', 'pragmatic_play', 'round_pragmatic_8819', 'a0000000-0000-0000-0000-000000000001', 'vs20olympgate', 'USD', 'OPEN', 10.00, 0.00, -10.00, NOW()) ON CONFLICT (provider_id, provider_round_id) DO UPDATE SET total_bet = game_rounds.total_bet + 10.00;`,
-        bindParams: { provider_round_id: "round_pragmatic_8819", bet: 10 },
-        durationMs: 0.195,
-        source: "POST /api/seamless/bet",
-        roundId: "round_pragmatic_8819",
-        status: "SUCCESS",
-        affectedRows: 1
-      },
-      {
-        commandType: "SELECT",
-        table: "wallets",
-        lockLevel: "ROW EXCLUSIVE (FOR UPDATE)",
-        statement: `SELECT id, user_id, currency, real_balance, bonus_balance, version FROM wallets WHERE user_id = 'a0000000-0000-0000-0000-000000000001' AND currency = 'USD' FOR UPDATE;`,
-        bindParams: { user_id: "a0000000-0000-0000-0000-000000000001", currency: "USD" },
-        durationMs: 0.134,
-        source: "POST /api/seamless/win",
-        txId: "tx_seed_102",
-        roundId: "round_pragmatic_8819",
-        userId: "a0000000-0000-0000-0000-000000000001",
-        status: "SUCCESS",
-        affectedRows: 1
-      },
-      {
-        commandType: "UPDATE",
-        table: "wallets",
-        lockLevel: "EXCLUSIVE",
-        statement: `UPDATE wallets SET real_balance = real_balance + 45.0000, version = version + 1, updated_at = NOW() WHERE id = 'b0000000-0000-0000-0000-000000000001';`,
-        bindParams: { amount: 45, wallet_id: "b0000000-0000-0000-0000-000000000001" },
-        durationMs: 0.176,
-        source: "POST /api/seamless/win",
-        txId: "tx_seed_102",
-        roundId: "round_pragmatic_8819",
-        userId: "a0000000-0000-0000-0000-000000000001",
-        status: "SUCCESS",
-        affectedRows: 1
-      },
-      {
-        commandType: "INSERT",
-        table: "transactions",
-        lockLevel: "NONE",
-        statement: `INSERT INTO transactions (id, provider_id, transaction_id, user_id, wallet_id, type, amount, currency, before_balance, after_balance, status, created_at) VALUES ('tx_seed_102', 'pragmatic_play', 'prag_win_88191', 'a0000000-0000-0000-0000-000000000001', 'b0000000-0000-0000-0000-000000000001', 'WIN', 45.00, 'USD', 2490.00, 2535.00, 'COMPLETED', NOW());`,
-        bindParams: { id: "tx_seed_102", provider_id: "pragmatic_play", amount: 45 },
-        durationMs: 0.208,
-        source: "POST /api/seamless/win",
-        txId: "tx_seed_102",
-        roundId: "round_pragmatic_8819",
-        userId: "a0000000-0000-0000-0000-000000000001",
-        status: "SUCCESS",
-        affectedRows: 1
-      },
-      {
-        commandType: "SELECT",
-        table: "users",
-        lockLevel: "ACCESS SHARE",
-        statement: `SELECT id, username, status, currency, operator_id FROM users WHERE id = 'a0000000-0000-0000-0000-000000000004' AND status = 'ACTIVE';`,
-        bindParams: { user_id: "a0000000-0000-0000-0000-000000000004" },
-        durationMs: 0.082,
-        source: "POST /api/seamless/balance",
-        userId: "a0000000-0000-0000-0000-000000000004",
-        status: "SUCCESS",
-        affectedRows: 1
-      },
-      {
-        commandType: "SELECT",
-        table: "transactions",
-        lockLevel: "ACCESS SHARE",
-        statement: `SELECT * FROM transactions WHERE user_id = 'a0000000-0000-0000-0000-000000000004' AND created_at >= NOW() - INTERVAL '30 days' ORDER BY created_at DESC LIMIT 25;`,
-        bindParams: { user_id: "a0000000-0000-0000-0000-000000000004", limit: 25 },
-        durationMs: 0.165,
-        source: "GET /api/ledger/history",
-        userId: "a0000000-0000-0000-0000-000000000004",
-        status: "SUCCESS",
-        affectedRows: 18
-      }
-    ];
-    sampleQueries.forEach((q, idx) => {
-      const offsetMs = (sampleQueries.length - idx) * 2e4;
-      const ts = Date.now() - offsetMs;
-      this.sqlQueryLogs.push({
-        ...q,
-        id: `sql_seed_${ts}_${idx}`,
-        timestamp: ts,
-        timeLabel: new Date(ts).toLocaleTimeString([], {
-          hour: "2-digit",
-          minute: "2-digit",
-          second: "2-digit",
-          fractionalSecondDigits: 3
-        }),
-        isoTimestamp: new Date(ts).toISOString()
-      });
-    });
-    const nowTime = Date.now();
-    this.endpointPayloadLogs = [
-      {
-        id: `EP_LOG_${nowTime - 35e3}`,
-        timestamp: nowTime - 35e3,
-        timeLabel: new Date(nowTime - 35e3).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit", second: "2-digit", fractionalSecondDigits: 3 }),
-        isoTimestamp: new Date(nowTime - 35e3).toISOString(),
-        endpoint: "balance",
-        method: "POST /api/seamless/balance",
-        providerId: "pragmatic_play",
-        userId: "a0000000-0000-0000-0000-000000000001",
-        gameId: "vs20olympgate",
-        statusCode: 200,
-        isSuccess: true,
-        statusText: "SUCCESS",
-        latencyMs: 14,
-        isIdempotent: false,
-        requestPayload: {
-          provider_id: "pragmatic_play",
-          user_id: "a0000000-0000-0000-0000-000000000001",
-          currency: "USD",
-          game_id: "vs20olympgate",
-          session_id: "sess_pragmatic_991823"
-        },
-        responsePayload: {
-          code: "SUCCESS",
-          message: "Balance retrieved successfully",
-          balance: 2500,
-          bonus_balance: 150,
-          locked_balance: 0,
-          currency: "USD",
-          timestamp: nowTime - 35e3
-        },
-        requestHeaders: {
-          "content-type": "application/json",
-          "x-signature": "8fa82b9a10ef49bc872910d9e847c210ab7819ef01a89c849102834719283471",
-          "x-timestamp": String(nowTime - 35e3)
-        },
-        responseHeaders: {
-          "x-response-time-ms": "14",
-          "x-signature": "8fa82b9a10ef49bc872910d9e847c210ab7819ef01a89c849102834719283471",
-          "content-type": "application/json"
-        },
-        signatureValid: true,
-        balanceBefore: 2500,
-        balanceAfter: 2500,
-        currency: "USD",
-        acidLockAcquired: true,
-        rowLockDurationMs: 0.8
-      },
-      {
-        id: `EP_LOG_${nowTime - 28e3}`,
-        timestamp: nowTime - 28e3,
-        timeLabel: new Date(nowTime - 28e3).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit", second: "2-digit", fractionalSecondDigits: 3 }),
-        isoTimestamp: new Date(nowTime - 28e3).toISOString(),
-        endpoint: "bet",
-        method: "POST /api/seamless/bet",
-        providerId: "pragmatic_play",
-        userId: "a0000000-0000-0000-0000-000000000001",
-        txId: "TX_BET_991823",
-        roundId: "RND_881923",
-        gameId: "vs20sweetbonanza",
-        amount: 20,
-        statusCode: 200,
-        isSuccess: true,
-        statusText: "SUCCESS",
-        latencyMs: 28,
-        isIdempotent: false,
-        requestPayload: {
-          provider_id: "pragmatic_play",
-          user_id: "a0000000-0000-0000-0000-000000000001",
-          currency: "USD",
-          transaction_id: "TX_BET_991823",
-          round_id: "RND_881923",
-          game_id: "vs20sweetbonanza",
-          amount: 20,
-          is_round_end: false,
-          metadata: { lines: 20, bet_level: 1 }
-        },
-        responsePayload: {
-          code: "SUCCESS",
-          message: "Bet accepted and ledger row locked",
-          operator_transaction_id: "OP_TX_991823_LOCKED",
-          balance: 2480,
-          currency: "USD",
-          timestamp: nowTime - 28e3
-        },
-        requestHeaders: {
-          "content-type": "application/json",
-          "x-signature": "9cb8192837482910fedcba9876543210123456789abcdef0123456789abcdef0",
-          "x-timestamp": String(nowTime - 28e3)
-        },
-        responseHeaders: {
-          "x-response-time-ms": "28",
-          "x-ratelimit-remaining": "9",
-          "content-type": "application/json"
-        },
-        signatureValid: true,
-        balanceBefore: 2500,
-        balanceAfter: 2480,
-        currency: "USD",
-        acidLockAcquired: true,
-        rowLockDurationMs: 1.45
-      },
-      {
-        id: `EP_LOG_${nowTime - 2e4}`,
-        timestamp: nowTime - 2e4,
-        timeLabel: new Date(nowTime - 2e4).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit", second: "2-digit", fractionalSecondDigits: 3 }),
-        isoTimestamp: new Date(nowTime - 2e4).toISOString(),
-        endpoint: "win",
-        method: "POST /api/seamless/win",
-        providerId: "pragmatic_play",
-        userId: "a0000000-0000-0000-0000-000000000001",
-        txId: "TX_WIN_991824",
-        roundId: "RND_881923",
-        gameId: "vs20sweetbonanza",
-        amount: 65,
-        statusCode: 200,
-        isSuccess: true,
-        statusText: "SUCCESS",
-        latencyMs: 22,
-        isIdempotent: false,
-        requestPayload: {
-          provider_id: "pragmatic_play",
-          user_id: "a0000000-0000-0000-0000-000000000001",
-          currency: "USD",
-          transaction_id: "TX_WIN_991824",
-          reference_transaction_id: "TX_BET_991823",
-          round_id: "RND_881923",
-          game_id: "vs20sweetbonanza",
-          amount: 65,
-          is_round_end: true,
-          metadata: { multiplier: "3.25x" }
-        },
-        responsePayload: {
-          code: "SUCCESS",
-          message: "Win payout credited and round closed",
-          operator_transaction_id: "OP_TX_991824_PAID",
-          balance: 2545,
-          currency: "USD",
-          timestamp: nowTime - 2e4
-        },
-        requestHeaders: {
-          "content-type": "application/json",
-          "x-signature": "1234567890abcdef1234567890abcdef1234567890abcdef1234567890abcdef",
-          "x-timestamp": String(nowTime - 2e4)
-        },
-        responseHeaders: {
-          "x-response-time-ms": "22",
-          "content-type": "application/json"
-        },
-        signatureValid: true,
-        balanceBefore: 2480,
-        balanceAfter: 2545,
-        currency: "USD",
-        acidLockAcquired: true,
-        rowLockDurationMs: 1.12
-      },
-      {
-        id: `EP_LOG_${nowTime - 14e3}`,
-        timestamp: nowTime - 14e3,
-        timeLabel: new Date(nowTime - 14e3).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit", second: "2-digit", fractionalSecondDigits: 3 }),
-        isoTimestamp: new Date(nowTime - 14e3).toISOString(),
-        endpoint: "bet",
-        method: "POST /api/seamless/bet",
-        providerId: "evolution",
-        userId: "a0000000-0000-0000-0000-000000000003",
-        txId: "TX_BET_FAIL_001",
-        roundId: "RND_EVO_5510",
-        gameId: "lightning_roulette_01",
-        amount: 5e3,
-        statusCode: 422,
-        isSuccess: false,
-        statusText: "INSUFFICIENT_FUNDS",
-        latencyMs: 8,
-        isIdempotent: false,
-        requestPayload: {
-          provider_id: "evolution",
-          user_id: "a0000000-0000-0000-0000-000000000003",
-          currency: "USD",
-          transaction_id: "TX_BET_FAIL_001",
-          round_id: "RND_EVO_5510",
-          game_id: "lightning_roulette_01",
-          amount: 5e3,
-          is_round_end: false
-        },
-        responsePayload: {
-          code: "INSUFFICIENT_FUNDS",
-          message: "Insufficient balance for requested bet (Available: 0.00 USD, Required: 5000.00 USD)",
-          balance: 0,
-          currency: "USD",
-          timestamp: nowTime - 14e3
-        },
-        requestHeaders: {
-          "content-type": "application/json",
-          "x-signature": "evo_sig_valid_881923",
-          "x-timestamp": String(nowTime - 14e3)
-        },
-        responseHeaders: {
-          "x-response-time-ms": "8",
-          "content-type": "application/json"
-        },
-        signatureValid: true,
-        balanceBefore: 0,
-        balanceAfter: 0,
-        currency: "USD",
-        errorMessage: "Insufficient funds in player wallet",
-        errorCode: "INSUFFICIENT_FUNDS"
-      },
-      {
-        id: `EP_LOG_${nowTime - 8e3}`,
-        timestamp: nowTime - 8e3,
-        timeLabel: new Date(nowTime - 8e3).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit", second: "2-digit", fractionalSecondDigits: 3 }),
-        isoTimestamp: new Date(nowTime - 8e3).toISOString(),
-        endpoint: "bet",
-        method: "POST /api/seamless/bet",
-        providerId: "pragmatic_play",
-        userId: "a0000000-0000-0000-0000-000000000001",
-        txId: "TX_SIG_ERR_992",
-        roundId: "RND_TAMPER_01",
-        gameId: "vs20olympgate",
-        amount: 50,
-        statusCode: 401,
-        isSuccess: false,
-        statusText: "INVALID_SIGNATURE",
-        latencyMs: 4,
-        isIdempotent: false,
-        requestPayload: {
-          provider_id: "pragmatic_play",
-          user_id: "a0000000-0000-0000-0000-000000000001",
-          currency: "USD",
-          transaction_id: "TX_SIG_ERR_992",
-          round_id: "RND_TAMPER_01",
-          game_id: "vs20olympgate",
-          amount: 50
-        },
-        responsePayload: {
-          code: "INVALID_SIGNATURE",
-          message: "Cryptographic HMAC-SHA256 signature verification failed (Tampered or expired token)",
-          timestamp: nowTime - 8e3
-        },
-        requestHeaders: {
-          "content-type": "application/json",
-          "x-signature": "tampered_signature_payload_bad_key",
-          "x-timestamp": String(nowTime - 8e3)
-        },
-        responseHeaders: {
-          "x-response-time-ms": "4",
-          "content-type": "application/json"
-        },
-        signatureValid: false,
-        errorMessage: "HMAC signature verification failed",
-        errorCode: "INVALID_SIGNATURE"
-      },
-      {
-        id: `EP_LOG_${nowTime - 3e3}`,
-        timestamp: nowTime - 3e3,
-        timeLabel: new Date(nowTime - 3e3).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit", second: "2-digit", fractionalSecondDigits: 3 }),
-        isoTimestamp: new Date(nowTime - 3e3).toISOString(),
-        endpoint: "bet",
-        method: "POST /api/seamless/bet",
-        providerId: "pragmatic_play",
-        userId: "a0000000-0000-0000-0000-000000000001",
-        txId: "TX_THROTTLE_993",
-        statusCode: 429,
-        isSuccess: false,
-        statusText: "RATE_LIMIT_EXCEEDED",
-        latencyMs: 3,
-        isIdempotent: false,
-        requestPayload: {
-          provider_id: "pragmatic_play",
-          user_id: "a0000000-0000-0000-0000-000000000001",
-          amount: 25
-        },
-        responsePayload: {
-          code: "RATE_LIMIT_EXCEEDED",
-          message: "Too Many Requests: Rate limit threshold of 10 req/s exceeded by provider 'pragmatic_play'. Load balancer throttling active.",
-          retry_after_seconds: 1,
-          limit_rps: 10,
-          timestamp: nowTime - 3e3
-        },
-        requestHeaders: {
-          "content-type": "application/json"
-        },
-        responseHeaders: {
-          "x-ratelimit-limit": "10",
-          "x-ratelimit-remaining": "0",
-          "retry-after": "1",
-          "x-response-time-ms": "3"
-        },
-        signatureValid: true,
-        errorMessage: "Redis token bucket exhausted for this second",
-        errorCode: "RATE_LIMIT_EXCEEDED"
-      }
-    ];
-  }
-  getSqlQueryLogs() {
-    return [...this.sqlQueryLogs];
-  }
-  logSql(entry) {
-    const timestamp2 = Date.now();
-    const timeLabel = new Date(timestamp2).toLocaleTimeString([], {
-      hour: "2-digit",
-      minute: "2-digit",
-      second: "2-digit",
-      fractionalSecondDigits: 3
-    });
-    const newLog = {
-      ...entry,
-      id: `sql_${timestamp2}_${Math.random().toString(36).substring(2, 7)}`,
-      timestamp: timestamp2,
-      timeLabel,
-      isoTimestamp: new Date(timestamp2).toISOString()
-    };
-    this.sqlQueryLogs.unshift(newLog);
-    if (this.sqlQueryLogs.length > 300) {
-      this.sqlQueryLogs.pop();
-    }
-    this.notifySqlListeners();
-    return newLog;
-  }
-  clearSqlQueryLogs() {
-    this.sqlQueryLogs = [];
-    this.notifySqlListeners();
-  }
-  onSqlQueryRecorded(callback) {
-    this.sqlListeners.push(callback);
-    callback(this.getSqlQueryLogs());
-    return () => {
-      this.sqlListeners = this.sqlListeners.filter((cb) => cb !== callback);
-    };
-  }
-  notifySqlListeners() {
-    const logs = this.getSqlQueryLogs();
-    this.sqlListeners.forEach((cb) => cb(logs));
-  }
-  /**
-   * Real-time Endpoint Payload Subscriptions (/balance, /bet, /win, /refund)
-   */
-  getEndpointPayloadLogs() {
-    return [...this.endpointPayloadLogs];
-  }
-  logEndpointPayload(entry) {
-    const timestamp2 = Date.now();
-    const timeLabel = new Date(timestamp2).toLocaleTimeString([], {
-      hour: "2-digit",
-      minute: "2-digit",
-      second: "2-digit",
-      fractionalSecondDigits: 3
-    });
-    const newLog = {
-      ...entry,
-      id: `EP_LOG_${timestamp2}_${Math.random().toString(36).substring(2, 6)}`,
-      timestamp: timestamp2,
-      timeLabel,
-      isoTimestamp: new Date(timestamp2).toISOString()
-    };
-    this.endpointPayloadLogs.unshift(newLog);
-    if (this.endpointPayloadLogs.length > 300) {
-      this.endpointPayloadLogs.pop();
-    }
-    this.notifyEndpointPayloadListeners();
-    return newLog;
-  }
-  clearEndpointPayloadLogs() {
-    this.endpointPayloadLogs = [];
-    this.notifyEndpointPayloadListeners();
-  }
-  onEndpointPayloadRecorded(callback) {
-    this.endpointPayloadListeners.push(callback);
-    callback(this.getEndpointPayloadLogs());
-    return () => {
-      this.endpointPayloadListeners = this.endpointPayloadListeners.filter((cb) => cb !== callback);
-    };
-  }
-  notifyEndpointPayloadListeners() {
-    const list = this.getEndpointPayloadLogs();
-    this.endpointPayloadListeners.forEach((cb) => {
-      try {
-        cb(list);
-      } catch (err) {
-        console.error("Error in endpoint payload listener:", err);
-      }
-    });
-  }
-  /**
-   * Real-time Transaction Commit Subscriptions
-   * Fired each time a BET, WIN, REFUND, or Ledger operation is committed
-   */
-  onTransactionCommitted(callback) {
-    this.transactionListeners.push(callback);
-    return () => {
-      this.transactionListeners = this.transactionListeners.filter((cb) => cb !== callback);
-    };
-  }
-  recordCommittedTransaction(tx) {
-    this.transactions.unshift(tx);
-    const all = this.getTransactions();
-    this.transactionListeners.forEach((cb) => {
-      try {
-        cb(tx, all);
-      } catch (err) {
-        console.error("Error in transaction commit listener:", err);
-      }
-    });
-  }
-  executeExplainAnalyze(query3, options) {
-    return generateExplainAnalyze(query3, options);
-  }
-  /**
-   * Latency Subscriptions and Real-Time SLA Management
-   */
-  getLatencyHistory() {
-    return [...this.latencyHistory];
-  }
-  recordLatency(record) {
-    const slaLimit = record.slaLimitMs || 4e3;
-    const newRecord = {
-      ...record,
-      id: `LAT_${Date.now()}_${Math.random().toString(36).substring(2, 6)}`,
-      slaLimitMs: slaLimit,
-      slaCompliant: record.latencyMs <= slaLimit,
-      timeLabel: new Date(record.timestamp).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit", second: "2-digit" })
-    };
-    this.latencyHistory.push(newRecord);
-    if (this.latencyHistory.length > 100) {
-      this.latencyHistory.shift();
-    }
-    this.notifyLatencyListeners();
-    return newRecord;
-  }
-  onLatencyRecorded(callback) {
-    this.latencyListeners.push(callback);
-    callback(this.getLatencyHistory());
-    return () => {
-      this.latencyListeners = this.latencyListeners.filter((cb) => cb !== callback);
-    };
-  }
-  notifyLatencyListeners() {
-    const list = this.getLatencyHistory();
-    this.latencyListeners.forEach((cb) => cb(list));
-  }
-  clearLatencyHistory() {
-    this.latencyHistory = [];
-    this.notifyLatencyListeners();
-  }
-  /**
-   * Rate Limiter & Throttler Configuration (Redis Sliding Window)
-   */
-  setRateLimitConfig(config) {
-    this.rateLimitEnabled = config.enabled;
-    this.rateLimitMaxRps = config.maxRps;
-  }
-  getRateLimitConfig() {
-    const now = Date.now();
-    this.rateLimitHistory = this.rateLimitHistory.filter((t) => now - t < 1e3);
-    return {
-      enabled: this.rateLimitEnabled,
-      maxRps: this.rateLimitMaxRps,
-      currentUsage: this.rateLimitHistory.length
-    };
-  }
-  checkRateLimit() {
-    if (!this.rateLimitEnabled) {
-      return { allowed: true, remaining: 999, resetMs: 0 };
-    }
-    const now = Date.now();
-    this.rateLimitHistory = this.rateLimitHistory.filter((t) => now - t < 1e3);
-    if (this.rateLimitHistory.length >= this.rateLimitMaxRps) {
-      const oldestInWindow = this.rateLimitHistory[0];
-      const resetMs = Math.max(0, 1e3 - (now - oldestInWindow));
-      return {
-        allowed: false,
-        remaining: 0,
-        resetMs
-      };
-    }
-    this.rateLimitHistory.push(now);
-    return {
-      allowed: true,
-      remaining: Math.max(0, this.rateLimitMaxRps - this.rateLimitHistory.length),
-      resetMs: 1e3
-    };
-  }
-  simulateTrafficBurst(endpointCount = 8) {
-    const endpoints = ["balance", "bet", "win", "balance", "bet", "win"];
-    const providers = ["pragmatic_play", "evolution", "pgsoft", "spribe"];
-    for (let i = 0; i < endpointCount; i++) {
-      const ep = endpoints[Math.floor(Math.random() * endpoints.length)];
-      const prov = providers[Math.floor(Math.random() * providers.length)];
-      const baseLat = ep === "balance" ? 15 : ep === "bet" ? 32 : ep === "win" ? 26 : 20;
-      const jitter = Math.floor(Math.random() * 25);
-      const latencyMs = baseLat + jitter;
-      this.recordLatency({
-        endpoint: ep,
-        provider_id: prov,
-        latencyMs,
-        statusCode: 200,
-        isSuccess: true,
-        timestamp: Date.now() + i * 200
-      });
-    }
-  }
-  /**
-   * Increments the user's active wagering requirement turnover progress.
-   * Called by /api/seamless/win and /api/seamless/bet to track valid turnover.
-   */
-  incrementWageringProgress(userId, turnoverAmount) {
-    if (turnoverAmount <= 0) return { totalTurnoverAdded: 0, activeRequirementsUpdated: 0, newlyCompletedCount: 0 };
-    const activeList = this.wageringRequirements.filter(
-      (w) => w.user_id === userId && w.status === "ACTIVE"
-    );
-    let newlyCompletedCount = 0;
-    for (const req of activeList) {
-      req.completed_turnover_amount = Number((req.completed_turnover_amount + turnoverAmount).toFixed(4));
-      if (req.completed_turnover_amount >= req.target_turnover_amount) {
-        req.status = "COMPLETED";
-        req.completed_at = (/* @__PURE__ */ new Date()).toISOString();
-        newlyCompletedCount += 1;
-      }
-    }
-    return {
-      totalTurnoverAdded: turnoverAmount,
-      activeRequirementsUpdated: activeList.length,
-      newlyCompletedCount
-    };
-  }
-  /**
-   * Service function that checks if a bonus balance is eligible for conversion to real cash
-   * based on a configurable turnover ratio (multiplier).
-   */
-  checkBonusConversionEligibility(userId, turnoverRatio = 10) {
-    const userReqs = this.wageringRequirements.filter((w) => w.user_id === userId);
-    const activeReqs = userReqs.filter((w) => w.status === "ACTIVE");
-    let totalBonusGranted = 0;
-    let targetTurnover = 0;
-    let completedTurnover = 0;
-    for (const r of userReqs) {
-      totalBonusGranted += r.bonus_amount_granted;
-      completedTurnover += r.completed_turnover_amount;
-      targetTurnover += r.target_turnover_amount;
-    }
-    let totalBonusBalance = 0;
-    for (const w of this.wallets.values()) {
-      if (w.user_id === userId) {
-        totalBonusBalance += w.bonus_balance;
-      }
-    }
-    const progressPercent = targetTurnover > 0 ? Math.min(100, Math.round(completedTurnover / targetTurnover * 100)) : totalBonusBalance > 0 ? 100 : 0;
-    const remainingTurnover = Math.max(0, Number((targetTurnover - completedTurnover).toFixed(2)));
-    const isEligible = totalBonusBalance > 0 && (activeReqs.length === 0 || completedTurnover >= targetTurnover);
-    return {
-      is_eligible: isEligible,
-      total_bonus_balance: totalBonusBalance,
-      active_target_turnover: targetTurnover,
-      completed_turnover: completedTurnover,
-      progress_percent: progressPercent,
-      remaining_turnover: remainingTurnover,
-      convertible_amount: totalBonusBalance,
-      requirements: userReqs
-    };
-  }
-  /**
-   * Converts eligible bonus balance into real cash ledger balance atomically with Row-Level Locking.
-   */
-  async convertBonusToRealCash(userId, currency = "BDT", turnoverRatio = 10) {
-    const walletKey = `${userId}:${currency}`;
-    const releaseLock = await this.acquireRowLock(walletKey);
-    try {
-      const wallet = this.wallets.get(walletKey);
-      if (!wallet) {
-        throw new Error(`Wallet not found for user ${userId} and currency ${currency}`);
-      }
-      const eligibility = this.checkBonusConversionEligibility(userId, turnoverRatio);
-      if (!eligibility.is_eligible && wallet.bonus_balance <= 0) {
-        throw new Error(
-          `Bonus is not eligible for cash conversion yet. Remaining Turnover: ${eligibility.remaining_turnover} ${currency} (${eligibility.progress_percent}% completed)`
-        );
-      }
-      const amountToConvert = wallet.bonus_balance;
-      if (amountToConvert <= 0) {
-        throw new Error("No bonus balance available to convert.");
-      }
-      const beforeReal = wallet.real_balance;
-      const afterReal = Number((beforeReal + amountToConvert).toFixed(4));
-      wallet.real_balance = afterReal;
-      wallet.bonus_balance = 0;
-      wallet.version += 1;
-      wallet.updated_at = (/* @__PURE__ */ new Date()).toISOString();
-      for (const r of this.wageringRequirements) {
-        if (r.user_id === userId && r.status === "ACTIVE") {
-          r.status = "COMPLETED";
-          r.completed_at = (/* @__PURE__ */ new Date()).toISOString();
-        }
-      }
-      const convertTxId = `TX_BONUS_CONVERT_${Date.now()}`;
-      const tx = {
-        id: convertTxId,
-        provider_id: "GAMEPLAY365_BONUS_ENGINE",
-        transaction_id: `CONVERT_${Date.now()}_${userId.slice(-4)}`,
-        reference_transaction_id: `WAGER_REQ_${userId}`,
-        user_id: userId,
-        wallet_id: wallet.id,
-        game_id: "SYSTEM_WAGERING_CONVERSION",
-        type: "PROMO",
-        amount: amountToConvert,
-        currency,
-        before_balance: beforeReal,
-        after_balance: afterReal,
-        status: "COMPLETED",
-        metadata: {
-          action: "BONUS_CONVERT_TO_REAL_CASH",
-          turnoverRatio,
-          completedTurnover: eligibility.completed_turnover,
-          targetTurnover: eligibility.active_target_turnover
-        },
-        created_at: (/* @__PURE__ */ new Date()).toISOString()
-      };
-      this.transactions.unshift(tx);
-      return {
-        success: true,
-        converted_amount: amountToConvert,
-        new_real_balance: afterReal,
-        new_bonus_balance: 0,
-        message: `Successfully converted ${currency} ${amountToConvert.toLocaleString()} bonus into real withdrawable cash!`
-      };
-    } finally {
-      releaseLock();
-    }
-  }
-  // --- Lock acquisition simulating PostgreSQL `SELECT ... FOR UPDATE` ---
-  async acquireRowLock(walletKey) {
-    const unregisterTracker = acidLockTrackerService.registerLiveRowLock(
-      "wallets",
-      walletKey,
-      "RowExclusiveLock (FOR UPDATE)",
-      `SELECT id, user_id, currency, real_balance, bonus_balance, version FROM wallets WHERE id = '${walletKey}' FOR UPDATE;`
-    );
-    while (this.walletLocks.has(walletKey)) {
-      await this.walletLocks.get(walletKey);
-    }
-    let releaseLock = () => {
-    };
-    const lockPromise = new Promise((resolve) => {
-      releaseLock = () => {
-        this.walletLocks.delete(walletKey);
-        try {
-          unregisterTracker();
-        } catch {
-        }
-        resolve();
-      };
-    });
-    this.walletLocks.set(walletKey, lockPromise);
-    return releaseLock;
-  }
-  async simulateNetworkDelay(jitterMs = 0) {
-    const baseDelay = Math.floor(
-      Math.random() * (this.simulatedLatencyMax - this.simulatedLatencyMin + 1)
-    ) + this.simulatedLatencyMin;
-    const jitter = jitterMs > 0 ? Math.floor(Math.random() * (jitterMs + 1)) : 0;
-    const totalDelay = baseDelay + jitter;
-    await new Promise((resolve) => setTimeout(resolve, totalDelay));
-  }
-  findUser(identifier) {
-    for (const u of this.users.values()) {
-      if (u.id === identifier || u.username === identifier) return u;
-    }
-    return void 0;
-  }
-  findWallet(userId, currency) {
-    const directKey = `${userId}:${currency}`;
-    if (this.wallets.has(directKey)) return this.wallets.get(directKey);
-    for (const w of this.wallets.values()) {
-      if (w.user_id === userId && (w.currency === currency || !currency)) {
-        return w;
-      }
-    }
-    return void 0;
-  }
-  // --------------------------------------------------------------------------
-  // Core Dispatcher with HMAC Signature verification
-  // --------------------------------------------------------------------------
-  async executeRequest(endpoint, payload, options = {}) {
-    const start = Date.now();
-    const timestamp2 = options.customTimestamp || Date.now();
-    const payloadStr = JSON.stringify(payload);
-    const providerId = payload.provider_id || "pragmatic_play";
-    const secretKey = options.customSecretKey || PROVIDER_SECRETS2[providerId] || "sk_default_secret";
-    const messageToSign = `${timestamp2}.${payloadStr}`;
-    const expectedSignature = await computeHmac(secretKey, messageToSign);
-    const requestSignature = options.customSignature !== void 0 ? options.customSignature : expectedSignature;
-    const signatureValid = options.bypassHmac || requestSignature.toLowerCase() === expectedSignature.toLowerCase();
-    const rateLimitCheck = this.checkRateLimit();
-    if (!rateLimitCheck.allowed) {
-      const latency = Math.max(2, Date.now() - start);
-      const errorData = {
-        code: "RATE_LIMIT_EXCEEDED" /* RATE_LIMIT_EXCEEDED */,
-        message: `Too Many Requests: Rate limit threshold of ${this.rateLimitMaxRps} req/s exceeded by provider '${providerId}'. Load balancer throttling active.`,
-        retry_after_seconds: 1,
-        limit_rps: this.rateLimitMaxRps,
-        timestamp: Date.now()
-      };
-      this.recordLatency({
-        endpoint,
-        provider_id: providerId,
-        latencyMs: latency,
-        statusCode: 429,
-        isSuccess: false,
-        timestamp: Date.now()
-      });
-      const responseHeaders429 = {
-        "x-ratelimit-limit": String(this.rateLimitMaxRps),
-        "x-ratelimit-remaining": "0",
-        "x-ratelimit-reset": String(rateLimitCheck.resetMs),
-        "retry-after": "1",
-        "x-response-time-ms": String(latency),
-        "x-signature": requestSignature,
-        "x-timestamp": String(timestamp2)
-      };
-      this.logEndpointPayload({
-        endpoint,
-        method: `POST /api/seamless/${endpoint}`,
-        providerId,
-        userId: payload.user_id,
-        txId: payload.transaction_id,
-        roundId: payload.round_id,
-        gameId: payload.game_id,
-        amount: payload.amount,
-        statusCode: 429,
-        isSuccess: false,
-        statusText: "RATE_LIMIT_EXCEEDED",
-        latencyMs: latency,
-        isIdempotent: false,
-        requestPayload: payload,
-        responsePayload: errorData,
-        requestHeaders: {
-          "x-signature": requestSignature,
-          "x-timestamp": String(timestamp2)
-        },
-        responseHeaders: responseHeaders429,
-        requestSignature,
-        expectedSignature,
-        signatureValid: true,
-        errorMessage: errorData.message,
-        errorCode: errorData.code
-      });
-      return {
-        status: 429,
-        data: errorData,
-        headers: responseHeaders429,
-        latencyMs: latency,
-        requestSignature,
-        expectedSignature,
-        signatureValid: true,
-        timestamp: Date.now()
-      };
-    }
-    if (options.simulateTimeout) {
-      await new Promise((r) => setTimeout(r, 4100));
-      const timeoutData = {
-        code: "TIMEOUT_EXCEEDED" /* TIMEOUT_EXCEEDED */,
-        message: "Wallet transaction SLA exceeded (4000ms timeout threshold)",
-        timestamp: Date.now()
-      };
-      const timeoutHeaders = {
-        "x-signature": requestSignature,
-        "x-timestamp": String(timestamp2),
-        "x-response-time-ms": "4100"
-      };
-      this.logEndpointPayload({
-        endpoint,
-        method: `POST /api/seamless/${endpoint}`,
-        providerId,
-        userId: payload.user_id,
-        txId: payload.transaction_id,
-        roundId: payload.round_id,
-        gameId: payload.game_id,
-        amount: payload.amount,
-        statusCode: 504,
-        isSuccess: false,
-        statusText: "TIMEOUT_EXCEEDED",
-        latencyMs: 4100,
-        isIdempotent: false,
-        requestPayload: payload,
-        responsePayload: timeoutData,
-        requestHeaders: {
-          "x-signature": requestSignature,
-          "x-timestamp": String(timestamp2)
-        },
-        responseHeaders: timeoutHeaders,
-        requestSignature,
-        expectedSignature,
-        signatureValid,
-        errorMessage: timeoutData.message,
-        errorCode: timeoutData.code
-      });
-      return {
-        status: 504,
-        data: timeoutData,
-        headers: timeoutHeaders,
-        latencyMs: 4100,
-        requestSignature,
-        expectedSignature,
-        signatureValid,
-        timestamp: Date.now()
-      };
-    }
-    await this.simulateNetworkDelay(options.latencyJitterMs);
-    if (!options.bypassHmac && !signatureValid) {
-      const latency = Date.now() - start;
-      const sigErrorData = {
-        code: "INVALID_SIGNATURE" /* INVALID_SIGNATURE */,
-        message: "Cryptographic HMAC-SHA256 signature verification failed",
-        timestamp: Date.now()
-      };
-      const sigHeaders = {
-        "x-signature": requestSignature,
-        "x-timestamp": String(timestamp2),
-        "x-response-time-ms": String(latency)
-      };
-      this.logEndpointPayload({
-        endpoint,
-        method: `POST /api/seamless/${endpoint}`,
-        providerId,
-        userId: payload.user_id,
-        txId: payload.transaction_id,
-        roundId: payload.round_id,
-        gameId: payload.game_id,
-        amount: payload.amount,
-        statusCode: 401,
-        isSuccess: false,
-        statusText: "INVALID_SIGNATURE",
-        latencyMs: latency,
-        isIdempotent: false,
-        requestPayload: payload,
-        responsePayload: sigErrorData,
-        requestHeaders: {
-          "x-signature": requestSignature,
-          "x-timestamp": String(timestamp2)
-        },
-        responseHeaders: sigHeaders,
-        requestSignature,
-        expectedSignature,
-        signatureValid: false,
-        errorMessage: sigErrorData.message,
-        errorCode: sigErrorData.code
-      });
-      return {
-        status: 401,
-        data: sigErrorData,
-        headers: sigHeaders,
-        latencyMs: latency,
-        requestSignature,
-        expectedSignature,
-        signatureValid: false,
-        timestamp: Date.now()
-      };
-    }
-    try {
-      let result;
-      let status = 200;
-      switch (endpoint) {
-        case "balance":
-          result = await this.handleBalance(payload);
-          break;
-        case "bet":
-          result = await this.handleBet(payload);
-          break;
-        case "win":
-          result = await this.handleWin(payload);
-          break;
-        case "refund":
-          result = await this.handleRefund(payload);
-          break;
-      }
-      const latency = Date.now() - start;
-      this.recordLatency({
-        endpoint,
-        provider_id: providerId,
-        latencyMs: latency,
-        statusCode: status,
-        isSuccess: true,
-        timestamp: Date.now()
-      });
-      const responseHeaders = {
-        "x-signature": requestSignature,
-        "x-timestamp": String(timestamp2),
-        "x-response-time-ms": String(latency)
-      };
-      this.logEndpointPayload({
-        endpoint,
-        method: `POST /api/seamless/${endpoint}`,
-        providerId,
-        userId: payload.user_id,
-        txId: payload.transaction_id,
-        roundId: payload.round_id,
-        gameId: payload.game_id,
-        amount: payload.amount,
-        statusCode: status,
-        isSuccess: true,
-        statusText: result.code || "SUCCESS",
-        latencyMs: latency,
-        isIdempotent: Boolean(result.is_idempotent),
-        requestPayload: payload,
-        responsePayload: result,
-        requestHeaders: {
-          "content-type": "application/json",
-          "x-signature": requestSignature,
-          "x-timestamp": String(timestamp2)
-        },
-        responseHeaders,
-        requestSignature,
-        expectedSignature,
-        signatureValid: true,
-        balanceAfter: result.balance,
-        currency: result.currency || payload.currency,
-        acidLockAcquired: true,
-        rowLockDurationMs: Number((Math.random() * 1.5 + 0.5).toFixed(2))
-      });
-      return {
-        status,
-        data: result,
-        headers: responseHeaders,
-        latencyMs: latency,
-        requestSignature,
-        expectedSignature,
-        signatureValid: true,
-        timestamp: Date.now()
-      };
-    } catch (err) {
-      const latency = Date.now() - start;
-      const statusCode = err.status || 500;
-      this.recordLatency({
-        endpoint,
-        provider_id: providerId,
-        latencyMs: latency,
-        statusCode,
-        isSuccess: false,
-        timestamp: Date.now()
-      });
-      const errorPayload = {
-        code: err.code || "INTERNAL_ERROR" /* INTERNAL_ERROR */,
-        message: err.message || "Internal wallet transaction error",
-        balance: err.balance,
-        currency: err.currency,
-        timestamp: Date.now()
-      };
-      const errorHeaders = {
-        "x-signature": requestSignature,
-        "x-timestamp": String(timestamp2),
-        "x-response-time-ms": String(latency)
-      };
-      this.logEndpointPayload({
-        endpoint,
-        method: `POST /api/seamless/${endpoint}`,
-        providerId,
-        userId: payload.user_id,
-        txId: payload.transaction_id,
-        roundId: payload.round_id,
-        gameId: payload.game_id,
-        amount: payload.amount,
-        statusCode,
-        isSuccess: false,
-        statusText: String(err.code || "ERROR"),
-        latencyMs: latency,
-        isIdempotent: false,
-        requestPayload: payload,
-        responsePayload: errorPayload,
-        requestHeaders: {
-          "content-type": "application/json",
-          "x-signature": requestSignature,
-          "x-timestamp": String(timestamp2)
-        },
-        responseHeaders: errorHeaders,
-        requestSignature,
-        expectedSignature,
-        signatureValid: true,
-        balanceAfter: err.balance,
-        currency: err.currency,
-        errorMessage: err.message,
-        errorCode: err.code
-      });
-      return {
-        status: statusCode,
-        data: errorPayload,
-        headers: errorHeaders,
-        latencyMs: latency,
-        requestSignature,
-        expectedSignature,
-        signatureValid: true,
-        timestamp: Date.now()
-      };
-    }
-  }
-  // --- Handlers replicating Postgres Row-Level Lock & ACID properties ---
-  async handleBalance(req) {
-    const user = this.findUser(req.user_id);
-    if (!user) {
-      this.logSql({
-        commandType: "SELECT",
-        table: "users",
-        lockLevel: "ACCESS SHARE",
-        statement: `SELECT * FROM users WHERE id = '${req.user_id}';`,
-        bindParams: { user_id: req.user_id },
-        durationMs: 0.054,
-        source: "POST /api/seamless/balance",
-        userId: req.user_id,
-        status: "SUCCESS",
-        affectedRows: 0
-      });
-      throw {
-        status: 404,
-        code: "USER_NOT_FOUND" /* USER_NOT_FOUND */,
-        message: `Player '${req.user_id}' not found`
-      };
-    }
-    if (user.status !== "ACTIVE") {
-      throw {
-        status: 403,
-        code: "USER_FROZEN" /* USER_FROZEN */,
-        message: `Player account is ${user.status}`
-      };
-    }
-    const walletKey = `${user.id}:${req.currency}`;
-    const wallet = this.wallets.get(walletKey);
-    if (!wallet) {
-      throw {
-        status: 404,
-        code: "USER_NOT_FOUND" /* USER_NOT_FOUND */,
-        message: `No ${req.currency} wallet found for user`
-      };
-    }
-    this.logSql({
-      commandType: "SELECT",
-      table: "wallets",
-      lockLevel: "ACCESS SHARE",
-      statement: `SELECT id, user_id, currency, real_balance, bonus_balance, status FROM wallets WHERE user_id = '${user.id}' AND currency = '${req.currency}';`,
-      bindParams: { user_id: user.id, currency: req.currency },
-      durationMs: 0.076,
-      source: "POST /api/seamless/balance",
-      userId: user.id,
-      status: "SUCCESS",
-      affectedRows: 1
-    });
-    return {
-      code: "SUCCESS" /* SUCCESS */,
-      message: "Success",
-      user_id: user.id,
-      balance: wallet.real_balance,
-      bonus_balance: wallet.bonus_balance,
-      currency: req.currency,
-      timestamp: Date.now()
-    };
-  }
-  async handleBet(req) {
-    const idempotencyKey = `idempotency:${req.provider_id}:bet:${req.transaction_id}`;
-    const cached = this.idempotencyStore.get(idempotencyKey);
-    if (cached) {
-      this.logSql({
-        commandType: "SELECT",
-        table: "idempotency_keys",
-        lockLevel: "ACCESS SHARE",
-        statement: `SELECT * FROM idempotency_keys WHERE key = '${idempotencyKey}';`,
-        bindParams: { key: idempotencyKey },
-        durationMs: 0.042,
-        source: "POST /api/seamless/bet (Idempotent Cache Hit)",
-        txId: req.transaction_id,
-        status: "SUCCESS",
-        affectedRows: 1
-      });
-      return { ...cached.response, is_idempotent: true };
-    }
-    const user = this.findUser(req.user_id);
-    if (!user) {
-      throw {
-        status: 404,
-        code: "USER_NOT_FOUND" /* USER_NOT_FOUND */,
-        message: `Player '${req.user_id}' not found`
-      };
-    }
-    if (user.status !== "ACTIVE") {
-      throw {
-        status: 403,
-        code: "USER_FROZEN" /* USER_FROZEN */,
-        message: `Player account is ${user.status}`
-      };
-    }
-    const walletKey = `${user.id}:${req.currency}`;
-    const releaseLock = await this.acquireRowLock(walletKey);
-    try {
-      const doubleCheck = this.idempotencyStore.get(idempotencyKey);
-      if (doubleCheck) {
-        return { ...doubleCheck.response, is_idempotent: true };
-      }
-      const wallet = this.wallets.get(walletKey);
-      if (!wallet) {
-        throw {
-          status: 404,
-          code: "USER_NOT_FOUND" /* USER_NOT_FOUND */,
-          message: `Wallet for currency '${req.currency}' not found`
-        };
-      }
-      if (wallet.status !== "ACTIVE") {
-        throw {
-          status: 403,
-          code: "USER_FROZEN" /* USER_FROZEN */,
-          message: "Wallet is frozen"
-        };
-      }
-      const betAmount = Number(req.amount);
-      if (betAmount <= 0) {
-        throw {
-          status: 400,
-          code: "INVALID_REQUEST" /* INVALID_REQUEST */,
-          message: "Bet amount must be > 0"
-        };
-      }
-      if (wallet.real_balance < betAmount) {
-        throw {
-          status: 400,
-          code: "INSUFFICIENT_FUNDS" /* INSUFFICIENT_FUNDS */,
-          message: `Insufficient funds. Required: ${betAmount.toFixed(2)}, Available: ${wallet.real_balance.toFixed(2)}`,
-          balance: wallet.real_balance,
-          currency: req.currency
-        };
-      }
-      const beforeBalance = wallet.real_balance;
-      const afterBalance = Number((beforeBalance - betAmount).toFixed(4));
-      this.logSql({
-        commandType: "SELECT",
-        table: "wallets",
-        lockLevel: "ROW EXCLUSIVE (FOR UPDATE)",
-        statement: `SELECT id, user_id, currency, real_balance, bonus_balance, version FROM wallets WHERE user_id = '${user.id}' AND currency = '${req.currency}' FOR UPDATE;`,
-        bindParams: { user_id: user.id, currency: req.currency },
-        durationMs: 0.125,
-        source: "POST /api/seamless/bet",
-        txId: req.transaction_id,
-        roundId: req.round_id,
-        userId: user.id,
-        status: "SUCCESS",
-        affectedRows: 1
-      });
-      wallet.real_balance = afterBalance;
-      wallet.version += 1;
-      wallet.updated_at = (/* @__PURE__ */ new Date()).toISOString();
-      this.logSql({
-        commandType: "UPDATE",
-        table: "wallets",
-        lockLevel: "EXCLUSIVE",
-        statement: `UPDATE wallets SET real_balance = ${afterBalance.toFixed(4)}, version = ${wallet.version}, updated_at = NOW() WHERE id = '${wallet.id}';`,
-        bindParams: { real_balance: afterBalance, version: wallet.version, id: wallet.id },
-        durationMs: 0.168,
-        source: "POST /api/seamless/bet",
-        txId: req.transaction_id,
-        roundId: req.round_id,
-        userId: user.id,
-        status: "SUCCESS",
-        affectedRows: 1
-      });
-      const roundKey = `${req.provider_id}:${req.round_id}`;
-      let round = this.gameRounds.get(roundKey);
-      if (!round) {
-        round = {
-          id: `rnd_${Date.now()}_${Math.floor(Math.random() * 1e3)}`,
-          provider_id: req.provider_id,
-          provider_round_id: req.round_id,
-          user_id: user.id,
-          game_id: req.game_id,
-          currency: req.currency,
-          status: "OPEN",
-          total_bet: betAmount,
-          total_win: 0,
-          net_payout: -betAmount,
-          created_at: (/* @__PURE__ */ new Date()).toISOString()
-        };
-        this.gameRounds.set(roundKey, round);
-      } else {
-        round.total_bet = Number((round.total_bet + betAmount).toFixed(4));
-        round.net_payout = Number((round.total_win - round.total_bet).toFixed(4));
-      }
-      const wageringUpdate = this.incrementWageringProgress(user.id, betAmount);
-      const wageringProgress = this.checkBonusConversionEligibility(user.id);
-      const operatorTxId = `tx_${Date.now()}_${Math.floor(Math.random() * 1e4)}`;
-      const txEntity = {
-        id: operatorTxId,
-        provider_id: req.provider_id,
-        transaction_id: req.transaction_id,
-        user_id: user.id,
-        wallet_id: wallet.id,
-        round_id: round.id,
-        provider_round_id: req.round_id,
-        game_id: req.game_id,
-        type: "BET",
-        amount: betAmount,
-        currency: req.currency,
-        before_balance: beforeBalance,
-        after_balance: afterBalance,
-        status: "COMPLETED",
-        metadata: {
-          ...req.metadata || {},
-          wagering_progress_turnover: betAmount,
-          is_bonus_conversion_eligible: wageringProgress.is_eligible,
-          wagering_completed_percent: wageringProgress.progress_percent
-        },
-        created_at: (/* @__PURE__ */ new Date()).toISOString()
-      };
-      this.recordCommittedTransaction(txEntity);
-      this.logSql({
-        commandType: "INSERT",
-        table: "transactions",
-        lockLevel: "NONE",
-        statement: `INSERT INTO transactions (id, provider_id, transaction_id, user_id, wallet_id, type, amount, currency, before_balance, after_balance, status, created_at) VALUES ('${operatorTxId}', '${req.provider_id}', '${req.transaction_id}', '${user.id}', '${wallet.id}', 'BET', ${betAmount.toFixed(2)}, '${req.currency}', ${beforeBalance.toFixed(2)}, ${afterBalance.toFixed(2)}, 'COMPLETED', NOW());`,
-        bindParams: { id: operatorTxId, amount: betAmount, currency: req.currency },
-        durationMs: 0.198,
-        source: "POST /api/seamless/bet",
-        txId: req.transaction_id,
-        roundId: req.round_id,
-        userId: user.id,
-        status: "SUCCESS",
-        affectedRows: 1
-      });
-      const resp = {
-        code: "SUCCESS" /* SUCCESS */,
-        message: "Bet placed successfully",
-        transaction_id: req.transaction_id,
-        operator_transaction_id: operatorTxId,
-        round_id: req.round_id,
-        balance: afterBalance,
-        bonus_balance: wallet.bonus_balance,
-        currency: req.currency,
-        timestamp: Date.now(),
-        is_idempotent: false
-      };
-      this.idempotencyStore.set(idempotencyKey, {
-        key: idempotencyKey,
-        provider_id: req.provider_id,
-        endpoint: "bet",
-        response: resp,
-        status_code: 200,
-        created_at: (/* @__PURE__ */ new Date()).toISOString()
-      });
-      return resp;
-    } finally {
-      releaseLock();
-    }
-  }
-  async handleWin(req) {
-    const idempotencyKey = `idempotency:${req.provider_id}:win:${req.transaction_id}`;
-    const cached = this.idempotencyStore.get(idempotencyKey);
-    if (cached) {
-      return { ...cached.response, is_idempotent: true };
-    }
-    const user = this.findUser(req.user_id);
-    if (!user) {
-      throw {
-        status: 404,
-        code: "USER_NOT_FOUND" /* USER_NOT_FOUND */,
-        message: `Player '${req.user_id}' not found`
-      };
-    }
-    const walletKey = `${user.id}:${req.currency}`;
-    const releaseLock = await this.acquireRowLock(walletKey);
-    try {
-      const doubleCheck = this.idempotencyStore.get(idempotencyKey);
-      if (doubleCheck) {
-        return { ...doubleCheck.response, is_idempotent: true };
-      }
-      const wallet = this.wallets.get(walletKey);
-      if (!wallet) {
-        throw {
-          status: 404,
-          code: "USER_NOT_FOUND" /* USER_NOT_FOUND */,
-          message: `Wallet for currency '${req.currency}' not found`
-        };
-      }
-      const winAmount = Number(req.amount || 0);
-      if (winAmount < 0) {
-        throw {
-          status: 400,
-          code: "INVALID_REQUEST" /* INVALID_REQUEST */,
-          message: "Win amount cannot be negative"
-        };
-      }
-      const beforeBalance = wallet.real_balance;
-      const afterBalance = Number((beforeBalance + winAmount).toFixed(4));
-      this.logSql({
-        commandType: "SELECT",
-        table: "wallets",
-        lockLevel: "ROW EXCLUSIVE (FOR UPDATE)",
-        statement: `SELECT id, user_id, currency, real_balance, bonus_balance, version FROM wallets WHERE user_id = '${user.id}' AND currency = '${req.currency}' FOR UPDATE;`,
-        bindParams: { user_id: user.id, currency: req.currency },
-        durationMs: 0.119,
-        source: "POST /api/seamless/win",
-        txId: req.transaction_id,
-        roundId: req.round_id,
-        userId: user.id,
-        status: "SUCCESS",
-        affectedRows: 1
-      });
-      wallet.real_balance = afterBalance;
-      wallet.version += 1;
-      wallet.updated_at = (/* @__PURE__ */ new Date()).toISOString();
-      this.logSql({
-        commandType: "UPDATE",
-        table: "wallets",
-        lockLevel: "EXCLUSIVE",
-        statement: `UPDATE wallets SET real_balance = ${afterBalance.toFixed(4)}, version = ${wallet.version}, updated_at = NOW() WHERE id = '${wallet.id}';`,
-        bindParams: { real_balance: afterBalance, version: wallet.version, id: wallet.id },
-        durationMs: 0.155,
-        source: "POST /api/seamless/win",
-        txId: req.transaction_id,
-        roundId: req.round_id,
-        userId: user.id,
-        status: "SUCCESS",
-        affectedRows: 1
-      });
-      const roundKey = `${req.provider_id}:${req.round_id}`;
-      let round = this.gameRounds.get(roundKey);
-      if (!round) {
-        round = {
-          id: `rnd_${Date.now()}_${Math.floor(Math.random() * 1e3)}`,
-          provider_id: req.provider_id,
-          provider_round_id: req.round_id,
-          user_id: user.id,
-          game_id: req.game_id,
-          currency: req.currency,
-          status: req.is_round_end !== false ? "SETTLED" : "OPEN",
-          total_bet: 0,
-          total_win: winAmount,
-          net_payout: winAmount,
-          created_at: (/* @__PURE__ */ new Date()).toISOString(),
-          closed_at: req.is_round_end !== false ? (/* @__PURE__ */ new Date()).toISOString() : null
-        };
-        this.gameRounds.set(roundKey, round);
-      } else {
-        round.total_win = Number((round.total_win + winAmount).toFixed(4));
-        round.net_payout = Number((round.total_win - round.total_bet).toFixed(4));
-        if (req.is_round_end !== false) {
-          round.status = "SETTLED";
-          round.closed_at = (/* @__PURE__ */ new Date()).toISOString();
-        }
-      }
-      const turnoverToCredit = winAmount > 0 ? winAmount : round.total_bet > 0 ? round.total_bet : 0;
-      const wageringUpdate = this.incrementWageringProgress(user.id, turnoverToCredit);
-      const wageringProgress = this.checkBonusConversionEligibility(user.id);
-      const operatorTxId = `tx_${Date.now()}_${Math.floor(Math.random() * 1e4)}`;
-      const txEntity = {
-        id: operatorTxId,
-        provider_id: req.provider_id,
-        transaction_id: req.transaction_id,
-        reference_transaction_id: req.reference_transaction_id || null,
-        user_id: user.id,
-        wallet_id: wallet.id,
-        round_id: round.id,
-        provider_round_id: req.round_id,
-        game_id: req.game_id,
-        type: "WIN",
-        amount: winAmount,
-        currency: req.currency,
-        before_balance: beforeBalance,
-        after_balance: afterBalance,
-        status: "COMPLETED",
-        metadata: {
-          ...req.metadata || {},
-          wagering_turnover_credited: turnoverToCredit,
-          is_bonus_conversion_eligible: wageringProgress.is_eligible,
-          wagering_completed_percent: wageringProgress.progress_percent,
-          remaining_turnover_needed: wageringProgress.remaining_turnover
-        },
-        created_at: (/* @__PURE__ */ new Date()).toISOString()
-      };
-      this.recordCommittedTransaction(txEntity);
-      this.logSql({
-        commandType: "INSERT",
-        table: "transactions",
-        lockLevel: "NONE",
-        statement: `INSERT INTO transactions (id, provider_id, transaction_id, user_id, wallet_id, type, amount, currency, before_balance, after_balance, status, created_at) VALUES ('${operatorTxId}', '${req.provider_id}', '${req.transaction_id}', '${user.id}', '${wallet.id}', 'WIN', ${winAmount.toFixed(2)}, '${req.currency}', ${beforeBalance.toFixed(2)}, ${afterBalance.toFixed(2)}, 'COMPLETED', NOW());`,
-        bindParams: { id: operatorTxId, amount: winAmount, currency: req.currency },
-        durationMs: 0.185,
-        source: "POST /api/seamless/win",
-        txId: req.transaction_id,
-        roundId: req.round_id,
-        userId: user.id,
-        status: "SUCCESS",
-        affectedRows: 1
-      });
-      const resp = {
-        code: "SUCCESS" /* SUCCESS */,
-        message: "Win payout processed",
-        transaction_id: req.transaction_id,
-        operator_transaction_id: operatorTxId,
-        round_id: req.round_id,
-        balance: afterBalance,
-        bonus_balance: wallet.bonus_balance,
-        currency: req.currency,
-        timestamp: Date.now(),
-        is_idempotent: false
-      };
-      this.idempotencyStore.set(idempotencyKey, {
-        key: idempotencyKey,
-        provider_id: req.provider_id,
-        endpoint: "win",
-        response: resp,
-        status_code: 200,
-        created_at: (/* @__PURE__ */ new Date()).toISOString()
-      });
-      return resp;
-    } finally {
-      releaseLock();
-    }
-  }
-  async handleRefund(req) {
-    const idempotencyKey = `idempotency:${req.provider_id}:refund:${req.transaction_id}`;
-    const cached = this.idempotencyStore.get(idempotencyKey);
-    if (cached) {
-      return { ...cached.response, is_idempotent: true };
-    }
-    const user = this.findUser(req.user_id);
-    if (!user) {
-      throw {
-        status: 404,
-        code: "USER_NOT_FOUND" /* USER_NOT_FOUND */,
-        message: `Player '${req.user_id}' not found`
-      };
-    }
-    const walletKey = `${user.id}:${req.currency}`;
-    const releaseLock = await this.acquireRowLock(walletKey);
-    try {
-      const doubleCheck = this.idempotencyStore.get(idempotencyKey);
-      if (doubleCheck) {
-        return { ...doubleCheck.response, is_idempotent: true };
-      }
-      const origTx = this.transactions.find(
-        (t) => t.provider_id === req.provider_id && t.transaction_id === req.reference_transaction_id && t.type === "BET"
-      );
-      if (!origTx) {
-        throw {
-          status: 404,
-          code: "TRANSACTION_NOT_FOUND" /* TRANSACTION_NOT_FOUND */,
-          message: `Original BET transaction '${req.reference_transaction_id}' not found to refund`
-        };
-      }
-      const alreadyRefunded = this.transactions.some(
-        (t) => t.provider_id === req.provider_id && t.reference_transaction_id === req.reference_transaction_id && t.type === "REFUND"
-      );
-      if (alreadyRefunded) {
-        throw {
-          status: 409,
-          code: "TRANSACTION_ALREADY_SETTLED" /* TRANSACTION_ALREADY_SETTLED */,
-          message: `Transaction '${req.reference_transaction_id}' has already been refunded`
-        };
-      }
-      const wallet = this.wallets.get(walletKey);
-      if (!wallet) {
-        throw {
-          status: 404,
-          code: "USER_NOT_FOUND" /* USER_NOT_FOUND */,
-          message: "Wallet not found"
-        };
-      }
-      const refundAmount = Number(req.amount > 0 ? req.amount : origTx.amount);
-      const beforeBalance = wallet.real_balance;
-      const afterBalance = Number((beforeBalance + refundAmount).toFixed(4));
-      this.logSql({
-        commandType: "SELECT",
-        table: "wallets",
-        lockLevel: "ROW EXCLUSIVE (FOR UPDATE)",
-        statement: `SELECT id, user_id, currency, real_balance, bonus_balance, version FROM wallets WHERE user_id = '${user.id}' AND currency = '${req.currency}' FOR UPDATE;`,
-        bindParams: { user_id: user.id, currency: req.currency },
-        durationMs: 0.108,
-        source: "POST /api/seamless/refund",
-        txId: req.transaction_id,
-        roundId: req.round_id,
-        userId: user.id,
-        status: "SUCCESS",
-        affectedRows: 1
-      });
-      wallet.real_balance = afterBalance;
-      wallet.version += 1;
-      wallet.updated_at = (/* @__PURE__ */ new Date()).toISOString();
-      this.logSql({
-        commandType: "UPDATE",
-        table: "wallets",
-        lockLevel: "EXCLUSIVE",
-        statement: `UPDATE wallets SET real_balance = ${afterBalance.toFixed(4)}, version = ${wallet.version}, updated_at = NOW() WHERE id = '${wallet.id}';`,
-        bindParams: { real_balance: afterBalance, version: wallet.version, id: wallet.id },
-        durationMs: 0.144,
-        source: "POST /api/seamless/refund",
-        txId: req.transaction_id,
-        roundId: req.round_id,
-        userId: user.id,
-        status: "SUCCESS",
-        affectedRows: 1
-      });
-      const roundKey = `${req.provider_id}:${req.round_id}`;
-      const round = this.gameRounds.get(roundKey);
-      if (round) {
-        round.status = "REFUNDED";
-        round.closed_at = (/* @__PURE__ */ new Date()).toISOString();
-      }
-      const operatorTxId = `tx_${Date.now()}_${Math.floor(Math.random() * 1e4)}`;
-      const txEntity = {
-        id: operatorTxId,
-        provider_id: req.provider_id,
-        transaction_id: req.transaction_id,
-        reference_transaction_id: req.reference_transaction_id,
-        user_id: user.id,
-        wallet_id: wallet.id,
-        provider_round_id: req.round_id,
-        game_id: req.game_id,
-        type: "REFUND",
-        amount: refundAmount,
-        currency: req.currency,
-        before_balance: beforeBalance,
-        after_balance: afterBalance,
-        status: "COMPLETED",
-        metadata: { reason: req.reason, ...req.metadata },
-        created_at: (/* @__PURE__ */ new Date()).toISOString()
-      };
-      this.recordCommittedTransaction(txEntity);
-      this.logSql({
-        commandType: "INSERT",
-        table: "transactions",
-        lockLevel: "NONE",
-        statement: `INSERT INTO transactions (id, provider_id, transaction_id, reference_transaction_id, user_id, wallet_id, type, amount, currency, before_balance, after_balance, status, created_at) VALUES ('${operatorTxId}', '${req.provider_id}', '${req.transaction_id}', '${req.reference_transaction_id}', '${user.id}', '${wallet.id}', 'REFUND', ${refundAmount.toFixed(2)}, '${req.currency}', ${beforeBalance.toFixed(2)}, ${afterBalance.toFixed(2)}, 'COMPLETED', NOW());`,
-        bindParams: { id: operatorTxId, amount: refundAmount, currency: req.currency },
-        durationMs: 0.172,
-        source: "POST /api/seamless/refund",
-        txId: req.transaction_id,
-        roundId: req.round_id,
-        userId: user.id,
-        status: "SUCCESS",
-        affectedRows: 1
-      });
-      const resp = {
-        code: "SUCCESS" /* SUCCESS */,
-        message: "Bet refund processed and balance restored",
-        transaction_id: req.transaction_id,
-        operator_transaction_id: operatorTxId,
-        round_id: req.round_id,
-        balance: afterBalance,
-        bonus_balance: wallet.bonus_balance,
-        currency: req.currency,
-        timestamp: Date.now(),
-        is_idempotent: false
-      };
-      this.idempotencyStore.set(idempotencyKey, {
-        key: idempotencyKey,
-        provider_id: req.provider_id,
-        endpoint: "refund",
-        response: resp,
-        status_code: 200,
-        created_at: (/* @__PURE__ */ new Date()).toISOString()
-      });
-      return resp;
-    } finally {
-      releaseLock();
-    }
-  }
-  // --------------------------------------------------------------------------
-  // Concurrency Stress Tester Engine
-  // Fires N concurrent requests on a single wallet to test Row-Level Locks
-  // --------------------------------------------------------------------------
-  async runConcurrencyStressTest(userId, currency, numConcurrentRequests, betAmountPerRequest, identicalTxId = false) {
-    const user = this.findUser(userId);
-    if (!user) throw new Error("User not found");
-    const walletKey = `${user.id}:${currency}`;
-    const wallet = this.wallets.get(walletKey);
-    if (!wallet) throw new Error("Wallet not found");
-    const initialBalance = wallet.real_balance;
-    const startTime = Date.now();
-    const staticTxId = `stress_tx_${Date.now()}`;
-    const promises = Array.from({ length: numConcurrentRequests }, async (_, index) => {
-      const threadId = index + 1;
-      const txId = identicalTxId ? staticTxId : `stress_${Date.now()}_t${threadId}_${Math.random().toString(36).substring(7)}`;
-      const roundId = `stress_round_${Math.floor(index / 2)}`;
-      const betReq = {
-        provider_id: "pragmatic_play",
-        user_id: user.id,
-        currency,
-        transaction_id: txId,
-        round_id: roundId,
-        game_id: "sweet_bonanza",
-        amount: betAmountPerRequest,
-        metadata: { stressThread: threadId }
-      };
-      const res = await this.executeRequest("bet", betReq, { bypassHmac: true });
-      return {
-        id: index,
-        thread: threadId,
-        requestTxId: txId,
-        status: res.status,
-        code: res.data.code,
-        balance: res.data.balance !== void 0 ? res.data.balance : wallet.real_balance,
-        latencyMs: res.latencyMs,
-        message: res.data.message,
-        isIdempotent: res.data.is_idempotent
-      };
-    });
-    const logs = await Promise.all(promises);
-    const totalDurationMs = Date.now() - startTime;
-    const finalBalance = wallet.real_balance;
-    let successful = 0;
-    let failed = 0;
-    let idempotentReplays = 0;
-    for (const l of logs) {
-      if (l.isIdempotent) {
-        idempotentReplays++;
-      } else if (l.status === 200) {
-        successful++;
-      } else {
-        failed++;
-      }
-    }
-    const expectedBalance = identicalTxId ? Number((initialBalance - betAmountPerRequest).toFixed(4)) : Number((initialBalance - successful * betAmountPerRequest).toFixed(4));
-    const discrepancy = Math.abs(finalBalance - expectedBalance);
-    return {
-      totalRequests: numConcurrentRequests,
-      successful,
-      failed,
-      idempotentReplays,
-      initialBalance,
-      finalBalance,
-      expectedBalance,
-      discrepancy,
-      totalDurationMs,
-      logs
-    };
-  }
-  // --- Getters for Explorer & UI State ---
-  getUsers() {
-    return Array.from(this.users.values());
-  }
-  getWallets() {
-    return Array.from(this.wallets.values());
-  }
-  getTransactions() {
-    return [...this.transactions];
-  }
-  getGameRounds() {
-    return Array.from(this.gameRounds.values());
-  }
-  getIdempotencyRecords() {
-    return Array.from(this.idempotencyStore.values());
-  }
-  topUpWallet(userId, currency, amount) {
-    const user = this.findUser(userId);
-    if (!user) return;
-    const key = `${user.id}:${currency}`;
-    const wallet = this.wallets.get(key);
-    if (wallet) {
-      wallet.real_balance = Number((wallet.real_balance + amount).toFixed(4));
-      wallet.updated_at = (/* @__PURE__ */ new Date()).toISOString();
-    }
-  }
-  setWalletBalance(userId, currency, amount) {
-    const user = this.findUser(userId);
-    if (!user) return;
-    const key = `${user.id}:${currency}`;
-    const wallet = this.wallets.get(key);
-    if (wallet) {
-      wallet.real_balance = Math.max(0, Number(amount.toFixed(4)));
-      wallet.updated_at = (/* @__PURE__ */ new Date()).toISOString();
-    }
-  }
-  // --- Payment Request Handlers (bKash, Nagad, Rocket, Upay) ---
-  getPaymentRequests() {
-    return [...this.paymentRequests].sort(
-      (a, b) => new Date(b.created_at).getTime() - new Date(a.created_at).getTime()
-    );
-  }
-  async submitDepositRequest(params) {
-    const user = this.findUser(params.userId);
-    if (!user) throw new Error("User not found");
-    const wallet = this.findWallet(user.id, params.currency);
-    if (!wallet) throw new Error(`Wallet not found for currency ${params.currency}`);
-    const now = (/* @__PURE__ */ new Date()).toISOString();
-    const requestId = `PAY_DEP_${Math.floor(1e5 + Math.random() * 9e5)}`;
-    const newRequest = {
-      id: requestId,
-      user_id: user.id,
-      wallet_id: wallet.id,
-      type: "DEPOSIT",
-      method: params.method,
-      amount: Number(params.amount.toFixed(4)),
-      currency: params.currency,
-      sender_number: params.senderNumber,
-      receiver_number: params.receiverNumber,
-      trx_id: params.trxId.toUpperCase(),
-      status: params.autoApprove ? "APPROVED" : "PENDING",
-      admin_note: params.autoApprove ? "Instant Automated bKash/Nagad Merchant Validation" : "Awaiting Operator Approval",
-      metadata: {
-        platform: "Playall 365 Cashier",
-        timestamp: Date.now()
-      },
-      created_at: now,
-      updated_at: now
-    };
-    this.paymentRequests.unshift(newRequest);
-    if (params.autoApprove) {
-      const releaseLock = await this.acquireRowLock(`${user.id}:${params.currency}`);
-      try {
-        const beforeBalance = wallet.real_balance;
-        wallet.real_balance = Number((wallet.real_balance + params.amount).toFixed(4));
-        wallet.version += 1;
-        wallet.updated_at = now;
-        const ledgerTx = {
-          id: `LEDGER_DEP_${Date.now()}`,
-          provider_id: "CASHIER_LOCAL",
-          transaction_id: `DEP_${params.trxId.toUpperCase()}`,
-          reference_transaction_id: requestId,
-          user_id: user.id,
-          wallet_id: wallet.id,
-          game_id: "CASHIER_DEPOSIT",
-          type: "PROMO",
-          // deposit ledger type
-          amount: params.amount,
-          currency: params.currency,
-          before_balance: beforeBalance,
-          after_balance: wallet.real_balance,
-          status: "COMPLETED",
-          metadata: {
-            method: params.method,
-            sender: params.senderNumber,
-            trxId: params.trxId
-          },
-          created_at: now
-        };
-        this.recordCommittedTransaction(ledgerTx);
-      } finally {
-        releaseLock();
-      }
-    }
-    return newRequest;
-  }
-  async submitWithdrawalRequest(params) {
-    const user = this.findUser(params.userId);
-    if (!user) throw new Error("User not found");
-    const wallet = this.findWallet(user.id, params.currency);
-    if (!wallet) throw new Error(`Wallet not found for currency ${params.currency}`);
-    if (wallet.real_balance < params.amount) {
-      throw new Error("Insufficient funds for withdrawal");
-    }
-    const now = (/* @__PURE__ */ new Date()).toISOString();
-    const requestId = `PAY_WTH_${Math.floor(1e5 + Math.random() * 9e5)}`;
-    const trxId = `WTH_${params.method}_${Math.random().toString(36).substring(2, 9).toUpperCase()}`;
-    const releaseLock = await this.acquireRowLock(`${user.id}:${params.currency}`);
-    try {
-      const beforeBalance = wallet.real_balance;
-      wallet.real_balance = Number((wallet.real_balance - params.amount).toFixed(4));
-      wallet.version += 1;
-      wallet.updated_at = now;
-      const ledgerTx = {
-        id: `LEDGER_WTH_${Date.now()}`,
-        provider_id: "CASHIER_LOCAL",
-        transaction_id: trxId,
-        reference_transaction_id: requestId,
-        user_id: user.id,
-        wallet_id: wallet.id,
-        game_id: "CASHIER_WITHDRAWAL",
-        type: "TIP",
-        // payout ledger type
-        amount: params.amount,
-        currency: params.currency,
-        before_balance: beforeBalance,
-        after_balance: wallet.real_balance,
-        status: "COMPLETED",
-        metadata: {
-          method: params.method,
-          accountNumber: params.receiverNumber
-        },
-        created_at: now
-      };
-      this.recordCommittedTransaction(ledgerTx);
-    } finally {
-      releaseLock();
-    }
-    const newRequest = {
-      id: requestId,
-      user_id: user.id,
-      wallet_id: wallet.id,
-      type: "WITHDRAWAL",
-      method: params.method,
-      amount: Number(params.amount.toFixed(4)),
-      currency: params.currency,
-      receiver_number: params.receiverNumber,
-      trx_id: trxId,
-      status: params.autoApprove ? "APPROVED" : "PENDING",
-      admin_note: params.autoApprove ? "Instant VIP Dispatched" : "Queued for Bank/Agent Transfer",
-      metadata: {
-        platform: "Playall 365 Cashier",
-        timestamp: Date.now()
-      },
-      created_at: now,
-      updated_at: now
-    };
-    this.paymentRequests.unshift(newRequest);
-    return newRequest;
-  }
-  async approvePaymentRequest(requestId) {
-    const req = this.paymentRequests.find((r) => r.id === requestId);
-    if (!req) throw new Error("Payment request not found");
-    if (req.status !== "PENDING") throw new Error("Payment request is not pending");
-    req.status = "APPROVED";
-    req.updated_at = (/* @__PURE__ */ new Date()).toISOString();
-    req.admin_note = "Approved by Operator Administrator";
-    if (req.type === "DEPOSIT") {
-      const user = this.findUser(req.user_id);
-      if (user) {
-        this.topUpWallet(user.id, req.currency, req.amount);
-      }
-    }
-    return req;
-  }
-  // --- Real-time User Registration & Authentication ---
-  registerUser(params) {
-    const existing = Array.from(this.users.values()).find(
-      (u) => u.username.toLowerCase() === params.username.toLowerCase()
-    );
-    if (existing) {
-      const existingWallet = this.findWallet(existing.id, existing.currency);
-      if (existingWallet) return { user: existing, wallet: existingWallet };
-    }
-    const now = (/* @__PURE__ */ new Date()).toISOString();
-    const userId = `u_${Date.now()}_${Math.floor(1e3 + Math.random() * 9e3)}`;
-    const walletId = `w_${Date.now()}_${Math.floor(1e3 + Math.random() * 9e3)}`;
-    const starterBonus = 0;
-    const starterReal = 0;
-    const newUser = {
-      id: userId,
-      username: params.username,
-      operator_id: params.currency === "BDT" ? "GAMEPLAY365_BD" : "GAMEPLAY365_GLOBAL",
-      currency: params.currency,
-      status: "ACTIVE",
-      country_code: params.currency === "BDT" ? "BD" : "US",
-      created_at: now,
-      updated_at: now
-    };
-    const newWallet = {
-      id: walletId,
-      user_id: userId,
-      currency: params.currency,
-      real_balance: 0,
-      bonus_balance: 0,
-      locked_balance: 0,
-      turnover_ratio: 10,
-      version: 1,
-      status: "ACTIVE",
-      created_at: now,
-      updated_at: now
-    };
-    this.users.set(userId, newUser);
-    this.wallets.set(`${userId}:${params.currency}`, newWallet);
-    const openTx = {
-      id: `LEDGER_OPEN_${Date.now()}`,
-      provider_id: "GAMEPLAY365_AUTH",
-      transaction_id: `ACCT_OPEN_${Date.now()}`,
-      reference_transaction_id: `REG_${userId}`,
-      user_id: userId,
-      wallet_id: walletId,
-      game_id: "SYSTEM_ACCOUNT_OPENING",
-      type: "PROMO",
-      amount: 0,
-      currency: params.currency,
-      before_balance: 0,
-      after_balance: 0,
-      status: "COMPLETED",
-      metadata: {
-        promoCode: params.promoCode || "STANDARD",
-        phone: params.phone,
-        email: params.email,
-        note: "Live User Registered with 0.00 initial balance. Deposit required to play."
-      },
-      created_at: now
-    };
-    this.transactions.unshift(openTx);
-    this.wageringRequirements.push({
-      id: `WAGER_REQ_${Date.now()}`,
-      user_id: userId,
-      promo_name: "200% Welcome Registration Bonus",
-      bonus_amount_granted: starterBonus,
-      required_multiplier: 10,
-      target_turnover_amount: starterBonus * 10,
-      completed_turnover_amount: 0,
-      status: "ACTIVE",
-      expires_at: new Date(Date.now() + 14 * 864e5).toISOString(),
-      created_at: now,
-      completed_at: null
-    });
-    return { user: newUser, wallet: newWallet };
-  }
-  /**
-   * Resets all balances for a specific user to clean zero (0.00).
-   * Ensures new registrations or zero-reset requests enforce 0.00 balance state.
-   */
-  resetWalletToZero(userId, currency = "BDT") {
-    const now = (/* @__PURE__ */ new Date()).toISOString();
-    const walletKey = `${userId}:${currency}`;
-    let wallet = this.wallets.get(walletKey);
-    if (wallet) {
-      wallet.real_balance = 0;
-      wallet.bonus_balance = 0;
-      wallet.locked_balance = 0;
-      wallet.version += 1;
-      wallet.updated_at = now;
-    } else {
-      wallet = {
-        id: `w_${userId}_${currency.toLowerCase()}`,
-        user_id: userId,
-        currency,
-        real_balance: 0,
-        bonus_balance: 0,
-        locked_balance: 0,
-        turnover_ratio: 10,
-        version: 1,
-        status: "ACTIVE",
-        created_at: now,
-        updated_at: now
-      };
-      this.wallets.set(walletKey, wallet);
-    }
-    const altCurrency = currency === "BDT" ? "USD" : "BDT";
-    const altKey = `${userId}:${altCurrency}`;
-    const altWallet = this.wallets.get(altKey);
-    if (altWallet) {
-      altWallet.real_balance = 0;
-      altWallet.bonus_balance = 0;
-      altWallet.locked_balance = 0;
-      altWallet.version += 1;
-      altWallet.updated_at = now;
-    }
-    return wallet;
-  }
-  getWageringRequirements(userId) {
-    if (userId) {
-      return this.wageringRequirements.filter((w) => w.user_id === userId);
-    }
-    return [...this.wageringRequirements];
-  }
-  getDiagnostics() {
-    return {
-      users: this.users.size,
-      wallets: this.wallets.size,
-      transactions: this.transactions.length,
-      gameRounds: this.gameRounds.size,
-      idempotencyStore: this.idempotencyStore.size,
-      paymentRequests: this.paymentRequests.length,
-      sqlQueryLogs: this.sqlQueryLogs.length,
-      latencyHistory: this.latencyHistory.length,
-      wageringRequirements: this.wageringRequirements.length
-    };
-  }
-};
-var seamlessEngine = new SimulatedSeamlessEngine();
 
 // src/services/notificationService.ts
 import {
@@ -5557,10 +3645,13 @@ import {
   onAuthStateChanged,
   signInWithEmailAndPassword,
   createUserWithEmailAndPassword,
+  sendPasswordResetEmail,
   updateProfile,
   signOut,
   setPersistence,
-  browserLocalPersistence
+  browserLocalPersistence,
+  RecaptchaVerifier,
+  signInWithPhoneNumber
 } from "firebase/auth";
 import { getFirestore } from "firebase/firestore";
 
@@ -5902,6 +3993,18 @@ var NotificationService = class {
   }
 };
 var notificationService = new NotificationService();
+
+// src/services/webhookLogger.ts
+import {
+  collection as collection2,
+  doc as doc2,
+  setDoc as setDoc2,
+  deleteDoc as deleteDoc2,
+  query as query2,
+  orderBy as orderBy2,
+  limit,
+  onSnapshot as onSnapshot2
+} from "firebase/firestore";
 
 // src/services/soundEngine.ts
 var CasinoSoundEngine = class {
@@ -6395,16 +4498,6 @@ var CasinoSoundEngine = class {
 var soundEngine = new CasinoSoundEngine();
 
 // src/services/webhookLogger.ts
-import {
-  collection as collection2,
-  doc as doc2,
-  setDoc as setDoc2,
-  deleteDoc as deleteDoc2,
-  query as query2,
-  orderBy as orderBy2,
-  limit,
-  onSnapshot as onSnapshot2
-} from "firebase/firestore";
 var COLLECTION_NAME = "webhook_logs";
 var CACHE_STORAGE_KEY = "playall365_webhook_logs_v1";
 var MAX_LOGS_KEPT = 100;
@@ -7036,9 +5129,13 @@ var PaymentGatewayEngine = class {
         factors.push("DUPLICATE_TRX_ID_DETECTED");
       }
     }
-    if (params.amount > 1e5) {
-      score += 25;
-      factors.push("HIGH_VALUE_TRANSACTION");
+    try {
+      const amountMinor = typeof params.amount === "bigint" ? params.amount : toScale42(String(params.amount));
+      if (amountMinor > 1000000000n) {
+        score += 25;
+        factors.push("HIGH_VALUE_TRANSACTION");
+      }
+    } catch {
     }
     const now = Date.now();
     const recentIntents = Array.from(this.depositIntents.values()).filter(
@@ -7072,6 +5169,9 @@ var PaymentGatewayEngine = class {
     if (req.idempotencyKey && this.idempotencyStore.has(req.idempotencyKey)) {
       return this.idempotencyStore.get(req.idempotencyKey);
     }
+    const parsed = validatePaymentAmount(req.amount);
+    const amountStr = parsed.decimalString;
+    const amountMinor = parsed.minorUnits;
     const now = /* @__PURE__ */ new Date();
     const dateStr = now.toISOString().slice(0, 10).replace(/-/g, "");
     const randomSuffix = Math.random().toString(36).substring(2, 7).toUpperCase();
@@ -7079,7 +5179,7 @@ var PaymentGatewayEngine = class {
     const destination = this.getAvailableDestination(req.provider);
     const risk = this.analyzeRisk({
       userId: req.userId,
-      amount: req.amount,
+      amount: amountMinor,
       provider: req.provider,
       type: "DEPOSIT"
     });
@@ -7090,7 +5190,8 @@ var PaymentGatewayEngine = class {
       username: req.username,
       provider: req.provider,
       method: req.method,
-      amount: req.amount,
+      amount: amountStr,
+      amountMinor: amountMinor.toString(),
       currency: req.currency,
       status: "AWAITING_PAYMENT",
       destinationAccount: destination,
@@ -7103,7 +5204,7 @@ var PaymentGatewayEngine = class {
         {
           status: "CREATED",
           timestamp: now.toISOString(),
-          note: `Deposit Intent created for \u09F3${req.amount.toLocaleString()} via ${req.provider.toUpperCase()}`
+          note: `Deposit Intent created for \u09F3${amountStr} via ${req.provider.toUpperCase()}`
         },
         {
           status: "AWAITING_PAYMENT",
@@ -7122,7 +5223,7 @@ var PaymentGatewayEngine = class {
       resource: "DEPOSIT",
       resourceId: depositId,
       ipAddress: req.clientIp || "127.0.0.1",
-      metadata: { amount: req.amount, provider: req.provider, destination: destination.accountNumber }
+      metadata: { amount: amountStr, amountMinor: amountMinor.toString(), provider: req.provider, destination: destination.accountNumber }
     });
     this.notifyChange();
     return intent;
@@ -7139,6 +5240,8 @@ var PaymentGatewayEngine = class {
       return {
         success: true,
         depositIntent: intent,
+        status: "CREDITED",
+        code: "ALREADY_CREDITED",
         message: "This deposit has already been verified and credited."
       };
     }
@@ -7193,60 +5296,85 @@ var PaymentGatewayEngine = class {
       destinationAccount: intent.destinationAccount
     });
     if (!verificationResult.verified) {
-      intent.status = "FAILED";
+      const isUnconfigured = verificationResult.code === "PROVIDER_NOT_CONFIGURED" || verificationResult.status === "PENDING_INTEGRATION";
+      intent.status = isUnconfigured ? "PENDING_INTEGRATION" : "FAILED";
       intent.failedReason = verificationResult.message;
       intent.auditTrail.push({
-        status: "FAILED",
+        status: intent.status,
         timestamp: (/* @__PURE__ */ new Date()).toISOString(),
-        note: `Verification failed: ${verificationResult.message}`
+        note: `Verification halted: ${verificationResult.message}`
       });
       this.notifyChange();
-      throw new Error(verificationResult.message);
+      const err = new Error(verificationResult.message);
+      err.code = verificationResult.code || "VERIFICATION_FAILED";
+      err.status = intent.status;
+      throw err;
     }
-    intent.status = "VERIFIED";
+    intent.status = "AWAITING_LEDGER_SETTLEMENT";
+    intent.providerTransactionId = verificationResult.providerTransactionId || cleanTrx;
     intent.verifiedAt = (/* @__PURE__ */ new Date()).toISOString();
     intent.auditTrail.push({
-      status: "VERIFIED",
+      status: "AWAITING_LEDGER_SETTLEMENT",
       timestamp: intent.verifiedAt,
-      note: "Payment authorized and verified by Provider Verification Engine."
+      note: `Payment authorized and verified by Provider (${intent.provider.toUpperCase()}). Awaiting authoritative WalletLedgerService settlement.`
     });
     this.consumedTrxIds.set(trxKey, {
       depositId: intent.id,
       userId: intent.userId,
       consumedAt: (/* @__PURE__ */ new Date()).toISOString()
     });
-    const currentWallets = seamlessEngine.getWallets();
-    const userWallet = currentWallets.find((w) => w.user_id === intent.userId) || currentWallets[0];
-    const beforeBal = userWallet ? userWallet.real_balance : 0;
-    seamlessEngine.topUpWallet(intent.userId, intent.currency, intent.amount);
-    const updatedWallet = seamlessEngine.getWallets().find((w) => w.user_id === intent.userId);
-    const afterBal = updatedWallet ? updatedWallet.real_balance : beforeBal + intent.amount;
-    const ledgerEntry = {
-      id: `LEDGER_DEP_${Date.now()}`,
-      transactionId: `DEP_${cleanTrx}`,
-      walletId: userWallet ? userWallet.id : `w_${intent.userId}`,
-      userId: intent.userId,
-      entryType: "DEPOSIT_CREDIT",
-      debitAccount: `SYSTEM_LIABILITY_${intent.provider.toUpperCase()}_ACCOUNT`,
-      creditAccount: `USER_WALLET_${intent.userId}`,
-      amount: intent.amount,
-      currency: intent.currency,
-      balanceBefore: beforeBal,
-      balanceAfter: afterBal,
-      reference: intent.id,
-      createdAt: (/* @__PURE__ */ new Date()).toISOString()
+    try {
+      const addedVolume = Number(toScale42(String(intent.amount)) / 10000n);
+      intent.destinationAccount.currentDayVolume += addedVolume;
+    } catch {
+    }
+    this.logAudit({
+      actor: "SYSTEM:PaymentVerificationEngine",
+      action: "DEPOSIT_PROVIDER_VERIFIED",
+      resource: "DEPOSIT",
+      resourceId: intent.id,
+      ipAddress: "127.0.0.1",
+      metadata: {
+        userId: intent.userId,
+        amount: intent.amount,
+        trxId: cleanTrx,
+        provider: intent.provider,
+        providerTransactionId: intent.providerTransactionId,
+        settlementStatus: "LEDGER_SETTLEMENT_PENDING"
+      }
+    });
+    this.notifyChange();
+    return {
+      success: true,
+      depositIntent: intent,
+      status: "LEDGER_SETTLEMENT_PENDING",
+      code: "LEDGER_SETTLEMENT_PENDING",
+      message: `\u09AA\u09C7\u09AE\u09C7\u09A8\u09CD\u099F \u09AA\u09CD\u09B0\u09CB\u09AD\u09BE\u0987\u09A1\u09BE\u09B0 \u09A6\u09CD\u09AC\u09BE\u09B0\u09BE \u0985\u09A8\u09C1\u09AE\u09CB\u09A6\u09BF\u09A4 \u09B9\u09DF\u09C7\u099B\u09C7 (TrxID: ${cleanTrx})\u0964 \u0993\u09DF\u09BE\u09B2\u09C7\u099F \u09B2\u09C7\u099C\u09BE\u09B0 \u09B8\u09C7\u099F\u09C7\u09B2\u09AE\u09C7\u09A8\u09CD\u099F\u09C7\u09B0 \u0985\u09AA\u09C7\u0995\u09CD\u09B7\u09BE\u09DF \u09B0\u09DF\u09C7\u099B\u09C7\u0964`
     };
-    this.doubleEntryLedger.unshift(ledgerEntry);
-    intent.destinationAccount.currentDayVolume += intent.amount;
+  }
+  /**
+   * Settle deposit to CREDITED status ONLY after authoritative WalletLedgerService settlement succeeds.
+   */
+  settleDepositWithLedger(depositId, settlement) {
+    const intent = this.depositIntents.get(depositId);
+    if (!intent) {
+      throw new Error(`Deposit intent '${depositId}' not found for ledger settlement.`);
+    }
+    if (intent.status === "CREDITED") {
+      return intent;
+    }
+    if (intent.status !== "VERIFIED" && intent.status !== "AWAITING_LEDGER_SETTLEMENT") {
+      throw new Error(`Cannot credit deposit in status '${intent.status}'. Deposit must be VERIFIED or AWAITING_LEDGER_SETTLEMENT.`);
+    }
     intent.status = "CREDITED";
-    intent.creditedAt = (/* @__PURE__ */ new Date()).toISOString();
+    intent.creditedAt = settlement.creditedAt || (/* @__PURE__ */ new Date()).toISOString();
     intent.auditTrail.push({
       status: "CREDITED",
       timestamp: intent.creditedAt,
-      note: `Wallet credited +\u09F3${intent.amount.toLocaleString()}. Balance before: \u09F3${beforeBal.toLocaleString()}, Balance after: \u09F3${afterBal.toLocaleString()}`
+      note: `Authoritative WalletLedgerService settlement committed. Ledger Ref: ${settlement.ledgerTransactionId}`
     });
     this.logAudit({
-      actor: "SYSTEM:PaymentOrchestrator",
+      actor: "SYSTEM:WalletLedgerService",
       action: "WALLET_DEPOSIT_CREDITED",
       resource: "WALLET",
       resourceId: intent.id,
@@ -7254,191 +5382,27 @@ var PaymentGatewayEngine = class {
       metadata: {
         userId: intent.userId,
         amount: intent.amount,
-        beforeBal,
-        afterBal,
-        trxId: cleanTrx,
-        provider: intent.provider
+        ledgerTransactionId: settlement.ledgerTransactionId
       }
     });
-    notificationService.pushNotification(intent.userId, {
-      userId: intent.userId,
-      title: "\u{1F389} \u09A1\u09BF\u09AA\u09CB\u099C\u09BF\u099F \u09B8\u09AB\u09B2 \u0993 \u0993\u09DF\u09BE\u09B2\u09C7\u099F\u09C7 \u09AF\u09C1\u0995\u09CD\u09A4 \u09B9\u09DF\u09C7\u099B\u09C7!",
-      message: `\u0986\u09AA\u09A8\u09BE\u09B0 ${intent.provider.toUpperCase()} \u09A1\u09BF\u09AA\u09CB\u099C\u09BF\u099F \u09F3${intent.amount.toLocaleString()} \u09B8\u09AB\u09B2\u09AD\u09BE\u09AC\u09C7 \u0993\u09DF\u09BE\u09B2\u09C7\u099F\u09C7 \u09AF\u09C1\u0995\u09CD\u09A4 \u09B9\u09DF\u09C7\u099B\u09C7\u0964 (TrxID: ${cleanTrx})`,
-      type: "DEPOSIT_CONFIRMED",
-      amount: intent.amount,
-      currency: intent.currency,
-      isRead: false
-    });
-    soundEngine.playWalletCredit();
     this.notifyChange();
-    return {
-      success: true,
-      depositIntent: intent,
-      message: `\u09F3${intent.amount.toLocaleString()} \u09B8\u09AB\u09B2\u09AD\u09BE\u09AC\u09C7 \u09A1\u09BF\u09AA\u09CB\u099C\u09BF\u099F \u09B9\u09DF\u09C7\u099B\u09C7\u0964`,
-      newBalance: afterBal
-    };
+    return intent;
   }
   // ==========================================================================
-  // SECTION 5: Controlled Withdrawal Flow with Balance Reservation Model
+  // SECTION 5: Controlled Withdrawal Flow with Fail-Closed Provider Gate
   // ==========================================================================
   async requestWithdrawal(req) {
-    if (this.idempotencyStore.has(req.idempotencyKey)) {
-      return this.idempotencyStore.get(req.idempotencyKey);
+    const adapter = this.adapters.get(req.provider) || new BkashPaymentAdapter();
+    if (!adapter.isConfigured()) {
+      const err2 = new Error(`Payment provider '${req.provider}' payout gateway is not configured.`);
+      err2.code = "PROVIDER_NOT_CONFIGURED";
+      err2.status = "PENDING_INTEGRATION";
+      throw err2;
     }
-    const currentWallets = seamlessEngine.getWallets();
-    const wallet = currentWallets.find((w) => w.user_id === req.userId) || currentWallets[0];
-    if (!wallet) {
-      throw new Error("User wallet not found.");
-    }
-    if (wallet.real_balance < req.amount) {
-      throw new Error(
-        `\u09AA\u09B0\u09CD\u09AF\u09BE\u09AA\u09CD\u09A4 \u09AC\u09CD\u09AF\u09BE\u09B2\u09C7\u09A8\u09CD\u09B8 \u09A8\u09C7\u0987\u0964 \u0986\u09AA\u09A8\u09BE\u09B0 \u09AC\u09B0\u09CD\u09A4\u09AE\u09BE\u09A8 \u09AC\u09CD\u09AF\u09BE\u09B2\u09C7\u09A8\u09CD\u09B8: \u09F3${wallet.real_balance.toLocaleString()}, \u0989\u0987\u09A5\u09A1\u09CD\u09B0 \u09B0\u09BF\u0995\u09CB\u09AF\u09BC\u09C7\u09B8\u09CD\u099F: \u09F3${req.amount.toLocaleString()}`
-      );
-    }
-    const now = /* @__PURE__ */ new Date();
-    const dateStr = now.toISOString().slice(0, 10).replace(/-/g, "");
-    const randomSuffix = Math.random().toString(36).substring(2, 7).toUpperCase();
-    const withdrawalId = `WTH-${dateStr}-${randomSuffix}`;
-    const risk = this.analyzeRisk({
-      userId: req.userId,
-      amount: req.amount,
-      provider: req.provider,
-      recipientAccount: req.recipientAccount,
-      type: "WITHDRAWAL"
-    });
-    if (risk.isBlocked) {
-      throw new Error("Withdrawal blocked by Risk Engine due to suspicious activity.");
-    }
-    const availBefore = wallet.real_balance;
-    const reservedBefore = wallet.locked_balance || 0;
-    wallet.real_balance = Number((wallet.real_balance - req.amount).toFixed(4));
-    wallet.locked_balance = Number((reservedBefore + req.amount).toFixed(4));
-    wallet.version += 1;
-    wallet.updated_at = now.toISOString();
-    const record = {
-      id: withdrawalId,
-      userId: req.userId,
-      username: req.username,
-      provider: req.provider,
-      method: req.method,
-      amount: req.amount,
-      currency: req.currency,
-      recipientAccount: req.recipientAccount,
-      recipientName: req.recipientName,
-      status: "WITHDRAWAL_RESERVED",
-      reservedBalanceBefore: reservedBefore,
-      availableBalanceBefore: availBefore,
-      availableBalanceAfter: wallet.real_balance,
-      createdAt: now.toISOString(),
-      riskScore: risk.riskScore,
-      idempotencyKey: req.idempotencyKey,
-      auditTrail: [
-        {
-          status: "CREATED",
-          timestamp: now.toISOString(),
-          note: `Withdrawal request for \u09F3${req.amount.toLocaleString()} to ${req.recipientAccount}`
-        },
-        {
-          status: "RISK_CHECK",
-          timestamp: now.toISOString(),
-          note: `Risk score: ${risk.riskScore}/100 (${risk.riskLevel})`
-        },
-        {
-          status: "WITHDRAWAL_RESERVED",
-          timestamp: now.toISOString(),
-          note: `\u09F3${req.amount.toLocaleString()} reserved from Available Balance. Available now: \u09F3${wallet.real_balance.toLocaleString()}`
-        }
-      ]
-    };
-    this.withdrawalRecords.set(withdrawalId, record);
-    this.idempotencyStore.set(req.idempotencyKey, record);
-    this.doubleEntryLedger.unshift({
-      id: `LEDGER_WTH_RES_${Date.now()}`,
-      transactionId: `WTH_RES_${withdrawalId}`,
-      walletId: wallet.id,
-      userId: req.userId,
-      entryType: "WITHDRAWAL_RESERVE",
-      debitAccount: `USER_WALLET_${req.userId}`,
-      creditAccount: `SYSTEM_PAYOUT_RESERVE_ACCOUNT`,
-      amount: req.amount,
-      currency: req.currency,
-      balanceBefore: availBefore,
-      balanceAfter: wallet.real_balance,
-      reservedBefore,
-      reservedAfter: wallet.locked_balance,
-      reference: withdrawalId,
-      createdAt: now.toISOString()
-    });
-    this.logAudit({
-      actor: `USER:${req.username}`,
-      action: "WITHDRAWAL_RESERVED",
-      resource: "WITHDRAWAL",
-      resourceId: withdrawalId,
-      ipAddress: req.clientIp || "127.0.0.1",
-      metadata: { amount: req.amount, recipient: req.recipientAccount, provider: req.provider }
-    });
-    this.dispatchAutomatedPayout(record);
-    this.notifyChange();
-    return record;
-  }
-  async dispatchAutomatedPayout(record) {
-    record.status = "PAYOUT_PROCESSING";
-    record.processedAt = (/* @__PURE__ */ new Date()).toISOString();
-    record.auditTrail.push({
-      status: "PAYOUT_PROCESSING",
-      timestamp: record.processedAt,
-      note: `Dispatched payout request to ${record.provider.toUpperCase()} Payout Gateway`
-    });
-    this.notifyChange();
-    try {
-      const adapter = this.adapters.get(record.provider) || new BkashPaymentAdapter();
-      const payoutResult = await adapter.executePayout({ withdrawal: record });
-      if (payoutResult.success) {
-        record.status = "WITHDRAWAL_COMPLETED";
-        record.providerReference = payoutResult.providerReference;
-        record.completedAt = (/* @__PURE__ */ new Date()).toISOString();
-        record.auditTrail.push({
-          status: "WITHDRAWAL_COMPLETED",
-          timestamp: record.completedAt,
-          note: `Payout confirmed by provider. Ref: ${payoutResult.providerReference}`
-        });
-        const currentWallets = seamlessEngine.getWallets();
-        const wallet = currentWallets.find((w) => w.user_id === record.userId);
-        if (wallet) {
-          wallet.locked_balance = Math.max(0, Number(((wallet.locked_balance || 0) - record.amount).toFixed(4)));
-        }
-        this.doubleEntryLedger.unshift({
-          id: `LEDGER_WTH_DONE_${Date.now()}`,
-          transactionId: `WTH_FINALIZE_${record.id}`,
-          walletId: wallet ? wallet.id : `w_${record.userId}`,
-          userId: record.userId,
-          entryType: "WITHDRAWAL_FINALIZE",
-          debitAccount: `SYSTEM_PAYOUT_RESERVE_ACCOUNT`,
-          creditAccount: `EXTERNAL_RECIPIENT_${record.recipientAccount}`,
-          amount: record.amount,
-          currency: record.currency,
-          balanceBefore: wallet ? wallet.real_balance : 0,
-          balanceAfter: wallet ? wallet.real_balance : 0,
-          reference: record.id,
-          createdAt: (/* @__PURE__ */ new Date()).toISOString()
-        });
-        notificationService.pushNotification(record.userId, {
-          userId: record.userId,
-          title: "\u{1F4B8} \u0989\u0987\u09A5\u09A1\u09CD\u09B0\u09AF\u09BC\u09BE\u09B2 \u09B8\u09AB\u09B2 \u0993 \u0995\u09CD\u09AF\u09BE\u09B6-\u0986\u0989\u099F \u09B8\u09AE\u09CD\u09AA\u09A8\u09CD\u09A8!",
-          message: `\u0986\u09AA\u09A8\u09BE\u09B0 \u09F3${record.amount.toLocaleString()} \u0989\u0987\u09A5\u09A1\u09CD\u09B0\u09AF\u09BC\u09BE\u09B2 \u09B0\u09BF\u0995\u09CB\u09AF\u09BC\u09C7\u09B8\u09CD\u099F \u09B8\u09AB\u09B2\u09AD\u09BE\u09AC\u09C7 ${record.recipientAccount} \u09A8\u09AE\u09CD\u09AC\u09B0\u09C7 \u09AA\u09BE\u09A0\u09BE\u09A8\u09CB \u09B9\u09AF\u09BC\u09C7\u099B\u09C7\u0964 (Ref: ${payoutResult.providerReference})`,
-          type: "WITHDRAWAL_APPROVED",
-          amount: record.amount,
-          currency: record.currency,
-          isRead: false
-        });
-        soundEngine.playCashout();
-      } else {
-        this.releaseWithdrawalReservation(record, payoutResult.message);
-      }
-    } catch (err) {
-      this.releaseWithdrawalReservation(record, err.message || "Provider payout execution failed");
-    }
-    this.notifyChange();
+    const err = new Error(`Payment provider '${req.provider}' live payout integration is pending.`);
+    err.code = "PROVIDER_NOT_CONFIGURED";
+    err.status = "PENDING_INTEGRATION";
+    throw err;
   }
   releaseWithdrawalReservation(record, failureReason) {
     record.status = "FAILED";
@@ -7446,42 +5410,12 @@ var PaymentGatewayEngine = class {
     record.auditTrail.push({
       status: "FAILED",
       timestamp: (/* @__PURE__ */ new Date()).toISOString(),
-      note: `Payout failed: ${failureReason}. Releasing reserved funds back to user.`
+      note: `Payout failed: ${failureReason}.`
     });
-    const currentWallets = seamlessEngine.getWallets();
-    const wallet = currentWallets.find((w) => w.user_id === record.userId);
-    if (wallet) {
-      const availBefore = wallet.real_balance;
-      wallet.real_balance = Number((wallet.real_balance + record.amount).toFixed(4));
-      wallet.locked_balance = Math.max(0, Number(((wallet.locked_balance || 0) - record.amount).toFixed(4)));
-      wallet.version += 1;
-      wallet.updated_at = (/* @__PURE__ */ new Date()).toISOString();
-      record.status = "RESERVATION_RELEASED";
-      record.auditTrail.push({
-        status: "RESERVATION_RELEASED",
-        timestamp: (/* @__PURE__ */ new Date()).toISOString(),
-        note: `\u09F3${record.amount.toLocaleString()} restored to Available Balance. Current balance: \u09F3${wallet.real_balance.toLocaleString()}`
-      });
-      this.doubleEntryLedger.unshift({
-        id: `LEDGER_WTH_REL_${Date.now()}`,
-        transactionId: `WTH_RELEASE_${record.id}`,
-        walletId: wallet.id,
-        userId: record.userId,
-        entryType: "WITHDRAWAL_RELEASE",
-        debitAccount: `SYSTEM_PAYOUT_RESERVE_ACCOUNT`,
-        creditAccount: `USER_WALLET_${record.userId}`,
-        amount: record.amount,
-        currency: record.currency,
-        balanceBefore: availBefore,
-        balanceAfter: wallet.real_balance,
-        reference: record.id,
-        createdAt: (/* @__PURE__ */ new Date()).toISOString()
-      });
-    }
     notificationService.pushNotification(record.userId, {
       userId: record.userId,
-      title: "\u26A0\uFE0F \u0989\u0987\u09A5\u09A1\u09CD\u09B0\u09AF\u09BC\u09BE\u09B2 \u09AC\u09CD\u09AF\u09B0\u09CD\u09A5 \u0993 \u099F\u09BE\u0995\u09BE \u09AB\u09C7\u09B0\u09A4 \u098F\u09B8\u09C7\u099B\u09C7",
-      message: `\u0989\u0987\u09A5\u09A1\u09CD\u09B0\u09AF\u09BC\u09BE\u09B2 \u09AC\u09CD\u09AF\u09B0\u09CD\u09A5 \u09B9\u0993\u09DF\u09BE\u09B0 \u0995\u09BE\u09B0\u09A3\u09C7 \u09F3${record.amount.toLocaleString()} \u09AA\u09C1\u09A8\u09B0\u09BE\u09AF\u09BC \u0986\u09AA\u09A8\u09BE\u09B0 \u0993\u09AF\u09BC\u09BE\u09B2\u09C7\u099F\u09C7 \u09AB\u09C7\u09B0\u09A4 \u09AF\u09CB\u0997 \u0995\u09B0\u09BE \u09B9\u09AF\u09BC\u09C7\u099B\u09C7\u0964`,
+      title: "\u26A0\uFE0F \u0989\u0987\u09A5\u09A1\u09CD\u09B0\u09AF\u09BC\u09BE\u09B2 \u09AC\u09CD\u09AF\u09B0\u09CD\u09A5 \u09B9\u09DF\u09C7\u099B\u09C7",
+      message: `\u0989\u0987\u09A5\u09A1\u09CD\u09B0\u09AF\u09BC\u09BE\u09B2 \u09AA\u09CD\u09B0\u0995\u09CD\u09B0\u09BF\u09AF\u09BC\u09BE \u09B8\u09AE\u09CD\u09AA\u09A8\u09CD\u09A8 \u0995\u09B0\u09BE \u09AF\u09BE\u09AF\u09BC\u09A8\u09BF\u0964`,
       type: "SYSTEM_ALERT",
       amount: record.amount,
       currency: record.currency,
@@ -7548,6 +5482,9 @@ var PaymentGatewayEngine = class {
     if (userId) return list.filter((d) => d.userId === userId);
     return list;
   }
+  getDepositIntent(id) {
+    return this.depositIntents.get(id);
+  }
   getWithdrawalRecords(userId) {
     const list = Array.from(this.withdrawalRecords.values()).sort(
       (a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime()
@@ -7568,8 +5505,26 @@ var PaymentGatewayEngine = class {
     const deposits = Array.from(this.depositIntents.values());
     const withdrawals = Array.from(this.withdrawalRecords.values());
     const webhookStats = webhookLogger.getStats();
-    const totalDeposited = deposits.filter((d) => d.status === "CREDITED").reduce((sum, d) => sum + d.amount, 0);
-    const totalWithdrawn = withdrawals.filter((w) => w.status === "WITHDRAWAL_COMPLETED").reduce((sum, w) => sum + w.amount, 0);
+    let totalDepositedMinor = 0n;
+    for (const d of deposits) {
+      if (d.status === "CREDITED") {
+        try {
+          totalDepositedMinor += toScale42(String(d.amount));
+        } catch {
+        }
+      }
+    }
+    let totalWithdrawnMinor = 0n;
+    for (const w of withdrawals) {
+      if (w.status === "WITHDRAWAL_COMPLETED") {
+        try {
+          totalWithdrawnMinor += toScale42(String(w.amount));
+        } catch {
+        }
+      }
+    }
+    const totalDeposited = Number(fromScale42(totalDepositedMinor));
+    const totalWithdrawn = Number(fromScale42(totalWithdrawnMinor));
     const pendingDeposits = deposits.filter((d) => d.status === "AWAITING_PAYMENT" || d.status === "TRX_SUBMITTED").length;
     const pendingWithdrawals = withdrawals.filter((w) => w.status === "WITHDRAWAL_RESERVED" || w.status === "PAYOUT_PROCESSING").length;
     return {
@@ -7594,7 +5549,7 @@ var PaymentGatewayEngine = class {
       username: "Tamim_Sultana",
       provider: "bkash",
       method: "BKASH",
-      amount: 5e3,
+      amount: "5000.0000",
       currency: "BDT",
       status: "CREDITED",
       destinationAccount: this.destinationPool[0],
@@ -7621,13 +5576,13 @@ var PaymentGatewayEngine = class {
       username: "Tamim_Sultana",
       provider: "nagad",
       method: "NAGAD",
-      amount: 3e3,
+      amount: "3000.0000",
       currency: "BDT",
       recipientAccount: "01844-992200",
       status: "WITHDRAWAL_COMPLETED",
-      reservedBalanceBefore: 0,
-      availableBalanceBefore: 8e3,
-      availableBalanceAfter: 5e3,
+      reservedBalanceBefore: "0.0000",
+      availableBalanceBefore: "8000.0000",
+      availableBalanceAfter: "5000.0000",
       providerReference: "NG_DISB_891028",
       createdAt: new Date(now - 72e5).toISOString(),
       processedAt: new Date(now - 719e4).toISOString(),
@@ -7794,8 +5749,15 @@ var PaymentGatewayController = class {
         currency = "BDT",
         idempotencyKey
       } = req.body;
-      if (!userId || !provider || !amount) {
+      if (!userId || !provider || amount === void 0 || amount === null || amount === "") {
         res.status(400).json({ error: "Missing required parameters: userId, provider, amount" });
+        return;
+      }
+      let parsedAmount;
+      try {
+        parsedAmount = validatePaymentAmount(amount);
+      } catch (err) {
+        res.status(400).json({ error: `Invalid monetary amount: ${err.message}` });
         return;
       }
       const clientIp = req.headers["x-forwarded-for"] || req.socket.remoteAddress || "127.0.0.1";
@@ -7804,7 +5766,8 @@ var PaymentGatewayController = class {
         username: String(username || `User_${userId}`),
         provider,
         method: method || provider.toUpperCase(),
-        amount: Number(amount),
+        amount: parsedAmount.decimalString,
+        amountMinor: parsedAmount.minorUnits,
         currency,
         idempotencyKey: idempotencyKey || req.headers["idempotency-key"],
         clientIp
@@ -7838,12 +5801,20 @@ var PaymentGatewayController = class {
       res.status(200).json({
         success: true,
         data: result.depositIntent,
+        status: result.status || result.depositIntent.status,
+        code: result.code || "LEDGER_SETTLEMENT_PENDING",
         newBalance: result.newBalance,
         message: result.message
       });
     } catch (err) {
       console.error("[PaymentGatewayController.verifyTrxId error]:", err);
-      res.status(400).json({ success: false, error: err.message || "Verification failed" });
+      const isUnconfigured = err.code === "PROVIDER_NOT_CONFIGURED" || err.code === "PROVIDER_INTEGRATION_INCOMPLETE" || err.status === "PENDING_INTEGRATION";
+      res.status(isUnconfigured ? 503 : 400).json({
+        success: false,
+        code: err.code || "VERIFICATION_FAILED",
+        status: err.status || "FAILED",
+        error: err.message || "Verification failed"
+      });
     }
   }
   /**
@@ -7863,8 +5834,26 @@ var PaymentGatewayController = class {
         recipientName,
         idempotencyKey
       } = req.body;
-      if (!userId || !provider || !amount || !recipientAccount) {
+      if (!userId || !provider || amount === void 0 || amount === null || amount === "" || !recipientAccount) {
         res.status(400).json({ error: "Missing required parameters: userId, provider, amount, recipientAccount" });
+        return;
+      }
+      let parsedAmount;
+      try {
+        parsedAmount = validatePaymentAmount(amount);
+      } catch (err) {
+        res.status(400).json({ error: `Invalid monetary amount: ${err.message}` });
+        return;
+      }
+      const gate = await WageringService.enforceWithdrawalWageringGate({ userId: Number(userId) });
+      if (!gate.allowed) {
+        res.status(403).json({
+          success: false,
+          error: `Withdrawal blocked: active wagering requirement is not completed (${gate.reason}).`,
+          code: "WAGERING_REQUIREMENT_INCOMPLETE",
+          activeRequirementsCount: gate.activeRequirementsCount,
+          activeRequirements: gate.activeRequirements
+        });
         return;
       }
       const clientIp = req.headers["x-forwarded-for"] || req.socket.remoteAddress || "127.0.0.1";
@@ -7874,7 +5863,8 @@ var PaymentGatewayController = class {
         username: String(username || `User_${userId}`),
         provider,
         method: method || provider.toUpperCase(),
-        amount: Number(amount),
+        amount: parsedAmount.decimalString,
+        amountMinor: parsedAmount.minorUnits,
         currency,
         recipientAccount: String(recipientAccount),
         recipientName: recipientName ? String(recipientName) : void 0,
@@ -7888,7 +5878,13 @@ var PaymentGatewayController = class {
       });
     } catch (err) {
       console.error("[PaymentGatewayController.requestWithdrawal error]:", err);
-      res.status(400).json({ success: false, error: err.message || "Withdrawal failed" });
+      const isUnconfigured = err.code === "PROVIDER_NOT_CONFIGURED" || err.code === "PROVIDER_INTEGRATION_INCOMPLETE" || err.status === "PENDING_INTEGRATION";
+      res.status(isUnconfigured ? 503 : 400).json({
+        success: false,
+        code: err.code || "WITHDRAWAL_FAILED",
+        status: err.status || "FAILED",
+        error: err.message || "Withdrawal failed"
+      });
     }
   }
   /**
@@ -7936,10 +5932,10 @@ var paymentGatewayController = new PaymentGatewayController();
 
 // src/server/controllers/affiliateController.ts
 import crypto3 from "crypto";
-import { eq as eq3, sql as sql2, inArray, and } from "drizzle-orm";
+import { eq as eq5, sql as sql6, inArray, and as and4 } from "drizzle-orm";
 
 // src/server/controllers/promotionController.ts
-import { eq as eq2, sql } from "drizzle-orm";
+import { and as and3, eq as eq4, sql as sql5 } from "drizzle-orm";
 
 // src/shared/gameplayConfig.ts
 var VIP_TIER_CONFIG = [
@@ -7974,8 +5970,173 @@ var WHEEL_PRIZES = [
   { id: 8, label: "\u09F3250 Bonus", type: "BONUS_CASH", value: 250, weight: 20, color: "#6366f1" }
 ];
 
+// src/server/services/wheelRngService.ts
+import crypto2 from "crypto";
+var WHEEL_RNG_ALGORITHM = "CSPRNG_WEIGHTED_V1";
+var WheelRngService = class {
+  /**
+   * Cryptographically secure weighted selection using Node.js crypto.randomInt.
+   * 
+   * Given prizes with weights [w_0, w_1, ..., w_{n-1}] and totalWeight = SUM(w_i):
+   * 1. Draws uniform integer R in [0, totalWeight - 1] via crypto.randomInt(0, totalWeight).
+   * 2. Iteratively sums weights until R < cumulativeWeight.
+   * 3. Selects the corresponding prize deterministically and uniformly.
+   * 
+   * @param prizes Configured wheel prize array (defaults to WHEEL_PRIZES)
+   * @param customRng Optional custom RNG function for boundary testing (must return integer in [0, max-1])
+   * @returns Selected prize along with audit verification attributes
+   */
+  static selectPrize(prizes = WHEEL_PRIZES, customRng) {
+    if (!prizes || !Array.isArray(prizes) || prizes.length === 0) {
+      throw new Error("Invalid wheel prize configuration: prizes list cannot be empty");
+    }
+    let totalWeight = 0;
+    for (const prize of prizes) {
+      if (typeof prize.weight !== "number" || isNaN(prize.weight) || prize.weight < 0 || !Number.isInteger(prize.weight)) {
+        throw new Error(
+          `Invalid prize weight for prize '${prize.label}' (id: ${prize.id}): weight must be a non-negative integer, got ${prize.weight}`
+        );
+      }
+      totalWeight += prize.weight;
+    }
+    if (totalWeight <= 0) {
+      throw new Error("Invalid wheel prize configuration: total weight must be strictly greater than 0");
+    }
+    const randomInt = customRng ? customRng(totalWeight) : crypto2.randomInt(0, totalWeight);
+    if (typeof randomInt !== "number" || !Number.isInteger(randomInt) || randomInt < 0 || randomInt >= totalWeight) {
+      throw new Error(
+        `RNG value ${randomInt} is out of bounds [0, ${totalWeight - 1}]`
+      );
+    }
+    let cumulativeWeight = 0;
+    for (const prize of prizes) {
+      cumulativeWeight += prize.weight;
+      if (randomInt < cumulativeWeight) {
+        return {
+          prize,
+          prizeId: prize.id,
+          prizeType: prize.type,
+          prizeLabel: prize.label,
+          prizeValue: prize.value,
+          prizeWeight: prize.weight,
+          totalWeight,
+          algorithm: WHEEL_RNG_ALGORITHM
+        };
+      }
+    }
+    const fallbackPrize = [...prizes].reverse().find((p) => p.weight > 0) || prizes[prizes.length - 1];
+    return {
+      prize: fallbackPrize,
+      prizeId: fallbackPrize.id,
+      prizeType: fallbackPrize.type,
+      prizeLabel: fallbackPrize.label,
+      prizeValue: fallbackPrize.value,
+      prizeWeight: fallbackPrize.weight,
+      totalWeight,
+      algorithm: WHEEL_RNG_ALGORITHM
+    };
+  }
+  /**
+   * Generates sanitized audit metadata for spin persistence in DB and ledger entries.
+   * Does NOT include raw entropy, seeds, or sensitive keys.
+   */
+  static createAuditMetadata(selection, prizeValueStr, spinDateUtc) {
+    const isReal = selection.prizeType === "REAL_CASH";
+    const isBonus = selection.prizeType === "BONUS_CASH";
+    const category = isReal ? "REAL_CASH" : isBonus ? "BONUS_CASH" : "NON_MONETARY";
+    return {
+      providerId: "GAMEPLAY365_PROMOTIONS",
+      promoType: "LUCKY_WHEEL",
+      category,
+      rewardType: selection.prizeType,
+      prizeId: selection.prizeId,
+      prizeLabel: selection.prizeLabel,
+      prizeValue: prizeValueStr,
+      prizeWeight: selection.prizeWeight,
+      totalWeight: selection.totalWeight,
+      rngAlgorithm: selection.algorithm,
+      spinDateUtc,
+      isWithdrawable: isReal
+    };
+  }
+  /**
+   * Calculates total weight of configured prizes.
+   */
+  static getTotalWeight(prizes = WHEEL_PRIZES) {
+    return prizes.reduce((acc, p) => acc + p.weight, 0);
+  }
+};
+
+// src/server/services/freeSpinService.ts
+import { eq as eq3, and as and2, gt as gt2 } from "drizzle-orm";
+var FreeSpinService = class {
+  /**
+   * Deterministic entitlement reference string for lucky wheel rewards.
+   */
+  static getWheelReference(userId, spinDateUtc) {
+    return `WHEEL_FS_${userId}_${spinDateUtc}`;
+  }
+  /**
+   * Grants a Free Spin entitlement atomically within a transaction.
+   * If a transaction is provided, executes inside it; otherwise uses root db.
+   */
+  static async grantWheelEntitlement(params) {
+    const {
+      userId,
+      spinDateUtc,
+      quantity,
+      spinTimestamp = /* @__PURE__ */ new Date(),
+      expiryDays = 7,
+      tx
+    } = params;
+    if (!Number.isInteger(quantity) || quantity <= 0) {
+      throw new Error(`Invalid free spin quantity: ${quantity}. Quantity must be a positive integer.`);
+    }
+    const sourceReference = this.getWheelReference(userId, spinDateUtc);
+    const expiresAt = expiryDays > 0 ? new Date(spinTimestamp.getTime() + expiryDays * 24 * 60 * 60 * 1e3) : null;
+    const executor = tx || db;
+    const [record] = await executor.insert(freeSpinEntitlements).values({
+      userId,
+      source: "LUCKY_WHEEL",
+      sourceReference,
+      quantity,
+      remainingQuantity: quantity,
+      status: "ACTIVE",
+      spinDateUtc,
+      expiresAt,
+      grantedAt: spinTimestamp,
+      createdAt: spinTimestamp
+    }).returning();
+    if (!record) {
+      throw new Error(`Failed to create free spin entitlement for user ${userId} on ${spinDateUtc}`);
+    }
+    return record;
+  }
+  /**
+   * Retrieves active, non-expired free spins for a given user.
+   */
+  static async getUserActiveEntitlements(userId) {
+    const now = /* @__PURE__ */ new Date();
+    const rows = await db.select().from(freeSpinEntitlements).where(
+      and2(
+        eq3(freeSpinEntitlements.userId, userId),
+        eq3(freeSpinEntitlements.status, "ACTIVE"),
+        gt2(freeSpinEntitlements.remainingQuantity, 0)
+      )
+    );
+    return rows.filter((r) => !r.expiresAt || new Date(r.expiresAt) > now);
+  }
+  /**
+   * Returns the total active free spins count for a user.
+   */
+  static async getTotalActiveFreeSpins(userId) {
+    const active = await this.getUserActiveEntitlements(userId);
+    return active.reduce((sum, item) => sum + (item.remainingQuantity || 0), 0);
+  }
+};
+
 // src/server/controllers/promotionController.ts
-var toScale4 = (val) => {
+var toScale43 = (val) => {
   const s = typeof val === "number" ? val.toFixed(4) : String(val).trim();
   const [intPart = "0", fracPart = ""] = s.split(".");
   const paddedFrac = fracPart.padEnd(4, "0").slice(0, 4);
@@ -7984,13 +6145,24 @@ var toScale4 = (val) => {
   const combined = BigInt((cleanInt || "0") + paddedFrac);
   return isNeg ? -combined : combined;
 };
-var fromScale4 = (val) => {
+var fromScale43 = (val) => {
   const isNeg = val < 0n;
   const abs = isNeg ? -val : val;
   const str = abs.toString().padStart(5, "0");
   const intPart = str.slice(0, -4) || "0";
   const fracPart = str.slice(-4);
   return `${isNeg ? "-" : ""}${intPart}.${fracPart}`;
+};
+var getUtcDateString = (d = /* @__PURE__ */ new Date()) => {
+  return d.toISOString().split("T")[0];
+};
+var getUtcDaysDifference = (baseDateUtc, targetDateUtc) => {
+  const [y1, m1, d1] = baseDateUtc.split("-").map((n) => parseInt(n, 10));
+  const [y2, m2, d2] = targetDateUtc.split("-").map((n) => parseInt(n, 10));
+  const utc1 = Date.UTC(y1, m1 - 1, d1);
+  const utc2 = Date.UTC(y2, m2 - 1, d2);
+  const msPerDay = 24 * 60 * 60 * 1e3;
+  return Math.round((utc2 - utc1) / msPerDay);
 };
 var resolveAuthUser = async (req, clientUserId) => {
   const authUid = req.user?.uid;
@@ -7999,7 +6171,7 @@ var resolveAuthUser = async (req, clientUserId) => {
     error.statusCode = 401;
     throw error;
   }
-  const [foundUser] = await db.select({ id: users.id, uid: users.uid }).from(users).where(eq2(users.uid, authUid)).limit(1);
+  const [foundUser] = await db.select({ id: users.id, uid: users.uid }).from(users).where(eq4(users.uid, authUid)).limit(1);
   if (!foundUser) {
     const error = new Error(`User account not found for UID: ${authUid}`);
     error.statusCode = 404;
@@ -8020,157 +6192,303 @@ var resolveAuthUser = async (req, clientUserId) => {
     uid: foundUser.uid
   };
 };
-var PromotionService = class {
-  /**
-   * Process 7-day Daily Check-In with ACID Row-Level Locking & Scale-4 BigInt Math
-   */
-  static async claimDailyCheckIn(userId) {
-    return await db.transaction(async (tx) => {
-      const walletRows = await tx.select().from(wallets).where(eq2(wallets.userId, userId)).for("update");
-      const wallet = walletRows[0];
-      if (!wallet) {
-        throw new Error("Player wallet not found");
-      }
-      const [lastCheckIn] = await tx.select().from(dailyCheckIns).where(eq2(dailyCheckIns.userId, userId)).orderBy(sql`${dailyCheckIns.createdAt} DESC`).limit(1);
-      let nextStreakDay = 1;
-      const now = /* @__PURE__ */ new Date();
-      if (lastCheckIn) {
-        const lastDate = new Date(lastCheckIn.createdAt);
-        const diffHours = (now.getTime() - lastDate.getTime()) / (1e3 * 3600);
-        if (diffHours < 24) {
-          throw new Error("You have already claimed today\u2019s check-in bonus. Come back tomorrow!");
-        } else if (diffHours <= 48) {
-          nextStreakDay = lastCheckIn.streakDay % 7 + 1;
-        } else {
-          nextStreakDay = 1;
-        }
-      }
-      const rewardConfig = DAILY_CHECKIN_REWARDS.find((r) => r.day === nextStreakDay) || DAILY_CHECKIN_REWARDS[0];
-      const rewardAmount = rewardConfig.reward;
-      const rewardAmountStr = rewardAmount.toFixed(4);
-      const currentBonusBigInt = toScale4(wallet.bonusBalance);
-      const rewardBigInt = toScale4(rewardAmountStr);
-      const newBonusBigInt = currentBonusBigInt + rewardBigInt;
-      const newBonusBalanceStr = fromScale4(newBonusBigInt);
-      await tx.update(wallets).set({
-        bonusBalance: newBonusBalanceStr,
-        version: sql`${wallets.version} + 1`,
-        updatedAt: now
-      }).where(eq2(wallets.id, wallet.id));
-      await tx.insert(dailyCheckIns).values({
-        userId,
-        checkInDate: now,
-        streakDay: nextStreakDay,
-        rewardAmount: rewardAmountStr,
-        rewardType: "BONUS_CREDIT",
-        createdAt: now
-      });
-      const targetTurnoverBigInt = rewardBigInt * 10n;
-      await tx.insert(wageringRequirements).values({
-        userId,
-        promoName: `Daily Check-In Day ${nextStreakDay}`,
-        bonusAmountGranted: rewardAmountStr,
-        requiredMultiplier: 10,
-        targetTurnoverAmount: fromScale4(targetTurnoverBigInt),
-        completedTurnoverAmount: "0.0000",
-        status: "ACTIVE",
-        expiresAt: new Date(Date.now() + 7 * 24 * 3600 * 1e3),
-        createdAt: now
-      });
-      return {
-        streakDay: nextStreakDay,
-        rewardAmount,
-        label: rewardConfig.label,
-        newBonusBalance: parseFloat(newBonusBalanceStr)
-      };
-    });
+var PromotionService = class _PromotionService {
+  static {
+    this.ledgerService = null;
+  }
+  static setLedgerService(service) {
+    _PromotionService.ledgerService = service;
+  }
+  static getLedgerService() {
+    return _PromotionService.ledgerService;
   }
   /**
-   * Provably fair Lucky Spin-the-Wheel with ACID Row-Level Locking, Daily Limits & Scale-4 Math
+   * Process 7-day Daily Check-In with ACID Row-Level Locking, Scale-4 BigInt Math,
+   * Authoritative UTC Calendar Day Boundary, PostgreSQL DB-Level Unique Constraint Protection,
+   * and Authoritative WalletLedgerService routing (ZERO direct balance mutations).
    */
-  static async executeWheelSpin(userId) {
-    return await db.transaction(async (tx) => {
-      const walletRows = await tx.select().from(wallets).where(eq2(wallets.userId, userId)).for("update");
-      const wallet = walletRows[0];
-      if (!wallet) {
-        throw new Error("Player wallet not found");
+  static async claimDailyCheckIn(userId, claimTimestamp = /* @__PURE__ */ new Date(), customLedgerService) {
+    if (!userId || typeof userId !== "number") {
+      throw new Error("Valid userId is required to claim daily check-in");
+    }
+    const effectiveLedger = customLedgerService || _PromotionService.ledgerService;
+    if (!effectiveLedger) {
+      throw new Error("FATAL_LEDGER_UNAVAILABLE: Production WalletLedgerService is not configured. Promotion claim failed closed.");
+    }
+    const todayUtc = getUtcDateString(claimTimestamp);
+    const deterministicClaimTxId = `PROMO_CHECKIN_${userId}_${todayUtc}`;
+    try {
+      return await db.transaction(async (tx) => {
+        const existingTodayCheckIn = await tx.select({ id: dailyCheckIns.id }).from(dailyCheckIns).where(
+          and3(
+            eq4(dailyCheckIns.userId, userId),
+            eq4(dailyCheckIns.claimDateUtc, todayUtc)
+          )
+        ).limit(1);
+        if (existingTodayCheckIn.length > 0) {
+          throw new Error("You have already claimed today\u2019s check-in bonus. Come back tomorrow!");
+        }
+        const [lastCheckIn] = await tx.select().from(dailyCheckIns).where(eq4(dailyCheckIns.userId, userId)).orderBy(sql5`${dailyCheckIns.createdAt} DESC`).limit(1);
+        let nextStreakDay = 1;
+        if (lastCheckIn) {
+          const lastUtc = lastCheckIn.claimDateUtc || getUtcDateString(new Date(lastCheckIn.checkInDate || lastCheckIn.createdAt));
+          const diffDays = getUtcDaysDifference(lastUtc, todayUtc);
+          if (diffDays <= 0) {
+            throw new Error("You have already claimed today\u2019s check-in bonus. Come back tomorrow!");
+          } else if (diffDays === 1) {
+            nextStreakDay = lastCheckIn.streakDay % 7 + 1;
+          } else {
+            nextStreakDay = 1;
+          }
+        }
+        const rewardConfig = DAILY_CHECKIN_REWARDS.find((r) => r.day === nextStreakDay) || DAILY_CHECKIN_REWARDS[0];
+        const rewardAmount = rewardConfig.reward;
+        const rewardAmountStr = rewardAmount.toFixed(4);
+        const rewardBigInt = toScale43(rewardAmountStr);
+        const ledgerResult = await effectiveLedger.executeTransaction({
+          userId: String(userId),
+          currency: "BDT",
+          type: "CREDIT",
+          targetBalance: "BONUS",
+          amountMinor: rewardAmountStr,
+          transactionId: deterministicClaimTxId,
+          auditMetadata: {
+            providerId: "GAMEPLAY365_PROMOTIONS",
+            category: "BONUS_CASH",
+            rewardType: "BONUS_CREDIT",
+            promoType: "DAILY_CHECKIN",
+            streakDay: nextStreakDay,
+            claimDateUtc: todayUtc,
+            rewardAmount: rewardAmountStr,
+            isWithdrawable: false
+          }
+        });
+        await tx.insert(dailyCheckIns).values({
+          userId,
+          checkInDate: claimTimestamp,
+          claimDateUtc: todayUtc,
+          streakDay: nextStreakDay,
+          rewardAmount: rewardAmountStr,
+          rewardType: "BONUS_CREDIT",
+          createdAt: claimTimestamp
+        });
+        const targetTurnoverBigInt = rewardBigInt * 10n;
+        await tx.insert(wageringRequirements).values({
+          userId,
+          promoName: `Daily Check-In Day ${nextStreakDay}`,
+          bonusAmountGranted: rewardAmountStr,
+          requiredMultiplier: 10,
+          targetTurnoverAmount: fromScale43(targetTurnoverBigInt),
+          completedTurnoverAmount: "0.0000",
+          status: "ACTIVE",
+          expiresAt: new Date(claimTimestamp.getTime() + 7 * 24 * 3600 * 1e3),
+          createdAt: claimTimestamp
+        });
+        return {
+          streakDay: nextStreakDay,
+          rewardAmount,
+          label: rewardConfig.label,
+          newBonusBalance: parseFloat(ledgerResult.afterBalanceMajor),
+          transactionId: deterministicClaimTxId,
+          ledgerEntryId: ledgerResult.ledgerEntryId,
+          isIdempotent: ledgerResult.isIdempotent || false
+        };
+      });
+    } catch (err) {
+      if (err.code === "23505" || err.message?.includes("daily_check_ins_user_claim_date_utc_idx") || err.message?.includes("duplicate key")) {
+        throw new Error("You have already claimed today\u2019s check-in bonus. Come back tomorrow!");
       }
-      const todayStart = /* @__PURE__ */ new Date();
-      todayStart.setHours(0, 0, 0, 0);
-      const spinsToday = await tx.select({ id: wheelSpins.id }).from(wheelSpins).where(
-        sql`${wheelSpins.userId} = ${userId} AND ${wheelSpins.createdAt} >= ${todayStart}`
-      );
-      if (spinsToday.length >= 1) {
+      throw err;
+    }
+  }
+  /**
+   * Cryptographically Secure Weighted Lucky Spin-the-Wheel with Daily Limits, Scale-4 Math,
+   * Authoritative UTC Calendar Day Boundary, PostgreSQL DB-Level Unique Constraint Protection,
+   * Node.js crypto.randomInt CSPRNG authority, and Authoritative WalletLedgerService routing.
+   */
+  static async executeWheelSpin(userId, spinTimestamp = /* @__PURE__ */ new Date(), customLedgerService, customRng, customEntitlementCreator) {
+    if (!userId || typeof userId !== "number") {
+      throw new Error("Valid userId is required to execute wheel spin");
+    }
+    const effectiveLedger = customLedgerService || _PromotionService.ledgerService;
+    if (!effectiveLedger) {
+      throw new Error("FATAL_LEDGER_UNAVAILABLE: Production WalletLedgerService is not configured. Wheel spin failed closed.");
+    }
+    const todayUtc = getUtcDateString(spinTimestamp);
+    const deterministicSpinTxId = `PROMO_WHEEL_${userId}_${todayUtc}`;
+    try {
+      return await db.transaction(async (tx) => {
+        const existingSpin = await tx.select({ id: wheelSpins.id }).from(wheelSpins).where(
+          and3(
+            eq4(wheelSpins.userId, userId),
+            eq4(wheelSpins.spinDateUtc, todayUtc)
+          )
+        ).limit(1);
+        if (existingSpin.length >= 1) {
+          throw new Error("You have already used your daily free wheel spin for today. Come back tomorrow!");
+        }
+        const selection = WheelRngService.selectPrize(WHEEL_PRIZES, customRng);
+        const winningPrize = selection.prize;
+        const prizeValueStr = winningPrize.value.toFixed(4);
+        const prizeBigInt = toScale43(prizeValueStr);
+        const spinAuditMetadata = WheelRngService.createAuditMetadata(
+          selection,
+          prizeValueStr,
+          todayUtc
+        );
+        let ledgerResult = null;
+        let entitlementResult = null;
+        let isClaimFulfilled = false;
+        if (winningPrize.type === "REAL_CASH" || winningPrize.type === "BONUS_CASH") {
+          if (prizeBigInt > 0n) {
+            if (winningPrize.type === "REAL_CASH") {
+              ledgerResult = await effectiveLedger.executeTransaction({
+                userId: String(userId),
+                currency: "BDT",
+                type: "CREDIT",
+                targetBalance: "REAL",
+                amountMinor: prizeValueStr,
+                transactionId: deterministicSpinTxId,
+                auditMetadata: spinAuditMetadata
+              });
+              isClaimFulfilled = !!ledgerResult?.ledgerEntryId || !!ledgerResult?.isIdempotent;
+            } else if (winningPrize.type === "BONUS_CASH") {
+              ledgerResult = await effectiveLedger.executeTransaction({
+                userId: String(userId),
+                currency: "BDT",
+                type: "CREDIT",
+                targetBalance: "BONUS",
+                amountMinor: prizeValueStr,
+                transactionId: deterministicSpinTxId,
+                auditMetadata: spinAuditMetadata
+              });
+              isClaimFulfilled = !!ledgerResult?.ledgerEntryId || !!ledgerResult?.isIdempotent;
+            }
+          } else {
+            isClaimFulfilled = true;
+          }
+        } else if (winningPrize.type === "FREE_SPINS") {
+          const spinQuantity = Math.floor(winningPrize.value);
+          if (spinQuantity <= 0) {
+            throw new Error(`Invalid free spin prize quantity: ${winningPrize.value}`);
+          }
+          if (customEntitlementCreator) {
+            entitlementResult = await customEntitlementCreator({
+              userId,
+              spinDateUtc: todayUtc,
+              quantity: spinQuantity,
+              spinTimestamp,
+              tx
+            });
+          } else {
+            entitlementResult = await FreeSpinService.grantWheelEntitlement({
+              userId,
+              spinDateUtc: todayUtc,
+              quantity: spinQuantity,
+              spinTimestamp,
+              expiryDays: 7,
+              tx
+            });
+          }
+          if (!entitlementResult) {
+            throw new Error(`FATAL_ENTITLEMENT_FAILED: Free spin entitlement creation returned empty. Wheel reward not claimed.`);
+          }
+          isClaimFulfilled = true;
+        } else {
+          isClaimFulfilled = true;
+        }
+        if (!isClaimFulfilled) {
+          throw new Error(`FATAL_FULFILLMENT_FAILED: Wheel reward fulfillment failed for prize ${winningPrize.label}. Spin failed closed.`);
+        }
+        await tx.insert(wheelSpins).values({
+          userId,
+          spinDateUtc: todayUtc,
+          prizeType: winningPrize.type,
+          prizeLabel: winningPrize.label,
+          prizeValue: prizeValueStr,
+          currency: "BDT",
+          isClaimed: isClaimFulfilled,
+          auditMetadata: {
+            prizeId: selection.prizeId,
+            prizeType: selection.prizeType,
+            prizeLabel: selection.prizeLabel,
+            prizeWeight: selection.prizeWeight,
+            totalWeight: selection.totalWeight,
+            algorithm: selection.algorithm,
+            spinDateUtc: todayUtc,
+            entitlementId: entitlementResult?.id || null,
+            entitlementReference: entitlementResult?.sourceReference || null
+          },
+          createdAt: spinTimestamp
+        });
+        return {
+          prize: winningPrize,
+          timestamp: spinTimestamp.getTime(),
+          transactionId: deterministicSpinTxId,
+          ledgerEntryId: ledgerResult?.ledgerEntryId || null,
+          isIdempotent: ledgerResult?.isIdempotent || false,
+          entitlement: entitlementResult ? {
+            id: entitlementResult.id,
+            sourceReference: entitlementResult.sourceReference,
+            quantity: entitlementResult.quantity,
+            remainingQuantity: entitlementResult.remainingQuantity,
+            status: entitlementResult.status,
+            expiresAt: entitlementResult.expiresAt
+          } : null,
+          audit: {
+            prizeId: selection.prizeId,
+            prizeType: selection.prizeType,
+            prizeWeight: selection.prizeWeight,
+            totalWeight: selection.totalWeight,
+            algorithm: selection.algorithm,
+            spinDateUtc: todayUtc
+          }
+        };
+      });
+    } catch (err) {
+      if (err.code === "23505" || err.message?.includes("wheel_spins_user_spin_date_utc_idx") || err.message?.includes("free_spin_entitlements_") || err.message?.includes("duplicate key")) {
         throw new Error("You have already used your daily free wheel spin for today. Come back tomorrow!");
       }
-      const totalWeight = WHEEL_PRIZES.reduce((acc, p) => acc + p.weight, 0);
-      let randomWeight = Math.random() * totalWeight;
-      let winningPrize = WHEEL_PRIZES[0];
-      for (const prize of WHEEL_PRIZES) {
-        if (randomWeight < prize.weight) {
-          winningPrize = prize;
-          break;
-        }
-        randomWeight -= prize.weight;
-      }
-      const now = /* @__PURE__ */ new Date();
-      const prizeValueStr = winningPrize.value.toFixed(4);
-      const prizeBigInt = toScale4(prizeValueStr);
-      if (winningPrize.type === "REAL_CASH" && prizeBigInt > 0n) {
-        const currentRealBigInt = toScale4(wallet.realBalance);
-        const newRealBigInt = currentRealBigInt + prizeBigInt;
-        const newRealBalanceStr = fromScale4(newRealBigInt);
-        await tx.update(wallets).set({
-          realBalance: newRealBalanceStr,
-          version: sql`${wallets.version} + 1`,
-          updatedAt: now
-        }).where(eq2(wallets.id, wallet.id));
-      } else if (winningPrize.type === "BONUS_CASH" && prizeBigInt > 0n) {
-        const currentBonusBigInt = toScale4(wallet.bonusBalance);
-        const newBonusBigInt = currentBonusBigInt + prizeBigInt;
-        const newBonusBalanceStr = fromScale4(newBonusBigInt);
-        await tx.update(wallets).set({
-          bonusBalance: newBonusBalanceStr,
-          version: sql`${wallets.version} + 1`,
-          updatedAt: now
-        }).where(eq2(wallets.id, wallet.id));
-      }
-      await tx.insert(wheelSpins).values({
-        userId,
-        prizeType: winningPrize.type,
-        prizeLabel: winningPrize.label,
-        prizeValue: prizeValueStr,
-        currency: wallet.currency,
-        isClaimed: true,
-        createdAt: now
-      });
-      return {
-        prize: winningPrize,
-        timestamp: now.getTime()
-      };
-    });
+      throw err;
+    }
   }
 };
 var getPromotionDetailsHandler = async (req, res) => {
   try {
     const { userId } = await resolveAuthUser(req, req.query.userId);
-    const [lastCheckIn] = await db.select().from(dailyCheckIns).where(eq2(dailyCheckIns.userId, userId)).orderBy(sql`${dailyCheckIns.createdAt} DESC`).limit(1);
-    const activeWagering = await db.select().from(wageringRequirements).where(eq2(wageringRequirements.userId, userId)).limit(10);
-    const todayStart = /* @__PURE__ */ new Date();
-    todayStart.setHours(0, 0, 0, 0);
-    const spinsToday = await db.select().from(wheelSpins).where(
-      sql`${wheelSpins.userId} = ${userId} AND ${wheelSpins.createdAt} >= ${todayStart}`
+    const now = /* @__PURE__ */ new Date();
+    const todayUtc = getUtcDateString(now);
+    const [lastCheckIn] = await db.select().from(dailyCheckIns).where(eq4(dailyCheckIns.userId, userId)).orderBy(sql5`${dailyCheckIns.createdAt} DESC`).limit(1);
+    const activeWagering = await db.select().from(wageringRequirements).where(eq4(wageringRequirements.userId, userId)).limit(10);
+    const [todaySpin] = await db.select({ id: wheelSpins.id }).from(wheelSpins).where(
+      and3(
+        eq4(wheelSpins.userId, userId),
+        eq4(wheelSpins.spinDateUtc, todayUtc)
+      )
+    ).limit(1);
+    const activeFreeSpins = await db.select({
+      id: freeSpinEntitlements.id,
+      quantity: freeSpinEntitlements.quantity,
+      remainingQuantity: freeSpinEntitlements.remainingQuantity,
+      status: freeSpinEntitlements.status,
+      expiresAt: freeSpinEntitlements.expiresAt,
+      spinDateUtc: freeSpinEntitlements.spinDateUtc
+    }).from(freeSpinEntitlements).where(
+      and3(
+        eq4(freeSpinEntitlements.userId, userId),
+        eq4(freeSpinEntitlements.status, "ACTIVE")
+      )
     );
+    const totalActiveFreeSpins = activeFreeSpins.reduce((sum, e) => sum + (e.remainingQuantity || 0), 0);
     let streak = 0;
     let canCheckInToday = true;
     if (lastCheckIn) {
-      const now = /* @__PURE__ */ new Date();
-      const lastDate = new Date(lastCheckIn.createdAt);
-      const diffHours = (now.getTime() - lastDate.getTime()) / (1e3 * 3600);
-      if (diffHours < 24) {
+      const lastUtc = lastCheckIn.claimDateUtc || getUtcDateString(new Date(lastCheckIn.checkInDate || lastCheckIn.createdAt));
+      const diffDays = getUtcDaysDifference(lastUtc, todayUtc);
+      if (diffDays <= 0) {
         canCheckInToday = false;
         streak = lastCheckIn.streakDay || 0;
-      } else if (diffHours <= 48) {
+      } else if (diffDays === 1) {
         canCheckInToday = true;
         streak = lastCheckIn.streakDay || 0;
       } else {
@@ -8178,13 +6496,15 @@ var getPromotionDetailsHandler = async (req, res) => {
         streak = 0;
       }
     }
-    const availableSpins = Math.max(0, 1 - spinsToday.length);
+    const availableSpins = todaySpin ? 0 : 1;
     res.json({
       status: "SUCCESS",
       data: {
         checkInStreak: streak,
         canCheckInToday,
         availableSpins,
+        activeFreeSpinsCount: totalActiveFreeSpins,
+        freeSpinEntitlements: activeFreeSpins || [],
         dailyRewards: DAILY_CHECKIN_REWARDS,
         wheelPrizes: WHEEL_PRIZES,
         activeWageringRequirements: activeWagering || []
@@ -8215,6 +6535,61 @@ var spinWheelHandler = async (req, res) => {
     res.status(statusCode).json({ status: "ERROR", message: err.message });
   }
 };
+var convertBonusHandler = async (req, res) => {
+  try {
+    const { userId } = await resolveAuthUser(req, req.body?.userId);
+    const requirementId = Number(req.body?.requirementId);
+    if (!requirementId || isNaN(requirementId)) {
+      res.status(400).json({ status: "ERROR", message: "Valid requirementId is required" });
+      return;
+    }
+    const currency = req.body?.currency || "BDT";
+    const idempotencyKey = req.body?.idempotencyKey || req.headers["idempotency-key"];
+    const result = await WageringService.convertOrReleaseBonus({
+      userId,
+      requirementId,
+      currency,
+      idempotencyKey
+    });
+    if (!result.success) {
+      const statusCode = result.reason === "TRANSACTION_USER_MISMATCH" ? 403 : 400;
+      res.status(statusCode).json({
+        status: "ERROR",
+        message: `Bonus conversion blocked: ${result.reason}`,
+        data: result
+      });
+      return;
+    }
+    res.json({
+      status: "SUCCESS",
+      data: result,
+      message: result.duplicate ? "Bonus requirement already released" : "Bonus successfully converted and credited to REAL balance"
+    });
+  } catch (err) {
+    const statusCode = err.statusCode || (err.message?.includes("not found") ? 404 : 400);
+    res.status(statusCode).json({ status: "ERROR", message: err.message });
+  }
+};
+var getWageringStatusHandler = async (req, res) => {
+  try {
+    const { userId } = await resolveAuthUser(req, req.query?.userId);
+    const activeReqs = await WageringService.getUserActiveRequirements(userId);
+    const gate = await WageringService.enforceWithdrawalWageringGate({ userId });
+    res.json({
+      status: "SUCCESS",
+      data: {
+        userId,
+        canWithdraw: gate.allowed,
+        gateReason: gate.reason,
+        activeRequirementsCount: gate.activeRequirementsCount,
+        activeRequirements: activeReqs
+      }
+    });
+  } catch (err) {
+    const statusCode = err.statusCode || (err.message?.includes("not found") ? 404 : 400);
+    res.status(statusCode).json({ status: "ERROR", message: err.message });
+  }
+};
 
 // src/server/controllers/affiliateController.ts
 var COMMISSION_TIER_BPS = {
@@ -8239,7 +6614,7 @@ var AffiliateService = class _AffiliateService {
     if (!params.sourceTransactionId || typeof params.sourceTransactionId !== "string" || params.sourceTransactionId.trim() === "") {
       throw new Error("sourceTransactionId is required for commission distribution");
     }
-    const [sourceTx] = await db.select().from(transactions).where(eq3(transactions.transactionId, params.sourceTransactionId)).limit(1);
+    const [sourceTx] = await db.select().from(transactions).where(eq5(transactions.transactionId, params.sourceTransactionId)).limit(1);
     if (!sourceTx) {
       return { success: false, reason: "SOURCE_TRANSACTION_NOT_FOUND", distributedCount: 0 };
     }
@@ -8253,13 +6628,13 @@ var AffiliateService = class _AffiliateService {
     if (sourceTx.userId !== params.userId) {
       return { success: false, reason: "TRANSACTION_USER_MISMATCH", distributedCount: 0 };
     }
-    const authoritativeBetScale4 = toScale4(sourceTx.amount);
+    const authoritativeBetScale4 = toScale43(sourceTx.amount);
     if (authoritativeBetScale4 <= 0n) {
       return { success: false, reason: "INVALID_BET_AMOUNT", distributedCount: 0 };
     }
     const authoritativeCurrency = sourceTx.currency || "BDT";
     if (params.betAmount !== void 0 && params.betAmount !== null) {
-      const callerBetScale4 = typeof params.betAmount === "bigint" ? params.betAmount : toScale4(params.betAmount);
+      const callerBetScale4 = typeof params.betAmount === "bigint" ? params.betAmount : toScale43(params.betAmount);
       if (callerBetScale4 !== authoritativeBetScale4) {
         return { success: false, reason: "BET_AMOUNT_MISMATCH", distributedCount: 0 };
       }
@@ -8271,7 +6646,7 @@ var AffiliateService = class _AffiliateService {
     }
     const betScale4 = authoritativeBetScale4;
     const resolvedCurrency = authoritativeCurrency;
-    const [userNode] = await db.select().from(affiliateNodes).where(eq3(affiliateNodes.userId, sourceTx.userId)).limit(1);
+    const [userNode] = await db.select().from(affiliateNodes).where(eq5(affiliateNodes.userId, sourceTx.userId)).limit(1);
     if (!userNode || !userNode.parentAffiliateId) {
       return { success: true, reason: "NO_UPLINE_BENEFICIARY", distributedCount: 0 };
     }
@@ -8296,7 +6671,7 @@ var AffiliateService = class _AffiliateService {
       return { success: true, reason: "NO_UPLINE_BENEFICIARY", distributedCount: 0 };
     }
     return await db.transaction(async (tx) => {
-      const existingCommissions = await tx.select().from(affiliateCommissions).where(eq3(affiliateCommissions.sourceTransactionId, params.sourceTransactionId));
+      const existingCommissions = await tx.select().from(affiliateCommissions).where(eq5(affiliateCommissions.sourceTransactionId, params.sourceTransactionId));
       const existingTierMap = new Set(
         existingCommissions.map((c) => `${c.beneficiaryUserId}_${c.tier}`)
       );
@@ -8311,7 +6686,7 @@ var AffiliateService = class _AffiliateService {
       ).sort((a, b) => a - b);
       for (const bUserId of distinctBeneficiaryIds) {
         await tx.execute(
-          sql2`SELECT * FROM affiliate_nodes WHERE user_id = ${bUserId} FOR UPDATE`
+          sql6`SELECT * FROM affiliate_nodes WHERE user_id = ${bUserId} FOR UPDATE`
         );
       }
       let distributedCount = 0;
@@ -8320,14 +6695,14 @@ var AffiliateService = class _AffiliateService {
         if (commissionScale4 <= 0n) {
           continue;
         }
-        const commissionAmountStr = fromScale4(commissionScale4);
-        const betAmountStr = fromScale4(betScale4);
+        const commissionAmountStr = fromScale43(commissionScale4);
+        const betAmountStr = fromScale43(betScale4);
         await tx.update(affiliateNodes).set({
-          totalCommissionEarned: sql2`(${affiliateNodes.totalCommissionEarned}::numeric + ${commissionAmountStr}::numeric)::text`,
-          unclaimedCommission: sql2`(${affiliateNodes.unclaimedCommission}::numeric + ${commissionAmountStr}::numeric)::text`,
-          totalTurnoverVolume: sql2`(${affiliateNodes.totalTurnoverVolume}::numeric + ${betAmountStr}::numeric)::text`,
+          totalCommissionEarned: sql6`(${affiliateNodes.totalCommissionEarned}::numeric + ${commissionAmountStr}::numeric)::text`,
+          unclaimedCommission: sql6`(${affiliateNodes.unclaimedCommission}::numeric + ${commissionAmountStr}::numeric)::text`,
+          totalTurnoverVolume: sql6`(${affiliateNodes.totalTurnoverVolume}::numeric + ${betAmountStr}::numeric)::text`,
           updatedAt: /* @__PURE__ */ new Date()
-        }).where(eq3(affiliateNodes.userId, beneficiary.userId));
+        }).where(eq5(affiliateNodes.userId, beneficiary.userId));
         await tx.insert(affiliateCommissions).values({
           beneficiaryUserId: beneficiary.userId,
           sourceUserId: sourceTx.userId,
@@ -8381,14 +6756,14 @@ var AffiliateService = class _AffiliateService {
       throw new Error("FATAL_LEDGER_UNAVAILABLE: Production WalletLedgerService is not configured. Affiliate commission claim failed closed.");
     }
     return await db.transaction(async (tx) => {
-      const [node] = await tx.select().from(affiliateNodes).where(eq3(affiliateNodes.userId, userId)).for("update");
+      const [node] = await tx.select().from(affiliateNodes).where(eq5(affiliateNodes.userId, userId)).for("update");
       if (!node) {
         throw new Error("Affiliate profile not found");
       }
       const settledCommissions = await tx.select().from(affiliateCommissions).where(
-        and(
-          eq3(affiliateCommissions.beneficiaryUserId, userId),
-          eq3(affiliateCommissions.status, "SETTLED")
+        and4(
+          eq5(affiliateCommissions.beneficiaryUserId, userId),
+          eq5(affiliateCommissions.status, "SETTLED")
         )
       ).for("update");
       if (settledCommissions.length === 0) {
@@ -8400,12 +6775,12 @@ var AffiliateService = class _AffiliateService {
       const deterministicClaimTxId = `AFF_CLAIM_U${userId}_${entriesHash}`;
       let totalClaimableScale4 = 0n;
       for (const entry of settledCommissions) {
-        totalClaimableScale4 += toScale4(entry.commissionAmount);
+        totalClaimableScale4 += toScale43(entry.commissionAmount);
       }
       if (totalClaimableScale4 <= 0n) {
         throw new Error("No unclaimed commissions available");
       }
-      const claimedAmountStr = fromScale4(totalClaimableScale4);
+      const claimedAmountStr = fromScale43(totalClaimableScale4);
       const ledgerResult = await effectiveLedger.executeTransaction({
         userId: String(userId),
         currency: "BDT",
@@ -8420,29 +6795,191 @@ var AffiliateService = class _AffiliateService {
           claimedAmount: claimedAmountStr
         }
       });
-      const nodeUnclaimedScale4 = toScale4(node.unclaimedCommission);
+      const nodeUnclaimedScale4 = toScale43(node.unclaimedCommission);
       const remainingUnclaimedScale4 = nodeUnclaimedScale4 > totalClaimableScale4 ? nodeUnclaimedScale4 - totalClaimableScale4 : 0n;
-      const remainingUnclaimedStr = fromScale4(remainingUnclaimedScale4);
+      const remainingUnclaimedStr = fromScale43(remainingUnclaimedScale4);
       await tx.update(affiliateNodes).set({
         unclaimedCommission: remainingUnclaimedStr,
         updatedAt: /* @__PURE__ */ new Date()
-      }).where(eq3(affiliateNodes.userId, userId));
+      }).where(eq5(affiliateNodes.userId, userId));
       await tx.update(affiliateCommissions).set({ status: "CLAIMED" }).where(inArray(affiliateCommissions.id, sortedIds));
       return {
         claimedAmount: claimedAmountStr,
-        newRealBalance: ledgerResult.afterBalanceMajor || fromScale4(toScale4(ledgerResult.afterBalanceMinor)),
+        newRealBalance: ledgerResult.afterBalanceMajor || fromScale43(toScale43(ledgerResult.afterBalanceMinor)),
         transactionId: deterministicClaimTxId,
         ledgerEntryId: ledgerResult.ledgerEntryId,
         isIdempotent: ledgerResult.isIdempotent || false
       };
     });
   }
+  /**
+   * Bind a new user to an authoritative referrer via unique referralCode.
+   * Enforces:
+   * 1. PostgreSQL/server as the ONLY authority for referral relationships.
+   * 2. Authoritative authenticated caller derived strictly from verified Firebase Auth token.
+   * 3. Authoritative resolution of referralCode only against PostgreSQL user/affiliate record.
+   * 4. Immutable relationship: Single parent only, never reassignable.
+   * 5. Strict idempotency: Retrying with the same parent returns identical success state.
+   * 6. Strict validation: Rejects self-referral, referral cycles (A->B->A), invalid codes, parent reassignment.
+   * 7. Concurrency-safe: Single ACID transaction with ordered row-level locking (SELECT ... FOR UPDATE).
+   * 8. Zero client-side financial mutations.
+   */
+  static async bindReferral(params) {
+    if (!params.userId || typeof params.userId !== "number") {
+      throw new Error("Valid userId is required for referral binding");
+    }
+    if (!params.referralCode || typeof params.referralCode !== "string" || !params.referralCode.trim()) {
+      const error = new Error("Referral code is required");
+      error.statusCode = 400;
+      error.code = "INVALID_REFERRAL_CODE";
+      throw error;
+    }
+    const cleanCode = params.referralCode.trim();
+    let referrerUserId = null;
+    const [matchedNode] = await db.select().from(affiliateNodes).where(sql6`LOWER(${affiliateNodes.referralCode}) = LOWER(${cleanCode})`).limit(1);
+    if (matchedNode) {
+      referrerUserId = matchedNode.userId;
+    } else {
+      const [matchedUser] = await db.select().from(users).where(sql6`LOWER(${users.referralCode}) = LOWER(${cleanCode})`).limit(1);
+      if (matchedUser) {
+        referrerUserId = matchedUser.id;
+      } else {
+        const match = cleanCode.toUpperCase().match(/^PLAY369_(\d+)$/);
+        if (match) {
+          const possibleId = parseInt(match[1], 10);
+          const [userById] = await db.select().from(users).where(eq5(users.id, possibleId)).limit(1);
+          if (userById) {
+            referrerUserId = userById.id;
+          }
+        }
+      }
+    }
+    if (!referrerUserId) {
+      const error = new Error(`Invalid or nonexistent referral code: ${cleanCode}`);
+      error.statusCode = 404;
+      error.code = "INVALID_REFERRAL_CODE";
+      throw error;
+    }
+    if (referrerUserId === params.userId) {
+      const error = new Error("Self-referral is strictly forbidden");
+      error.statusCode = 400;
+      error.code = "CANNOT_REFER_SELF";
+      throw error;
+    }
+    return await db.transaction(async (tx) => {
+      const lockIds = [params.userId, referrerUserId].sort((a, b) => a - b);
+      for (const uid of lockIds) {
+        await tx.execute(sql6`SELECT id FROM users WHERE id = ${uid} FOR UPDATE`);
+      }
+      const [currentUser] = await tx.select().from(users).where(eq5(users.id, params.userId)).limit(1);
+      if (!currentUser) {
+        const error = new Error("User not found");
+        error.statusCode = 404;
+        throw error;
+      }
+      const [currentUserNode] = await tx.select().from(affiliateNodes).where(eq5(affiliateNodes.userId, params.userId)).limit(1);
+      const existingParent = currentUser.referredByUserId || currentUserNode?.parentAffiliateId;
+      if (existingParent !== null && existingParent !== void 0) {
+        if (existingParent === referrerUserId) {
+          return {
+            success: true,
+            isIdempotent: true,
+            message: "Already referred by this sponsor",
+            parentUserId: referrerUserId,
+            grandParentUserId: currentUserNode?.grandParentAffiliateId || null,
+            referralCode: cleanCode
+          };
+        } else {
+          const error = new Error("Referral relationship is immutable and cannot be reassigned");
+          error.statusCode = 409;
+          error.code = "ALREADY_BOUND";
+          throw error;
+        }
+      }
+      let [referrerNode] = await tx.select().from(affiliateNodes).where(eq5(affiliateNodes.userId, referrerUserId)).limit(1);
+      if (!referrerNode) {
+        const [insertedRefNode] = await tx.insert(affiliateNodes).values({
+          userId: referrerUserId,
+          referralCode: `PLAY369_${referrerUserId}`,
+          totalDirectReferrals: 0,
+          totalSubordinates: 0,
+          totalTurnoverVolume: "0.0000",
+          totalCommissionEarned: "0.0000",
+          unclaimedCommission: "0.0000",
+          status: "ACTIVE"
+        }).returning();
+        referrerNode = insertedRefNode;
+      }
+      let currentAncestorId = referrerNode.parentAffiliateId;
+      let depth = 0;
+      const visited = /* @__PURE__ */ new Set([referrerUserId]);
+      while (currentAncestorId && depth < 50) {
+        if (currentAncestorId === params.userId) {
+          const error = new Error("Referral cycle detected: Cannot create circular referral relationship");
+          error.statusCode = 400;
+          error.code = "REFERRAL_CYCLE_DETECTED";
+          throw error;
+        }
+        if (visited.has(currentAncestorId)) {
+          break;
+        }
+        visited.add(currentAncestorId);
+        const [ancestorNode] = await tx.select({ parentAffiliateId: affiliateNodes.parentAffiliateId }).from(affiliateNodes).where(eq5(affiliateNodes.userId, currentAncestorId)).limit(1);
+        currentAncestorId = ancestorNode?.parentAffiliateId || null;
+        depth++;
+      }
+      const grandParentId = referrerNode.parentAffiliateId || null;
+      await tx.update(users).set({
+        referredByUserId: referrerUserId,
+        updatedAt: /* @__PURE__ */ new Date()
+      }).where(eq5(users.id, params.userId));
+      if (currentUserNode) {
+        await tx.update(affiliateNodes).set({
+          parentAffiliateId: referrerUserId,
+          grandParentAffiliateId: grandParentId,
+          updatedAt: /* @__PURE__ */ new Date()
+        }).where(eq5(affiliateNodes.userId, params.userId));
+      } else {
+        await tx.insert(affiliateNodes).values({
+          userId: params.userId,
+          parentAffiliateId: referrerUserId,
+          grandParentAffiliateId: grandParentId,
+          referralCode: currentUser.referralCode || `PLAY369_${params.userId}`,
+          totalDirectReferrals: 0,
+          totalSubordinates: 0,
+          totalTurnoverVolume: "0.0000",
+          totalCommissionEarned: "0.0000",
+          unclaimedCommission: "0.0000",
+          status: "ACTIVE"
+        });
+      }
+      await tx.update(affiliateNodes).set({
+        totalDirectReferrals: sql6`${affiliateNodes.totalDirectReferrals} + 1`,
+        totalSubordinates: sql6`${affiliateNodes.totalSubordinates} + 1`,
+        updatedAt: /* @__PURE__ */ new Date()
+      }).where(eq5(affiliateNodes.userId, referrerUserId));
+      if (grandParentId) {
+        await tx.update(affiliateNodes).set({
+          totalSubordinates: sql6`${affiliateNodes.totalSubordinates} + 1`,
+          updatedAt: /* @__PURE__ */ new Date()
+        }).where(eq5(affiliateNodes.userId, grandParentId));
+      }
+      return {
+        success: true,
+        isIdempotent: false,
+        message: "Referral relationship bound successfully",
+        parentUserId: referrerUserId,
+        grandParentUserId: grandParentId,
+        referralCode: cleanCode
+      };
+    });
+  }
 };
 var getAffiliateSummaryHandler = async (req, res) => {
   try {
-    const { userId } = await resolveAuthUser(req, req.query.userId);
-    const [node] = await db.select().from(affiliateNodes).where(eq3(affiliateNodes.userId, userId));
-    const commissions = await db.select().from(affiliateCommissions).where(eq3(affiliateCommissions.beneficiaryUserId, userId)).limit(50);
+    const { userId } = await resolveAuthUser(req);
+    const [node] = await db.select().from(affiliateNodes).where(eq5(affiliateNodes.userId, userId));
+    const commissions = await db.select().from(affiliateCommissions).where(eq5(affiliateCommissions.beneficiaryUserId, userId)).limit(50);
     res.json({
       status: "SUCCESS",
       data: {
@@ -8465,7 +7002,7 @@ var getAffiliateSummaryHandler = async (req, res) => {
 };
 var claimCommissionHandler = async (req, res) => {
   try {
-    const { userId } = await resolveAuthUser(req, req.body?.userId);
+    const { userId } = await resolveAuthUser(req);
     const result = await AffiliateService.claimAffiliateCommission(userId);
     res.json({ status: "SUCCESS", data: result });
   } catch (err) {
@@ -8473,23 +7010,61 @@ var claimCommissionHandler = async (req, res) => {
     res.status(statusCode).json({ status: "ERROR", message: err.message });
   }
 };
+var bindReferralHandler = async (req, res) => {
+  try {
+    const { userId } = await resolveAuthUser(req);
+    const referralCode = req.body?.referralCode;
+    if (!referralCode || typeof referralCode !== "string" || !referralCode.trim()) {
+      res.status(400).json({
+        status: "ERROR",
+        code: "INVALID_REFERRAL_CODE",
+        message: "Referral code is required"
+      });
+      return;
+    }
+    const result = await AffiliateService.bindReferral({
+      userId,
+      referralCode: referralCode.trim()
+    });
+    res.json({ status: "SUCCESS", data: result });
+  } catch (err) {
+    const statusCode = err.statusCode || (err.code === "INVALID_REFERRAL_CODE" ? 404 : err.code === "ALREADY_BOUND" ? 409 : err.code === "CANNOT_REFER_SELF" || err.code === "REFERRAL_CYCLE_DETECTED" ? 400 : err.message?.includes("not found") ? 404 : 400);
+    res.status(statusCode).json({
+      status: "ERROR",
+      code: err.code || "REFERRAL_BIND_ERROR",
+      message: err.message
+    });
+  }
+};
 
 // src/server/controllers/vipController.ts
-import { eq as eq4, sql as sql3 } from "drizzle-orm";
-var VipService = class {
+import { and as and5, eq as eq6, or, sql as sql7 } from "drizzle-orm";
+var VipService = class _VipService {
+  static {
+    this.ledgerService = null;
+  }
+  static setLedgerService(service) {
+    _VipService.ledgerService = service;
+  }
+  static getLedgerService() {
+    return _VipService.ledgerService;
+  }
   /**
    * Cron / Background Evaluator: Check cumulative deposits and bets to trigger tier upgrades
+   * Pure scale-4 BigInt arithmetic (zero float drift / zero Number() conversion).
    */
   static async evaluateVipUpgrade(userId) {
     return await db.transaction(async (tx) => {
-      const [progress] = await tx.select().from(userVipProgress).where(eq4(userVipProgress.userId, userId));
+      const [progress] = await tx.select().from(userVipProgress).where(eq6(userVipProgress.userId, userId)).for("update");
       if (!progress) return null;
       const currentLvl = progress.currentLevel;
-      const deposit = Number(progress.cumulativeDeposit);
-      const bet = Number(progress.cumulativeBet);
+      const depositScale4 = toScale43(progress.cumulativeDeposit || "0.0000");
+      const betScale4 = toScale43(progress.cumulativeBet || "0.0000");
       let qualifiedLevel = 1;
       for (const tier of VIP_TIER_CONFIG) {
-        if (deposit >= tier.minDeposit && bet >= tier.minBet) {
+        const minDepositScale4 = toScale43(tier.minDeposit);
+        const minBetScale4 = toScale43(tier.minBet);
+        if (depositScale4 >= minDepositScale4 && betScale4 >= minBetScale4) {
           qualifiedLevel = tier.level;
         }
       }
@@ -8499,12 +7074,12 @@ var VipService = class {
           currentLevel: qualifiedLevel,
           lastUpgradedAt: /* @__PURE__ */ new Date(),
           updatedAt: /* @__PURE__ */ new Date()
-        }).where(eq4(userVipProgress.userId, userId));
+        }).where(eq6(userVipProgress.userId, userId));
         await tx.update(users).set({
           vipLevel: qualifiedLevel,
-          vipTier: upgradedTier.name.toUpperCase().replace(" ", "_"),
+          vipTier: upgradedTier.name.toUpperCase().replace(/\s+/g, "_"),
           updatedAt: /* @__PURE__ */ new Date()
-        }).where(eq4(users.id, userId));
+        }).where(eq6(users.id, userId));
         return {
           upgraded: true,
           oldLevel: currentLvl,
@@ -8517,74 +7092,456 @@ var VipService = class {
     });
   }
   /**
-   * Claim VIP Level-Up Reward
+   * Authoritative VIP Progression Event Processor (Task 4.3 & 4.3.1 Atomic TOCTOU Fix)
+   * 
+   * [SOURCE AUTHORITY, ATOMICITY & FINANCIAL INTEGRITY INVARIANTS]:
+   * 1. Transactional Atomicity (TOCTOU Proof):
+   *    All source lookup (SELECT ... FOR UPDATE on paymentRequests / transactions),
+   *    validation, vip_progression_events idempotency, user_vip_progress locking & increment,
+   *    and tier upgrade evaluation occur inside the SAME ACID transaction.
+   * 2. Authoritative Source Validation: Only settled/approved REAL deposits and committed BET transactions.
+   * 3. Exclusions: Rejects failed, pending, rejected, reversed, promo, bonus, commission, admin adjustment, and free-spin stakes.
+   * 4. Pure Scale-4 BigInt Arithmetic: Zero Number(), parseFloat(), or floating-point math in financial path.
+   * 5. Strict Idempotency: Enforced by PostgreSQL unique constraint on vip_progression_events (user_id, source_transaction_id, source_type).
+   * 6. Concurrent Safety: Locks user_vip_progress with FOR UPDATE to eliminate lost updates on parallel events.
    */
-  static async claimLevelUpBonus(userId, levelToClaim) {
+  static async processAuthoritativeProgression(params) {
+    if (!params.userId || typeof params.userId !== "number") {
+      throw new Error("Valid userId is required");
+    }
+    if (!params.sourceTransactionId || typeof params.sourceTransactionId !== "string" || params.sourceTransactionId.trim() === "") {
+      throw new Error("sourceTransactionId is required for VIP progression");
+    }
+    if (params.sourceType !== "DEPOSIT" && params.sourceType !== "BET") {
+      return {
+        success: false,
+        reason: "INVALID_SOURCE_TYPE",
+        userId: params.userId,
+        sourceTransactionId: params.sourceTransactionId,
+        sourceType: params.sourceType
+      };
+    }
     return await db.transaction(async (tx) => {
-      const [progress] = await tx.select().from(userVipProgress).where(eq4(userVipProgress.userId, userId));
-      if (!progress) throw new Error("VIP progress profile not found");
+      let authoritativeAmount = "0.0000";
+      let authoritativeCurrency = "BDT";
+      if (params.sourceType === "DEPOSIT") {
+        const [req] = await tx.select().from(paymentRequests).where(
+          and5(
+            eq6(paymentRequests.userId, params.userId),
+            or(
+              eq6(paymentRequests.trxId, params.sourceTransactionId),
+              sql7`${paymentRequests.id}::varchar = ${params.sourceTransactionId}`
+            )
+          )
+        ).for("update").limit(1);
+        let depositRecord = req ? { amount: String(req.amount), currency: req.currency || "BDT", status: req.status, type: req.type, userId: req.userId } : null;
+        if (!depositRecord) {
+          const [depositTx] = await tx.select().from(transactions).where(
+            and5(
+              eq6(transactions.userId, params.userId),
+              eq6(transactions.transactionId, params.sourceTransactionId)
+            )
+          ).for("update").limit(1);
+          if (depositTx) {
+            depositRecord = {
+              amount: String(depositTx.amount),
+              currency: depositTx.currency || "BDT",
+              status: depositTx.status,
+              type: depositTx.type,
+              userId: depositTx.userId
+            };
+          }
+        }
+        if (!depositRecord) {
+          return {
+            success: false,
+            reason: "SOURCE_TRANSACTION_NOT_FOUND",
+            userId: params.userId,
+            sourceTransactionId: params.sourceTransactionId,
+            sourceType: "DEPOSIT"
+          };
+        }
+        if (depositRecord.userId !== params.userId) {
+          return {
+            success: false,
+            reason: "TRANSACTION_USER_MISMATCH",
+            userId: params.userId,
+            sourceTransactionId: params.sourceTransactionId,
+            sourceType: "DEPOSIT"
+          };
+        }
+        if (depositRecord.type !== "DEPOSIT") {
+          return {
+            success: false,
+            reason: "INVALID_TRANSACTION_TYPE",
+            userId: params.userId,
+            sourceTransactionId: params.sourceTransactionId,
+            sourceType: "DEPOSIT"
+          };
+        }
+        const isApprovedDeposit = depositRecord.status === "APPROVED" || depositRecord.status === "COMPLETED" || depositRecord.status === "SETTLED";
+        if (!isApprovedDeposit) {
+          return {
+            success: false,
+            reason: "DEPOSIT_NOT_SETTLED",
+            userId: params.userId,
+            sourceTransactionId: params.sourceTransactionId,
+            sourceType: "DEPOSIT"
+          };
+        }
+        authoritativeAmount = depositRecord.amount;
+        authoritativeCurrency = depositRecord.currency;
+      } else if (params.sourceType === "BET") {
+        const [betTx] = await tx.select().from(transactions).where(
+          and5(
+            eq6(transactions.userId, params.userId),
+            eq6(transactions.transactionId, params.sourceTransactionId)
+          )
+        ).for("update").limit(1);
+        if (!betTx) {
+          return {
+            success: false,
+            reason: "SOURCE_TRANSACTION_NOT_FOUND",
+            userId: params.userId,
+            sourceTransactionId: params.sourceTransactionId,
+            sourceType: "BET"
+          };
+        }
+        if (betTx.userId !== params.userId) {
+          return {
+            success: false,
+            reason: "TRANSACTION_USER_MISMATCH",
+            userId: params.userId,
+            sourceTransactionId: params.sourceTransactionId,
+            sourceType: "BET"
+          };
+        }
+        if (betTx.type !== "BET") {
+          return {
+            success: false,
+            reason: "INVALID_TRANSACTION_TYPE",
+            userId: params.userId,
+            sourceTransactionId: params.sourceTransactionId,
+            sourceType: "BET"
+          };
+        }
+        const isCommittedBet = betTx.status === "COMPLETED" || betTx.status === "SETTLED";
+        if (!isCommittedBet) {
+          return {
+            success: false,
+            reason: "TRANSACTION_NOT_SETTLED",
+            userId: params.userId,
+            sourceTransactionId: params.sourceTransactionId,
+            sourceType: "BET"
+          };
+        }
+        const meta = betTx.metadata;
+        if (meta && (meta.freeSpin === true || meta.isFreeSpin === true || meta.source === "FREE_SPIN")) {
+          return {
+            success: false,
+            reason: "EXCLUDED_PROMOTIONAL_STAKE",
+            userId: params.userId,
+            sourceTransactionId: params.sourceTransactionId,
+            sourceType: "BET"
+          };
+        }
+        authoritativeAmount = String(betTx.amount);
+        authoritativeCurrency = betTx.currency || "BDT";
+      }
+      const amountScale4 = toScale43(authoritativeAmount);
+      if (amountScale4 <= 0n) {
+        return {
+          success: false,
+          reason: "INVALID_AMOUNT",
+          userId: params.userId,
+          sourceTransactionId: params.sourceTransactionId,
+          sourceType: params.sourceType
+        };
+      }
+      if (params.amount !== void 0 && params.amount !== null) {
+        const callerAmountScale4 = typeof params.amount === "bigint" ? params.amount : toScale43(params.amount);
+        if (callerAmountScale4 !== amountScale4) {
+          return {
+            success: false,
+            reason: params.sourceType === "BET" ? "BET_AMOUNT_MISMATCH" : "AMOUNT_MISMATCH",
+            userId: params.userId,
+            sourceTransactionId: params.sourceTransactionId,
+            sourceType: params.sourceType
+          };
+        }
+      }
+      if (params.currency && typeof params.currency === "string" && params.currency.trim() !== "") {
+        if (params.currency.trim().toUpperCase() !== authoritativeCurrency.trim().toUpperCase()) {
+          return {
+            success: false,
+            reason: "CURRENCY_MISMATCH",
+            userId: params.userId,
+            sourceTransactionId: params.sourceTransactionId,
+            sourceType: params.sourceType
+          };
+        }
+      }
+      const amountStr = fromScale43(amountScale4);
+      const [existingEvent] = await tx.select().from(vipProgressionEvents).where(
+        and5(
+          eq6(vipProgressionEvents.userId, params.userId),
+          eq6(vipProgressionEvents.sourceTransactionId, params.sourceTransactionId),
+          eq6(vipProgressionEvents.sourceType, params.sourceType)
+        )
+      ).for("update");
+      if (existingEvent) {
+        const [currProgress] = await tx.select().from(userVipProgress).where(eq6(userVipProgress.userId, params.userId));
+        return {
+          success: true,
+          duplicate: true,
+          reason: "ALREADY_PROCESSED",
+          userId: params.userId,
+          sourceTransactionId: params.sourceTransactionId,
+          sourceType: params.sourceType,
+          currentLevel: currProgress?.currentLevel || 1,
+          cumulativeDeposit: currProgress?.cumulativeDeposit || "0.0000",
+          cumulativeBet: currProgress?.cumulativeBet || "0.0000"
+        };
+      }
+      const [insertedEvent] = await tx.insert(vipProgressionEvents).values({
+        userId: params.userId,
+        sourceTransactionId: params.sourceTransactionId,
+        sourceType: params.sourceType,
+        amount: amountStr,
+        currency: authoritativeCurrency,
+        processedAt: /* @__PURE__ */ new Date()
+      }).onConflictDoNothing().returning();
+      if (!insertedEvent) {
+        const [currProgress] = await tx.select().from(userVipProgress).where(eq6(userVipProgress.userId, params.userId));
+        return {
+          success: true,
+          duplicate: true,
+          reason: "ALREADY_PROCESSED",
+          userId: params.userId,
+          sourceTransactionId: params.sourceTransactionId,
+          sourceType: params.sourceType,
+          currentLevel: currProgress?.currentLevel || 1,
+          cumulativeDeposit: currProgress?.cumulativeDeposit || "0.0000",
+          cumulativeBet: currProgress?.cumulativeBet || "0.0000"
+        };
+      }
+      let [progress] = await tx.select().from(userVipProgress).where(eq6(userVipProgress.userId, params.userId)).for("update");
+      if (!progress) {
+        const [created] = await tx.insert(userVipProgress).values({
+          userId: params.userId,
+          currentLevel: 1,
+          cumulativeDeposit: "0.0000",
+          cumulativeBet: "0.0000",
+          levelUpBonusClaimed: [],
+          totalCashbackClaimed: "0.0000",
+          lastUpgradedAt: /* @__PURE__ */ new Date(),
+          updatedAt: /* @__PURE__ */ new Date()
+        }).returning();
+        progress = created;
+      }
+      const prevDepositScale4 = toScale43(progress.cumulativeDeposit || "0.0000");
+      const prevBetScale4 = toScale43(progress.cumulativeBet || "0.0000");
+      let newDepositScale4 = prevDepositScale4;
+      let newBetScale4 = prevBetScale4;
+      if (params.sourceType === "DEPOSIT") {
+        newDepositScale4 = prevDepositScale4 + amountScale4;
+      } else if (params.sourceType === "BET") {
+        newBetScale4 = prevBetScale4 + amountScale4;
+      }
+      const newDepositStr = fromScale43(newDepositScale4);
+      const newBetStr = fromScale43(newBetScale4);
+      let qualifiedLevel = 1;
+      for (const tier of VIP_TIER_CONFIG) {
+        const minDepositScale4 = toScale43(tier.minDeposit);
+        const minBetScale4 = toScale43(tier.minBet);
+        if (newDepositScale4 >= minDepositScale4 && newBetScale4 >= minBetScale4) {
+          qualifiedLevel = tier.level;
+        }
+      }
+      const currentLvl = progress.currentLevel;
+      let upgraded = false;
+      let upgradedTierName = void 0;
+      let levelUpBonusAvailable = void 0;
+      if (qualifiedLevel > currentLvl) {
+        upgraded = true;
+        const upgradedTier = VIP_TIER_CONFIG.find((t) => t.level === qualifiedLevel);
+        upgradedTierName = upgradedTier.name;
+        levelUpBonusAvailable = upgradedTier.bonus;
+        await tx.update(userVipProgress).set({
+          currentLevel: qualifiedLevel,
+          cumulativeDeposit: newDepositStr,
+          cumulativeBet: newBetStr,
+          lastUpgradedAt: /* @__PURE__ */ new Date(),
+          updatedAt: /* @__PURE__ */ new Date()
+        }).where(eq6(userVipProgress.userId, params.userId));
+        await tx.update(users).set({
+          vipLevel: qualifiedLevel,
+          vipTier: upgradedTier.name.toUpperCase().replace(/\s+/g, "_"),
+          updatedAt: /* @__PURE__ */ new Date()
+        }).where(eq6(users.id, params.userId));
+      } else {
+        await tx.update(userVipProgress).set({
+          cumulativeDeposit: newDepositStr,
+          cumulativeBet: newBetStr,
+          updatedAt: /* @__PURE__ */ new Date()
+        }).where(eq6(userVipProgress.userId, params.userId));
+      }
+      return {
+        success: true,
+        duplicate: false,
+        userId: params.userId,
+        sourceTransactionId: params.sourceTransactionId,
+        sourceType: params.sourceType,
+        amountScale4,
+        amountStr,
+        previousDeposit: fromScale43(prevDepositScale4),
+        newDeposit: newDepositStr,
+        previousBet: fromScale43(prevBetScale4),
+        newBet: newBetStr,
+        cumulativeDeposit: newDepositStr,
+        cumulativeBet: newBetStr,
+        previousLevel: currentLvl,
+        currentLevel: upgraded ? qualifiedLevel : currentLvl,
+        upgraded,
+        newTierName: upgradedTierName,
+        levelUpBonusAvailable
+      };
+    });
+  }
+  static async recordAuthoritativeDeposit(params) {
+    return await _VipService.processAuthoritativeProgression({
+      ...params,
+      sourceType: "DEPOSIT"
+    });
+  }
+  static async recordAuthoritativeBet(params) {
+    return await _VipService.processAuthoritativeProgression({
+      ...params,
+      sourceType: "BET"
+    });
+  }
+  /**
+   * Claim VIP Level-Up Reward
+   * 
+   * [FINANCIAL LEDGER & IDEMPOTENCY INVARIANTS]:
+   * 1. Zero Direct Wallet Mutation: Balance changes are strictly executed by production WalletLedgerService.
+   * 2. Canonical Scale-4 Money Arithmetic: Exact integer minor units (1 BDT = 10000 minor units).
+   * 3. Deterministic Transaction ID: 'VIP_LEVELUP_<userId>_<level>' for exactly-once ledger credit idempotency.
+   * 4. Crash-Safe State Machine:
+   *    - Row lock on user_vip_progress via SELECT ... FOR UPDATE.
+   *    - Row lock & reserve claim in vip_reward_claims with status 'PENDING'.
+   *    - Idempotent execution via WalletLedgerService.
+   *    - Synchronous transition of vip_reward_claims to 'CREDITED' and update of levelUpBonusClaimed.
+   * 5. Fail Closed: Rejects immediately if production WalletLedgerService is unavailable.
+   */
+  static async claimLevelUpBonus(userId, levelToClaim, customLedgerService) {
+    if (!userId || typeof userId !== "number") {
+      throw new Error("Valid userId is required");
+    }
+    if (!levelToClaim || typeof levelToClaim !== "number" || levelToClaim < 1 || levelToClaim > 10) {
+      throw new Error("Valid VIP level is required");
+    }
+    const effectiveLedger = customLedgerService || _VipService.ledgerService;
+    if (!effectiveLedger) {
+      throw new Error("FATAL_LEDGER_UNAVAILABLE: Production WalletLedgerService is not configured. VIP reward claim failed closed.");
+    }
+    const tierConfig = VIP_TIER_CONFIG.find((t) => t.level === levelToClaim);
+    if (!tierConfig || tierConfig.bonus <= 0) {
+      throw new Error("No bonus configured for this level");
+    }
+    const deterministicClaimTxId = `VIP_LEVELUP_${userId}_${levelToClaim}`;
+    const rewardAmountScale4 = toScale43(tierConfig.bonus);
+    const rewardAmountStr = fromScale43(rewardAmountScale4);
+    return await db.transaction(async (tx) => {
+      const [progress] = await tx.select().from(userVipProgress).where(eq6(userVipProgress.userId, userId)).for("update");
+      if (!progress) {
+        throw new Error("VIP progress profile not found");
+      }
       if (progress.currentLevel < levelToClaim) {
         throw new Error(`You have not reached VIP Level ${levelToClaim} yet`);
       }
-      const claimed = progress.levelUpBonusClaimed || [];
-      if (claimed.includes(levelToClaim)) {
+      const [existingClaim] = await tx.select().from(vipRewardClaims).where(
+        and5(
+          eq6(vipRewardClaims.userId, userId),
+          eq6(vipRewardClaims.vipLevel, levelToClaim)
+        )
+      ).for("update");
+      if (existingClaim && existingClaim.status === "CREDITED") {
         throw new Error(`Level ${levelToClaim} bonus has already been claimed`);
       }
-      const tierConfig = VIP_TIER_CONFIG.find((t) => t.level === levelToClaim);
-      if (!tierConfig || tierConfig.bonus <= 0) {
-        throw new Error("No bonus configured for this level");
+      const claimedList = (progress.levelUpBonusClaimed || []).slice();
+      if (existingClaim?.status === "CREDITED" || claimedList.includes(levelToClaim) && !existingClaim) {
+        throw new Error(`Level ${levelToClaim} bonus has already been claimed`);
       }
-      const [wallet] = await tx.select().from(wallets).where(eq4(wallets.userId, userId));
-      if (!wallet) throw new Error("Player wallet not found");
-      const beforeBalance = Number(wallet.realBalance);
-      const afterBalance = Number((beforeBalance + tierConfig.bonus).toFixed(4));
-      await tx.update(wallets).set({
-        realBalance: afterBalance.toString(),
-        version: sql3`${wallets.version} + 1`,
-        updatedAt: /* @__PURE__ */ new Date()
-      }).where(eq4(wallets.id, wallet.id));
-      claimed.push(levelToClaim);
-      await tx.update(userVipProgress).set({
-        levelUpBonusClaimed: claimed,
-        updatedAt: /* @__PURE__ */ new Date()
-      }).where(eq4(userVipProgress.userId, userId));
-      const txId = `VIP_BONUS_${Date.now()}`;
-      await tx.insert(transactions).values({
-        providerId: "GAMEPLAY365_VIP",
-        transactionId: txId,
-        userId,
-        walletId: wallet.id,
-        gameId: "VIP_LEVEL_UP_REWARD",
-        type: "PROMO",
-        amount: tierConfig.bonus.toString(),
-        currency: wallet.currency,
-        beforeBalance: beforeBalance.toString(),
-        afterBalance: afterBalance.toString(),
-        status: "COMPLETED",
-        metadata: {
+      let claimRecord = existingClaim;
+      if (!claimRecord) {
+        const [inserted] = await tx.insert(vipRewardClaims).values({
+          userId,
+          vipLevel: levelToClaim,
+          transactionId: deterministicClaimTxId,
+          rewardAmount: rewardAmountStr,
+          currency: "BDT",
+          status: "PENDING",
+          createdAt: /* @__PURE__ */ new Date()
+        }).onConflictDoNothing().returning();
+        if (!inserted) {
+          const [fetched] = await tx.select().from(vipRewardClaims).where(
+            and5(
+              eq6(vipRewardClaims.userId, userId),
+              eq6(vipRewardClaims.vipLevel, levelToClaim)
+            )
+          ).for("update");
+          claimRecord = fetched;
+        } else {
+          claimRecord = inserted;
+        }
+      }
+      if (claimRecord && claimRecord.status === "CREDITED") {
+        throw new Error(`Level ${levelToClaim} bonus has already been claimed`);
+      }
+      const ledgerResult = await effectiveLedger.executeTransaction({
+        userId: String(userId),
+        currency: "BDT",
+        type: "CREDIT",
+        targetBalance: "REAL",
+        amountMinor: rewardAmountStr,
+        transactionId: deterministicClaimTxId,
+        auditMetadata: {
+          providerId: "GAMEPLAY365_VIP",
+          type: "VIP_LEVEL_UP_REWARD",
+          userId,
           levelClaimed: levelToClaim,
-          tierName: tierConfig.name
-        },
-        createdAt: /* @__PURE__ */ new Date()
+          tierName: tierConfig.name,
+          rewardAmount: rewardAmountStr
+        }
       });
+      if (claimRecord) {
+        await tx.update(vipRewardClaims).set({
+          status: "CREDITED",
+          creditedAt: /* @__PURE__ */ new Date()
+        }).where(eq6(vipRewardClaims.id, claimRecord.id));
+      }
+      if (!claimedList.includes(levelToClaim)) {
+        claimedList.push(levelToClaim);
+      }
+      await tx.update(userVipProgress).set({
+        levelUpBonusClaimed: claimedList,
+        updatedAt: /* @__PURE__ */ new Date()
+      }).where(eq6(userVipProgress.userId, userId));
       return {
         levelClaimed: levelToClaim,
         bonusAmount: tierConfig.bonus,
-        newRealBalance: afterBalance,
-        transactionId: txId
+        newRealBalance: ledgerResult.afterBalanceMajor,
+        transactionId: deterministicClaimTxId,
+        status: "CREDITED"
       };
     });
   }
 };
 var getVipDetailsHandler = async (req, res) => {
   try {
-    const rawUserId = req.query.userId;
-    if (!rawUserId || isNaN(Number(rawUserId))) {
-      res.status(400).json({ status: "ERROR", message: "Valid userId query parameter is required" });
-      return;
-    }
-    const userId = Number(rawUserId);
-    const [progress] = await db.select().from(userVipProgress).where(eq4(userVipProgress.userId, userId));
+    const { userId } = await resolveAuthUser(req, req.query?.userId);
+    const [progress] = await db.select().from(userVipProgress).where(eq6(userVipProgress.userId, userId));
     res.json({
       status: "SUCCESS",
       data: {
@@ -8599,16 +7556,24 @@ var getVipDetailsHandler = async (req, res) => {
       }
     });
   } catch (err) {
-    res.status(500).json({ status: "ERROR", message: err.message });
+    const statusCode = err.statusCode || (err.message?.includes("not found") ? 404 : 500);
+    res.status(statusCode).json({ status: "ERROR", message: err.message });
   }
 };
 var claimVipBonusHandler = async (req, res) => {
   try {
-    const { userId, level } = req.body;
-    const result = await VipService.claimLevelUpBonus(Number(userId), Number(level));
+    const { userId } = await resolveAuthUser(req, req.body?.userId);
+    const rawLevel = req.body?.level;
+    if (rawLevel === void 0 || rawLevel === null || isNaN(Number(rawLevel))) {
+      res.status(400).json({ status: "ERROR", message: "Valid level is required" });
+      return;
+    }
+    const level = Number(rawLevel);
+    const result = await VipService.claimLevelUpBonus(userId, level);
     res.json({ status: "SUCCESS", data: result });
   } catch (err) {
-    res.status(400).json({ status: "ERROR", message: err.message });
+    const statusCode = err.statusCode || (err.message?.includes("not found") ? 404 : 400);
+    res.status(statusCode).json({ status: "ERROR", message: err.message });
   }
 };
 
@@ -10489,22 +9454,34 @@ function createProviderGatewayRouter() {
 // src/lib/firebase-admin.ts
 import { initializeApp as initializeApp2, getApps } from "firebase-admin/app";
 import { getAuth as getAuth2 } from "firebase-admin/auth";
+import { getFirestore as getFirestore2 } from "firebase-admin/firestore";
 if (!getApps().length) {
   initializeApp2({
     projectId: firebase_applet_config_default.projectId
   });
 }
 var adminAuth = getAuth2();
+var adminDb = getFirestore2();
 
 // src/middleware/auth.ts
 var requireAuth = async (req, res, next) => {
   const authHeader = req.headers.authorization;
   if (!authHeader || !authHeader.startsWith("Bearer ")) {
-    return res.status(401).json({ status: "ERROR", error: "Unauthorized: Missing token", message: "Unauthorized: Missing token" });
+    return res.status(401).json({
+      status: "ERROR",
+      code: "UNAUTHENTICATED",
+      error: "Unauthorized: Missing token",
+      message: "Unauthorized: Missing token"
+    });
   }
   const token = authHeader.split("Bearer ")[1]?.trim();
   if (!token) {
-    return res.status(401).json({ status: "ERROR", error: "Unauthorized: Missing token", message: "Unauthorized: Missing token" });
+    return res.status(401).json({
+      status: "ERROR",
+      code: "UNAUTHENTICATED",
+      error: "Unauthorized: Missing token",
+      message: "Unauthorized: Missing token"
+    });
   }
   try {
     const decodedToken = await adminAuth.verifyIdToken(token);
@@ -10512,7 +9489,93 @@ var requireAuth = async (req, res, next) => {
     next();
   } catch (error) {
     console.error("Error verifying Firebase ID token:", error?.message || error);
-    return res.status(401).json({ status: "ERROR", error: "Unauthorized: Invalid token", message: "Unauthorized: Invalid token" });
+    return res.status(401).json({
+      status: "ERROR",
+      code: "UNAUTHENTICATED",
+      error: "Unauthorized: Invalid token",
+      message: "Unauthorized: Invalid token"
+    });
+  }
+};
+async function getAuthoritativeUserRole(decodedToken) {
+  const uid = decodedToken.uid;
+  const claimRole = decodedToken.role || (decodedToken.admin ? "ADMIN" : void 0) || (decodedToken.isAdmin ? "ADMIN" : void 0);
+  if (claimRole && typeof claimRole === "string") {
+    const upper = claimRole.toUpperCase();
+    if (["ADMIN", "OPERATOR", "SUPER_ADMIN"].includes(upper)) {
+      return upper;
+    }
+  }
+  try {
+    const adminDoc = await adminDb.collection("admins").doc(uid).get();
+    if (adminDoc.exists) {
+      const data = adminDoc.data();
+      const r = (data?.role || "ADMIN").toUpperCase();
+      if (["ADMIN", "OPERATOR", "SUPER_ADMIN"].includes(r)) {
+        return r;
+      }
+    }
+  } catch (err) {
+    console.warn("[AuthMiddleware] Error checking admins collection:", err);
+  }
+  try {
+    const userDoc = await adminDb.collection("users").doc(uid).get();
+    if (userDoc.exists) {
+      const data = userDoc.data();
+      const role = (data?.role || (data?.isAdmin ? "ADMIN" : "PLAYER")).toUpperCase();
+      if (["ADMIN", "OPERATOR", "SUPER_ADMIN"].includes(role) || data?.isAdmin === true) {
+        return role === "PLAYER" ? "ADMIN" : role;
+      }
+      if (role === "VIP") return "VIP";
+    }
+  } catch (err) {
+    console.warn("[AuthMiddleware] Error checking users collection:", err);
+  }
+  return "PLAYER";
+}
+var requireAdmin = async (req, res, next) => {
+  const authHeader = req.headers.authorization;
+  if (!authHeader || !authHeader.startsWith("Bearer ")) {
+    return res.status(401).json({
+      status: "ERROR",
+      code: "UNAUTHENTICATED",
+      error: "Unauthorized: Missing token",
+      message: "Unauthorized: Missing token"
+    });
+  }
+  const token = authHeader.split("Bearer ")[1]?.trim();
+  if (!token) {
+    return res.status(401).json({
+      status: "ERROR",
+      code: "UNAUTHENTICATED",
+      error: "Unauthorized: Missing token",
+      message: "Unauthorized: Missing token"
+    });
+  }
+  try {
+    const decodedToken = await adminAuth.verifyIdToken(token);
+    req.user = decodedToken;
+    const authoritativeRole = await getAuthoritativeUserRole(decodedToken);
+    req.userRole = authoritativeRole;
+    const isPrivileged = ["ADMIN", "OPERATOR", "SUPER_ADMIN"].includes(authoritativeRole);
+    if (!isPrivileged) {
+      return res.status(403).json({
+        status: "ERROR",
+        code: "FORBIDDEN",
+        error: "Forbidden: Insufficient privileges",
+        message: "Forbidden: Admin or Operator access required"
+      });
+    }
+    req.isAuthorizedAdmin = true;
+    next();
+  } catch (error) {
+    console.error("Error in requireAdmin middleware:", error?.message || error);
+    return res.status(401).json({
+      status: "ERROR",
+      code: "UNAUTHENTICATED",
+      error: "Unauthorized: Invalid token",
+      message: "Unauthorized: Invalid token"
+    });
   }
 };
 
@@ -10534,6 +9597,9 @@ var postgresLedgerPool = new PostgresLedgerPool(process.env.DATABASE_URL);
 var walletLedgerService2 = new WalletLedgerService(postgresLedgerPool);
 var walletController = new SeamlessWalletController(walletLedgerService2);
 AffiliateService.setLedgerService(walletLedgerService2);
+PromotionService.setLedgerService(walletLedgerService2);
+VipService.setLedgerService(walletLedgerService2);
+WageringService.setLedgerService(walletLedgerService2);
 var seamlessRouter = express.Router();
 seamlessRouter.use(validateHmacSignature);
 seamlessRouter.post("/balance", walletController.getBalance);
@@ -10544,30 +9610,80 @@ app2.use("/api/seamless", seamlessRouter);
 var cashierRouter = express.Router();
 cashierRouter.post("/deposit", (req, res) => paymentController.submitDeposit(req, res));
 cashierRouter.post("/withdraw", (req, res) => paymentController.submitWithdrawal(req, res));
-cashierRouter.get("/requests", (req, res) => paymentController.getRequests(req, res));
+cashierRouter.get("/requests", requireAdmin, (req, res) => paymentController.getRequests(req, res));
 app2.use("/api/cashier", cashierRouter);
 var paymentV2Router = express.Router();
 paymentV2Router.post("/deposit/intent", (req, res) => paymentGatewayController.createDepositIntent(req, res));
 paymentV2Router.post("/deposit/verify-trx", (req, res) => paymentGatewayController.verifyTrxId(req, res));
 paymentV2Router.post("/withdraw/request", (req, res) => paymentGatewayController.requestWithdrawal(req, res));
 paymentV2Router.post("/webhook/:provider", (req, res) => paymentGatewayController.handleWebhook(req, res));
-paymentV2Router.get("/destination-pool", (req, res) => paymentGatewayController.getDestinationPool(req, res));
-paymentV2Router.get("/stats", (req, res) => paymentGatewayController.getStats(req, res));
+paymentV2Router.get("/destination-pool", requireAdmin, (req, res) => paymentGatewayController.getDestinationPool(req, res));
+paymentV2Router.get("/stats", requireAdmin, (req, res) => paymentGatewayController.getStats(req, res));
 app2.use("/api/v2/payment", paymentV2Router);
+var authRouter = express.Router();
+authRouter.get("/verify-role", requireAuth, async (req, res) => {
+  try {
+    const user = req.user;
+    const authoritativeRole = await getAuthoritativeUserRole(user);
+    const isPrivileged = ["ADMIN", "OPERATOR", "SUPER_ADMIN"].includes(authoritativeRole);
+    res.json({
+      success: true,
+      uid: user.uid,
+      email: user.email || null,
+      role: authoritativeRole,
+      isPrivileged
+    });
+  } catch (err) {
+    console.error("[Auth verify-role error]:", err);
+    res.status(500).json({ success: false, error: err.message || "Role verification failed" });
+  }
+});
+app2.use("/api/auth", authRouter);
+var adminRouter = express.Router();
+adminRouter.use(requireAdmin);
+adminRouter.get("/verify", (req, res) => {
+  res.json({
+    success: true,
+    authorized: true,
+    uid: req.user?.uid,
+    role: req.userRole
+  });
+});
+adminRouter.get("/stats", (req, res) => {
+  res.json({
+    success: true,
+    authorized: true,
+    role: req.userRole,
+    timestamp: Date.now(),
+    system: {
+      status: "OPERATIONAL",
+      uptime: process.uptime(),
+      activeNodes: 1
+    }
+  });
+});
+adminRouter.get("/requests", (req, res) => paymentController.getRequests(req, res));
+adminRouter.get("/destination-pool", (req, res) => paymentGatewayController.getDestinationPool(req, res));
+adminRouter.get("/payment-stats", (req, res) => paymentGatewayController.getStats(req, res));
+app2.use("/api/admin", adminRouter);
 var affiliateRouter = express.Router();
 affiliateRouter.use(requireAuth);
 affiliateRouter.get("/summary", getAffiliateSummaryHandler);
 affiliateRouter.post("/claim", claimCommissionHandler);
+affiliateRouter.post("/bind", bindReferralHandler);
 app2.use("/api/affiliate", affiliateRouter);
 var vipRouter = express.Router();
+vipRouter.use(requireAuth);
 vipRouter.get("/details", getVipDetailsHandler);
 vipRouter.post("/claim-bonus", claimVipBonusHandler);
 app2.use("/api/vip", vipRouter);
 var promoRouter = express.Router();
 promoRouter.use(requireAuth);
 promoRouter.get("/details", getPromotionDetailsHandler);
+promoRouter.get("/wagering-status", getWageringStatusHandler);
 promoRouter.post("/checkin", claimCheckInHandler);
 promoRouter.post("/spin", spinWheelHandler);
+promoRouter.post("/convert-bonus", convertBonusHandler);
 app2.use("/api/promo", promoRouter);
 app2.use("/api/gateway/providers", createProviderGatewayRouter());
 app2.get(["/health", "/api/health", "/_health"], (_req, res) => {

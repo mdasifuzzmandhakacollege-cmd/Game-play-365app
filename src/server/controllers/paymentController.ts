@@ -9,7 +9,8 @@ import { db } from '../../db/index';
 import { paymentRequests, wallets, transactions, users } from '../../db/schema';
 import { eq, desc, sql } from 'drizzle-orm';
 import { PaymentMethodType } from '../types/seamless';
-import { WageringService, toScale4, fromScale4 } from '../services/wageringService';
+import { WageringService } from '../services/wageringService';
+import { validatePaymentAmount, fromScale4, toScale4 } from '../utils/paymentAmount';
 
 export class PaymentController {
   /**
@@ -29,15 +30,19 @@ export class PaymentController {
         trxId
       } = req.body;
 
-      if (!userId || !method || amount === undefined || amount === null || !trxId) {
+      if (!userId || !method || amount === undefined || amount === null || amount === '' || !trxId) {
         res.status(400).json({ error: 'Missing required deposit parameters' });
         return;
       }
 
       // Exact Scale-4 validation to prevent floating point inaccuracies
       let amountMinor: bigint;
+      let normalizedAmount: string;
       try {
         amountMinor = toScale4(String(amount));
+        const parsed = validatePaymentAmount(amount);
+        amountMinor = parsed.minorUnits;
+        normalizedAmount = parsed.decimalString;
       } catch (err: any) {
         res.status(400).json({ error: `Invalid monetary amount: ${err.message}` });
         return;
@@ -47,8 +52,6 @@ export class PaymentController {
         res.status(400).json({ error: 'Deposit amount must be greater than zero' });
         return;
       }
-
-      const normalizedAmount = fromScale4(amountMinor);
 
       // 1. Verify user exists
       const userList = await db.select().from(users).where(eq(users.id, Number(userId)));
@@ -122,14 +125,17 @@ export class PaymentController {
         receiverNumber
       } = req.body;
 
-      if (!userId || !method || amount === undefined || amount === null || !receiverNumber) {
+      if (!userId || !method || amount === undefined || amount === null || amount === '' || !receiverNumber) {
         res.status(400).json({ error: 'Missing required withdrawal parameters' });
         return;
       }
 
       let amountMinor: bigint;
+      let normalizedAmount: string;
       try {
-        amountMinor = toScale4(String(amount));
+        const parsed = validatePaymentAmount(amount);
+        amountMinor = parsed.minorUnits;
+        normalizedAmount = parsed.decimalString;
       } catch (err: any) {
         res.status(400).json({ error: `Invalid monetary amount: ${err.message}` });
         return;
@@ -139,8 +145,6 @@ export class PaymentController {
         res.status(400).json({ error: 'Withdrawal amount must be greater than zero' });
         return;
       }
-
-      const normalizedAmount = fromScale4(amountMinor);
 
       // Authoritative Server-Side Wagering Gate Check (PLAY369 Task 5.2)
       const gate = await WageringService.enforceWithdrawalWageringGate({ userId: Number(userId) });

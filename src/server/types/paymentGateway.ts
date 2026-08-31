@@ -76,7 +76,8 @@ export interface DepositIntentRequest {
   username: string;
   provider: PaymentProviderId;
   method: PaymentMethod;
-  amount: number;
+  amount: string | number;
+  amountMinor?: bigint;
   currency: 'BDT' | 'USD';
   idempotencyKey?: string;
   clientIp?: string;
@@ -89,7 +90,8 @@ export interface DepositIntent {
   username: string;
   provider: PaymentProviderId;
   method: PaymentMethod;
-  amount: number;
+  amount: string | number;
+  amountMinor?: string;
   currency: 'BDT' | 'USD';
   status: DepositStatus;
   destinationAccount: PaymentDestinationAccount;
@@ -115,7 +117,7 @@ export interface PaymentVerificationResult {
   status: 'VERIFIED' | 'PENDING' | 'FAILED' | 'UNDER_REVIEW' | 'PENDING_INTEGRATION';
   code?: string;
   providerTransactionId: string;
-  amountReceived?: number;
+  amountReceived?: string | number;
   paidAt?: string;
   message: string;
   rawProviderResponse?: Record<string, any>;
@@ -127,7 +129,8 @@ export interface WithdrawalPayoutRequest {
   username: string;
   provider: PaymentProviderId;
   method: PaymentMethod;
-  amount: number;
+  amount: string | number;
+  amountMinor?: bigint;
   currency: 'BDT' | 'USD';
   recipientAccount: string;
   recipientName?: string;
@@ -142,14 +145,15 @@ export interface WithdrawalRecord {
   username: string;
   provider: PaymentProviderId;
   method: PaymentMethod;
-  amount: number;
+  amount: string | number;
+  amountMinor?: string;
   currency: 'BDT' | 'USD';
   recipientAccount: string;
   recipientName?: string;
   status: WithdrawalStatus;
-  reservedBalanceBefore: number;
-  availableBalanceBefore: number;
-  availableBalanceAfter: number;
+  reservedBalanceBefore: string | number;
+  availableBalanceBefore: string | number;
+  availableBalanceAfter: string | number;
   providerReference?: string;
   createdAt: string;
   processedAt?: string;

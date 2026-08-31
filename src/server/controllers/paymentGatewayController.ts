@@ -7,6 +7,7 @@ import { Request, Response } from 'express';
 import { paymentGatewayEngine } from '../../services/paymentGatewayEngine';
 import { PaymentProviderId, PaymentMethod } from '../types/paymentGateway';
 import { WageringService } from '../services/wageringService';
+import { validatePaymentAmount, ParsedPaymentAmount } from '../utils/paymentAmount';
 
 export class PaymentGatewayController {
   /**
@@ -25,8 +26,16 @@ export class PaymentGatewayController {
         idempotencyKey
       } = req.body;
 
-      if (!userId || !provider || !amount) {
+      if (!userId || !provider || amount === undefined || amount === null || amount === '') {
         res.status(400).json({ error: 'Missing required parameters: userId, provider, amount' });
+        return;
+      }
+
+      let parsedAmount: ParsedPaymentAmount;
+      try {
+        parsedAmount = validatePaymentAmount(amount);
+      } catch (err: any) {
+        res.status(400).json({ error: `Invalid monetary amount: ${err.message}` });
         return;
       }
 
@@ -37,7 +46,8 @@ export class PaymentGatewayController {
         username: String(username || `User_${userId}`),
         provider: provider as PaymentProviderId,
         method: (method || provider.toUpperCase()) as PaymentMethod,
-        amount: Number(amount),
+        amount: parsedAmount.decimalString,
+        amountMinor: parsedAmount.minorUnits,
         currency: currency as 'BDT' | 'USD',
         idempotencyKey: idempotencyKey || req.headers['idempotency-key'] as string,
         clientIp
@@ -111,8 +121,16 @@ export class PaymentGatewayController {
         idempotencyKey
       } = req.body;
 
-      if (!userId || !provider || !amount || !recipientAccount) {
+      if (!userId || !provider || amount === undefined || amount === null || amount === '' || !recipientAccount) {
         res.status(400).json({ error: 'Missing required parameters: userId, provider, amount, recipientAccount' });
+        return;
+      }
+
+      let parsedAmount: ParsedPaymentAmount;
+      try {
+        parsedAmount = validatePaymentAmount(amount);
+      } catch (err: any) {
+        res.status(400).json({ error: `Invalid monetary amount: ${err.message}` });
         return;
       }
 
@@ -137,7 +155,8 @@ export class PaymentGatewayController {
         username: String(username || `User_${userId}`),
         provider: provider as PaymentProviderId,
         method: (method || provider.toUpperCase()) as PaymentMethod,
-        amount: Number(amount),
+        amount: parsedAmount.decimalString,
+        amountMinor: parsedAmount.minorUnits,
         currency: currency as 'BDT' | 'USD',
         recipientAccount: String(recipientAccount),
         recipientName: recipientName ? String(recipientName) : undefined,
