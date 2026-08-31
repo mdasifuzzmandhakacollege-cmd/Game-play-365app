@@ -2,40 +2,34 @@
  * @file CashierView.tsx
  * @description Premium Mobile Deposit & Cashier Vault for PLAY369.
  * 
- * Design Standards:
- *  - BMW-grade precision & premium fintech quality
- *  - PLAY369 Emerald Green & Metallic Gold Palette
- *  - 2-Column equal-height payment method grid on mobile
- *  - Preset amount chips (৳500 to ৳25,000) with custom string-exact input
- *  - >=48px touch targets, zero horizontal overflow, safe-area padded
- *  - Factual 3-step lifecycle (Request → Provider Verification → Wallet Settlement)
- *  - StarPay-ready provider state consumption without fake claims
+ * Design & Integrity Standards (TASK C1.1):
+ *  - Zero floating-point conversions on authoritative money values
+ *  - Exact decimal strings and scale-4 BigInt comparisons end-to-end
+ *  - No hardcoded providerAvailable=true, providerConfigured=true, or methodAvailable=true
+ *  - Channel availability remains UNKNOWN/PENDING until runtime StarPay configuration is provisioned
+ *  - No invented claims (0% fee, fake min/max limits omitted unless authoritatively configured)
+ *  - Empty initial state for sender phone and withdrawal recipient (placeholders only)
+ *  - All interactive touch targets >= 48px
+ *  - Preserves authenticated ownership, Task 6.1-6.1.5 guarantees, and Emerald + Gold theme
  */
 
 import React, { useState, useEffect } from 'react';
 import {
-  CreditCard,
   ArrowUpRight,
   ArrowDownLeft,
   Copy,
   Check,
   Clock,
   CheckCircle2,
-  AlertCircle,
   ShieldCheck,
-  Coins,
   Receipt,
   RotateCw,
-  Building,
-  Smartphone,
   Info,
   RefreshCw,
   AlertTriangle,
   Lock,
   Wallet,
-  ArrowRight,
-  ChevronRight,
-  CircleDot
+  ArrowRight
 } from 'lucide-react';
 import { UserEntity, WalletEntity } from '../server/types/seamless';
 import {
@@ -48,7 +42,8 @@ import {
 import { paymentGatewayEngine } from '../services/paymentGatewayEngine';
 import { soundEngine } from '../services/soundEngine';
 import { useWalletGame } from '../contexts/WalletGameContext';
-import { motion, AnimatePresence } from 'framer-motion';
+import { toScale4 } from '../server/utils/paymentAmount';
+import { motion } from 'framer-motion';
 
 interface CashierViewProps {
   currentUser: UserEntity;
@@ -64,29 +59,65 @@ export interface PaymentChannelMeta {
   name: string;
   banglaName: string;
   accentColor: string;
-  fee: string;
-  minBDT: number;
-  maxBDT: number;
   icon: string;
-  // StarPay ready lifecycle flags
+  fee?: string;
+  minBDT?: string;
+  maxBDT?: string;
+  // StarPay ready lifecycle flags: Default to false/pending until real runtime configuration exists
   providerConfigured?: boolean;
   providerAvailable?: boolean;
   methodAvailable?: boolean;
   maintenanceMode?: boolean;
 }
 
-const PAYMENT_CHANNELS: PaymentChannelMeta[] = [
+/**
+ * Exact decimal money formatter for financial UI display.
+ * Formats integer part with commas while strictly preserving all fractional digits
+ * without converting to JS floating point numbers.
+ * e.g. "0.0516" -> "0.0516"
+ *      "2500" -> "2,500"
+ *      "100.0000" -> "100.0000"
+ */
+export function formatExactMoneyStr(val: string | number | undefined | null): string {
+  if (val === undefined || val === null || val === '') return '0.00';
+  const str = String(val).trim();
+  if (!str) return '0.00';
+
+  const isNeg = str.startsWith('-');
+  const cleanStr = isNeg ? str.slice(1) : str;
+  const parts = cleanStr.split('.');
+  const intPart = parts[0] || '0';
+  const fracPart = parts.length > 1 ? parts[1] : null;
+
+  const formattedInt = intPart.replace(/\B(?=(\d{3})+(?!\d))/g, ',');
+
+  if (fracPart !== null) {
+    return `${isNeg ? '-' : ''}${formattedInt}.${fracPart}`;
+  }
+  return `${isNeg ? '-' : ''}${formattedInt}`;
+}
+
+export function hasLockedBalance(wallet?: WalletEntity): boolean {
+  if (!wallet || wallet.locked_balance === undefined || wallet.locked_balance === null) return false;
+  try {
+    const units = toScale4(String(wallet.locked_balance));
+    return units > 0n;
+  } catch {
+    return false;
+  }
+}
+
+export const PAYMENT_CHANNELS: PaymentChannelMeta[] = [
   {
     provider: 'bkash',
     method: 'BKASH',
     name: 'bKash',
     banglaName: 'বিকাশ',
     accentColor: '#E2136E',
-    fee: '০% ফি',
-    minBDT: 500,
-    maxBDT: 50000,
     icon: 'bK',
-    providerAvailable: true
+    providerAvailable: false,
+    providerConfigured: false,
+    methodAvailable: false
   },
   {
     provider: 'nagad',
@@ -94,11 +125,10 @@ const PAYMENT_CHANNELS: PaymentChannelMeta[] = [
     name: 'Nagad',
     banglaName: 'নগদ',
     accentColor: '#F7941D',
-    fee: '০% ফি',
-    minBDT: 500,
-    maxBDT: 50000,
     icon: 'NG',
-    providerAvailable: true
+    providerAvailable: false,
+    providerConfigured: false,
+    methodAvailable: false
   },
   {
     provider: 'rocket',
@@ -106,11 +136,10 @@ const PAYMENT_CHANNELS: PaymentChannelMeta[] = [
     name: 'Rocket',
     banglaName: 'রকেট',
     accentColor: '#8C3494',
-    fee: '০% ফি',
-    minBDT: 500,
-    maxBDT: 50000,
     icon: 'RK',
-    providerAvailable: true
+    providerAvailable: false,
+    providerConfigured: false,
+    methodAvailable: false
   },
   {
     provider: 'bank_transfer',
@@ -118,11 +147,10 @@ const PAYMENT_CHANNELS: PaymentChannelMeta[] = [
     name: 'Bank Transfer',
     banglaName: 'ব্যাংক ট্রান্সফার',
     accentColor: '#00A859',
-    fee: '০% ফি',
-    minBDT: 1000,
-    maxBDT: 500000,
     icon: 'BT',
-    providerAvailable: true
+    providerAvailable: false,
+    providerConfigured: false,
+    methodAvailable: false
   },
   {
     provider: 'card_payment',
@@ -130,11 +158,10 @@ const PAYMENT_CHANNELS: PaymentChannelMeta[] = [
     name: 'Card',
     banglaName: 'কার্ড পেমেন্ট',
     accentColor: '#1A1F71',
-    fee: '০% ফি',
-    minBDT: 1000,
-    maxBDT: 100000,
     icon: 'CC',
-    providerAvailable: true
+    providerAvailable: false,
+    providerConfigured: false,
+    methodAvailable: false
   },
   {
     provider: 'usdt_crypto',
@@ -142,11 +169,10 @@ const PAYMENT_CHANNELS: PaymentChannelMeta[] = [
     name: 'USDT',
     banglaName: 'ক্রিপ্টো (TRC-20)',
     accentColor: '#26A17B',
-    fee: '০% ফি',
-    minBDT: 1200,
-    maxBDT: 1000000,
     icon: 'USDT',
-    providerAvailable: true
+    providerAvailable: false,
+    providerConfigured: false,
+    methodAvailable: false
   }
 ];
 
@@ -154,8 +180,7 @@ export const CashierView: React.FC<CashierViewProps> = ({
   currentUser,
   currentWallet,
   currency,
-  onLedgerMutated,
-  onClose
+  onLedgerMutated
 }) => {
   const { showToast, refreshState } = useWalletGame();
 
@@ -165,7 +190,7 @@ export const CashierView: React.FC<CashierViewProps> = ({
 
   // Exact-String Amount Contract Preservation
   const [depositAmountStr, setDepositAmountStr] = useState<string>(currency === 'BDT' ? '2500' : '25');
-  const [senderNumber, setSenderNumber] = useState<string>('01712-349911');
+  const [senderNumber, setSenderNumber] = useState<string>('');
   const [depositStep, setDepositStep] = useState<'AMOUNT' | 'PAYMENT' | 'VERIFYING' | 'SUCCESS'>('AMOUNT');
   const [trxIdInput, setTrxIdInput] = useState<string>('');
   const [activeIntent, setActiveIntent] = useState<DepositIntent | null>(null);
@@ -176,10 +201,10 @@ export const CashierView: React.FC<CashierViewProps> = ({
   const [verificationProgressStep, setVerificationProgressStep] = useState<number>(0);
   const [verificationError, setVerificationError] = useState<string | null>(null);
 
-  // Withdrawal Form States
+  // Withdrawal Form States: Empty initial recipient to prevent fake prefilling
   const [withdrawAmountStr, setWithdrawAmountStr] = useState<string>(currency === 'BDT' ? '5000' : '50');
-  const [withdrawRecipient, setWithdrawRecipient] = useState<string>('01712-349911');
-  const [withdrawRecipientName, setWithdrawRecipientName] = useState<string>(currentUser.username);
+  const [withdrawRecipient, setWithdrawRecipient] = useState<string>('');
+  const [withdrawRecipientName, setWithdrawRecipientName] = useState<string>(currentUser.username || '');
   const [isWithdrawing, setIsWithdrawing] = useState<boolean>(false);
 
   // Data Lists & Copy Alerts
@@ -227,23 +252,25 @@ export const CashierView: React.FC<CashierViewProps> = ({
 
   // --------------------------------------------------------------------------
   // Step 1: Create Deposit Intent & Assign Pool Destination
+  // Zero JS float conversion: validates exact decimal string & scale-4 BigInt
   // --------------------------------------------------------------------------
   const handleCreateDepositIntent = () => {
     const rawVal = depositAmountStr.trim();
-    const numVal = parseFloat(rawVal);
 
-    if (!rawVal || isNaN(numVal) || numVal <= 0) {
-      showToast('অনুগ্রহ করে সঠিক পরিমাণ লিখুন');
+    // Basic UI format validation without converting to JS float or silent rounding
+    if (!rawVal || !/^\d+(\.\d{1,4})?$/.test(rawVal)) {
+      showToast('অনুগ্রহ করে সঠিক পরিমাণ লিখুন (যেমন 2500 বা 2500.50)');
       return;
     }
 
-    if (numVal < activeChannel.minBDT) {
-      showToast(`সর্বনিম্ন ডিপোজিট ৳${activeChannel.minBDT.toLocaleString()}`);
-      return;
-    }
-
-    if (numVal > activeChannel.maxBDT) {
-      showToast(`সর্বোচ্চ ডিপোজিট ৳${activeChannel.maxBDT.toLocaleString()}`);
+    try {
+      const minorUnits = toScale4(rawVal);
+      if (minorUnits <= 0n) {
+        showToast('অনুগ্রহ করে শূন্যের চেয়ে বেশি পরিমাণ লিখুন');
+        return;
+      }
+    } catch (err: any) {
+      showToast(err.message || 'অনুগ্রহ করে সঠিক পরিমাণ লিখুন');
       return;
     }
 
@@ -318,27 +345,32 @@ export const CashierView: React.FC<CashierViewProps> = ({
   };
 
   // --------------------------------------------------------------------------
-  // Controlled Withdrawal Request Submission
+  // Controlled Withdrawal Request Submission (Scale-4 BigInt precision)
   // --------------------------------------------------------------------------
   const handleWithdrawalSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     const rawVal = withdrawAmountStr.trim();
-    const numVal = parseFloat(rawVal);
-    const availBal = currentWallet ? currentWallet.real_balance : 0;
 
-    if (!rawVal || isNaN(numVal) || numVal <= 0) {
+    if (!rawVal || !/^\d+(\.\d{1,4})?$/.test(rawVal)) {
       showToast('অনুগ্রহ করে সঠিক উইথড্রয়াল পরিমাণ লিখুন');
       return;
     }
 
-    if (numVal > availBal) {
-      showToast('পর্যাপ্ত ব্যালেন্স নেই!');
-      soundEngine.playClick(400);
-      return;
-    }
+    try {
+      const requestedUnits = toScale4(rawVal);
+      if (requestedUnits <= 0n) {
+        showToast('অনুগ্রহ করে শূন্যের চেয়ে বেশি পরিমাণ লিখুন');
+        return;
+      }
 
-    if (numVal < 500) {
-      showToast('সর্বনিম্ন উইথড্রয়াল পরিমাণ ৳৫০০');
+      const availableUnits = currentWallet ? toScale4(String(currentWallet.real_balance)) : 0n;
+      if (requestedUnits > availableUnits) {
+        showToast('পর্যাপ্ত ব্যালেন্স নেই!');
+        soundEngine.playClick(400);
+        return;
+      }
+    } catch (err: any) {
+      showToast(err.message || 'অনুগ্রহ করে সঠিক উইথড্রয়াল পরিমাণ লিখুন');
       return;
     }
 
@@ -358,7 +390,7 @@ export const CashierView: React.FC<CashierViewProps> = ({
         idempotencyKey: `WD-REQ-${Date.now()}`
       });
 
-      showToast(`উইথড্রয়াল রিকোয়েস্ট সফল! ৳${numVal.toLocaleString()} সংরক্ষিত হয়েছে এবং ক্যাশ-আউট প্রক্রিয়াধীন।`);
+      showToast(`উইথড্রয়াল রিকোয়েস্ট সফল! ৳${formatExactMoneyStr(rawVal)} সংরক্ষিত হয়েছে এবং ক্যাশ-আউট প্রক্রিয়াধীন।`);
       refreshState();
       onLedgerMutated();
       setActiveMode('HISTORY');
@@ -399,7 +431,7 @@ export const CashierView: React.FC<CashierViewProps> = ({
             </p>
           </div>
 
-          {/* Quick History Button */}
+          {/* Quick History Button (>=48px touch target) */}
           <button
             type="button"
             id="play369-cashier-history-toggle"
@@ -407,7 +439,7 @@ export const CashierView: React.FC<CashierViewProps> = ({
               setActiveMode((prev) => (prev === 'HISTORY' ? 'DEPOSIT' : 'HISTORY'));
               soundEngine.playClick(900);
             }}
-            className={`min-h-[44px] px-3 py-1.5 rounded-xl border text-xs font-mono font-bold transition-all flex items-center gap-1.5 cursor-pointer ${
+            className={`min-h-[48px] h-[48px] px-3.5 py-2 rounded-xl border text-xs font-mono font-bold transition-all flex items-center gap-1.5 cursor-pointer ${
               activeMode === 'HISTORY'
                 ? 'bg-amber-400 text-slate-950 border-amber-300 font-black shadow-sm'
                 : 'bg-emerald-950/80 text-emerald-200 border-emerald-700/60 hover:border-amber-400/50'
@@ -416,13 +448,13 @@ export const CashierView: React.FC<CashierViewProps> = ({
           >
             <Receipt className="w-4 h-4" />
             <span className="hidden xs:inline">হিস্ট্রি</span>
-            <span className="text-[10px] px-1.5 py-0.2 rounded-full bg-black/30 font-bold">
+            <span className="text-[10px] px-1.5 py-0.5 rounded-full bg-black/30 font-bold">
               {depositIntents.length + withdrawalRecords.length}
             </span>
           </button>
         </div>
 
-        {/* Available Balance Card */}
+        {/* Available Balance Card - Exact decimal preservation */}
         <div
           id="play369-authoritative-balance-card"
           className="mt-3.5 pt-3.5 border-t border-emerald-800/60 flex items-center justify-between gap-3 bg-[#02130b]/70 rounded-xl p-3 border border-emerald-900/80"
@@ -438,13 +470,13 @@ export const CashierView: React.FC<CashierViewProps> = ({
               <span className="text-xl sm:text-2xl font-black text-white font-mono tracking-tight">
                 {currency === 'BDT' ? '৳' : '$'}
                 {currentWallet
-                  ? Number(currentWallet.real_balance).toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })
+                  ? formatExactMoneyStr(currentWallet.real_balance)
                   : '0.00'}
               </span>
             </div>
           </div>
 
-          {currentWallet && Number(currentWallet.locked_balance || 0) > 0 && (
+          {currentWallet && hasLockedBalance(currentWallet) && (
             <div className="border-l border-emerald-800/80 pl-3 text-right">
               <span className="text-[10px] uppercase font-bold text-amber-400/90 block font-mono flex items-center justify-end gap-1">
                 <Lock className="w-3 h-3 text-amber-400" />
@@ -452,7 +484,7 @@ export const CashierView: React.FC<CashierViewProps> = ({
               </span>
               <span className="text-xs sm:text-sm font-black text-amber-300 font-mono">
                 {currency === 'BDT' ? '৳' : '$'}
-                {Number(currentWallet.locked_balance).toLocaleString('en-US', { minimumFractionDigits: 2 })}
+                {formatExactMoneyStr(currentWallet.locked_balance)}
               </span>
             </div>
           )}
@@ -522,23 +554,23 @@ export const CashierView: React.FC<CashierViewProps> = ({
                 পেমেন্ট মেথড নির্বাচন করুন
               </span>
               <span className="text-[10px] font-mono text-amber-400">
-                {activeChannel.name} • {activeChannel.fee}
+                {activeChannel.name}
               </span>
             </div>
 
             <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-6 gap-2 sm:gap-2.5">
               {PAYMENT_CHANNELS.map((ch) => {
                 const isSelected = selectedProvider === ch.provider;
-                const isAvailable = ch.providerAvailable !== false && !ch.maintenanceMode;
+                const isMaintenance = !!ch.maintenanceMode;
 
                 return (
                   <button
                     key={ch.provider}
                     type="button"
                     id={`play369-channel-${ch.provider}`}
-                    disabled={!isAvailable}
+                    disabled={isMaintenance}
                     onClick={() => {
-                      if (!isAvailable) return;
+                      if (isMaintenance) return;
                       setSelectedProvider(ch.provider);
                       setDepositStep('AMOUNT');
                       setActiveIntent(null);
@@ -547,7 +579,7 @@ export const CashierView: React.FC<CashierViewProps> = ({
                     className={`min-h-[84px] h-[84px] p-2.5 sm:p-3 rounded-xl border text-left flex flex-col justify-between transition-all relative overflow-hidden cursor-pointer ${
                       isSelected
                         ? 'bg-[#052c1b] border-amber-400 shadow-[0_0_12px_rgba(245,158,11,0.2)]'
-                        : isAvailable
+                        : !isMaintenance
                         ? 'bg-[#031d12]/90 border-emerald-800/70 hover:border-emerald-600/90 hover:bg-[#042416]'
                         : 'bg-[#02140c]/50 border-emerald-950 opacity-40 cursor-not-allowed'
                     }`}
@@ -573,7 +605,7 @@ export const CashierView: React.FC<CashierViewProps> = ({
                         {ch.name}
                       </div>
                       <div className="text-[10px] text-emerald-300/80 font-mono mt-0.5 leading-none">
-                        {isAvailable ? ch.fee : 'অপেক্ষমাণ'}
+                        {ch.providerConfigured && ch.providerAvailable ? 'সক্রিয়' : 'অপেক্ষমাণ'}
                       </div>
                     </div>
                   </button>
@@ -589,7 +621,7 @@ export const CashierView: React.FC<CashierViewProps> = ({
               animate={{ opacity: 1, y: 0 }}
               className="rounded-2xl border border-emerald-800/70 bg-gradient-to-b from-[#042416] via-[#031d12] to-[#02180e] p-4 sm:p-5 space-y-4 shadow-[0_4px_20px_rgba(0,0,0,0.5)]"
             >
-              {/* Preset Chips: ৳500, ৳1,000, ৳2,500, ৳5,000, ৳10,000, ৳25,000 */}
+              {/* Preset Chips: ৳500, ৳1,000, ৳2,500, ৳5,000, ৳10,000, ৳25,000 (>=48px touch target) */}
               <div>
                 <label className="text-xs font-bold text-emerald-200 block mb-2 font-sans">
                   ডিপোজিট পরিমাণ (Deposit Amount)
@@ -607,14 +639,14 @@ export const CashierView: React.FC<CashierViewProps> = ({
                           setDepositAmountStr(preset);
                           soundEngine.playClick(850);
                         }}
-                        className={`min-h-[44px] h-[44px] rounded-xl font-mono text-xs font-black transition-all flex items-center justify-center cursor-pointer border ${
+                        className={`min-h-[48px] h-[48px] rounded-xl font-mono text-xs font-black transition-all flex items-center justify-center cursor-pointer border ${
                           isSelected
                             ? 'bg-gradient-to-r from-amber-400 via-yellow-400 to-amber-500 text-slate-950 border-amber-300 shadow-md scale-[1.02]'
                             : 'bg-[#02190f] border-emerald-800/80 text-emerald-200 hover:border-emerald-600/80 hover:bg-[#032014]'
                         }`}
                       >
                         {currency === 'BDT' ? '৳' : '$'}
-                        {Number(preset).toLocaleString()}
+                        {formatExactMoneyStr(preset)}
                       </button>
                     );
                   })}
@@ -642,13 +674,9 @@ export const CashierView: React.FC<CashierViewProps> = ({
                     aria-label="Custom Deposit Amount"
                   />
                 </div>
-                <div className="flex items-center justify-between text-[11px] text-emerald-300/80 mt-1.5 font-mono px-1">
-                  <span>সীমা: ৳{activeChannel.minBDT.toLocaleString()} - ৳{activeChannel.maxBDT.toLocaleString()}</span>
-                  <span>ফি: ০%</span>
-                </div>
               </div>
 
-              {/* Sender Phone / Account Input */}
+              {/* Sender Phone / Account Input - Initial value is empty, placeholder only */}
               <div>
                 <label className="text-xs font-bold text-emerald-200 block mb-1.5 font-sans">
                   প্রেরক একাউন্ট নম্বর (Sender Phone / Account)
@@ -746,7 +774,7 @@ export const CashierView: React.FC<CashierViewProps> = ({
                 <div className="flex items-center justify-between text-xs text-emerald-300">
                   <span>নির্ধারিত {activeChannel.name} একাউন্ট ({activeIntent.destinationAccount.accountType}):</span>
                   <span className="text-[10px] font-mono text-amber-300">
-                    ৳{Number(activeIntent.amount).toLocaleString()}
+                    ৳{formatExactMoneyStr(activeIntent.amount)}
                   </span>
                 </div>
 
@@ -764,7 +792,7 @@ export const CashierView: React.FC<CashierViewProps> = ({
                     type="button"
                     id="play369-copy-account-btn"
                     onClick={() => handleCopy(activeIntent.destinationAccount.accountNumber, 'একাউন্ট নম্বর')}
-                    className="min-h-[44px] px-3 py-1.5 rounded-lg bg-amber-400 text-slate-950 text-xs font-mono font-black hover:bg-yellow-300 active:scale-95 transition-all flex items-center gap-1.5 cursor-pointer shrink-0"
+                    className="min-h-[48px] px-3.5 py-2.5 rounded-lg bg-amber-400 text-slate-950 text-xs font-mono font-black hover:bg-yellow-300 active:scale-95 transition-all flex items-center gap-1.5 cursor-pointer shrink-0"
                   >
                     {copiedText === 'একাউন্ট নম্বর' ? <Check className="w-4 h-4" /> : <Copy className="w-4 h-4" />}
                     <span>{copiedText === 'একাউন্ট নম্বর' ? 'কপি হয়েছে' : 'কপি করুন'}</span>
@@ -898,7 +926,7 @@ export const CashierView: React.FC<CashierViewProps> = ({
               <div>
                 <span className="text-[10px] uppercase font-mono font-bold text-amber-400">ডিপোজিট সফল</span>
                 <h2 className="text-xl sm:text-2xl font-black text-white font-mono mt-0.5">
-                  ৳{Number(activeIntent.amount).toLocaleString()} যোগ হয়েছে
+                  ৳{formatExactMoneyStr(activeIntent.amount)} যোগ হয়েছে
                 </h2>
                 <p className="text-xs text-emerald-300 mt-0.5">
                   আপনার ওয়ালেটে ব্যালেন্স সফলভাবে আপডেট হয়েছে।
@@ -929,14 +957,14 @@ export const CashierView: React.FC<CashierViewProps> = ({
                     setTrxIdInput('');
                     soundEngine.playClick(900);
                   }}
-                  className="min-h-[44px] px-4 py-2 rounded-xl bg-amber-400 text-slate-950 font-mono font-black text-xs hover:bg-yellow-300 cursor-pointer"
+                  className="min-h-[48px] h-[48px] px-4 py-2.5 rounded-xl bg-amber-400 text-slate-950 font-mono font-black text-xs hover:bg-yellow-300 cursor-pointer"
                 >
                   নতুন ডিপোজিট
                 </button>
                 <button
                   type="button"
                   onClick={() => setActiveMode('HISTORY')}
-                  className="min-h-[44px] px-4 py-2 rounded-xl bg-emerald-950 border border-emerald-700 text-emerald-200 font-mono text-xs hover:bg-emerald-900 cursor-pointer"
+                  className="min-h-[48px] h-[48px] px-4 py-2.5 rounded-xl bg-emerald-950 border border-emerald-700 text-emerald-200 font-mono text-xs hover:bg-emerald-900 cursor-pointer"
                 >
                   হিস্ট্রি
                 </button>
@@ -1091,10 +1119,11 @@ export const CashierView: React.FC<CashierViewProps> = ({
             <button
               type="button"
               onClick={refreshEngineData}
-              className="p-2 rounded-lg bg-[#02130b] border border-emerald-700 text-emerald-200 hover:bg-[#032014] cursor-pointer"
+              className="min-h-[48px] min-w-[48px] p-2.5 rounded-lg bg-[#02130b] border border-emerald-700 text-emerald-200 hover:bg-[#032014] cursor-pointer flex items-center justify-center"
               title="রিফ্রেশ করুন"
+              aria-label="Refresh transaction history"
             >
-              <RefreshCw className="w-3.5 h-3.5" />
+              <RefreshCw className="w-4 h-4" />
             </button>
           </div>
 
@@ -1122,16 +1151,16 @@ export const CashierView: React.FC<CashierViewProps> = ({
                       <tr key={dep.id} className="hover:bg-emerald-950/40">
                         <td className="p-2.5 text-white font-bold truncate max-w-[100px]">{dep.id}</td>
                         <td className="p-2.5">
-                          <span className="px-1.5 py-0.2 rounded text-[9px] font-bold bg-emerald-500/20 text-emerald-400 border border-emerald-500/40">
+                          <span className="px-1.5 py-0.5 rounded text-[9px] font-bold bg-emerald-500/20 text-emerald-400 border border-emerald-500/40">
                             DEP
                           </span>
                         </td>
                         <td className="p-2.5 text-white">{dep.provider.toUpperCase()}</td>
                         <td className="p-2.5 text-amber-300 font-bold">
-                          +৳{Number(dep.amount).toLocaleString()}
+                          +৳{formatExactMoneyStr(dep.amount)}
                         </td>
                         <td className="p-2.5">
-                          <span className={`px-1.5 py-0.2 rounded text-[9px] font-bold ${
+                          <span className={`px-1.5 py-0.5 rounded text-[9px] font-bold ${
                             dep.status === 'CREDITED'
                               ? 'bg-emerald-500/20 text-emerald-400'
                               : 'bg-yellow-500/20 text-yellow-300'
@@ -1146,16 +1175,16 @@ export const CashierView: React.FC<CashierViewProps> = ({
                       <tr key={wth.id} className="hover:bg-emerald-950/40">
                         <td className="p-2.5 text-white font-bold truncate max-w-[100px]">{wth.id}</td>
                         <td className="p-2.5">
-                          <span className="px-1.5 py-0.2 rounded text-[9px] font-bold bg-amber-500/20 text-amber-300 border border-amber-500/40">
+                          <span className="px-1.5 py-0.5 rounded text-[9px] font-bold bg-amber-500/20 text-amber-300 border border-amber-500/40">
                             WTH
                           </span>
                         </td>
                         <td className="p-2.5 text-white">{wth.provider.toUpperCase()}</td>
                         <td className="p-2.5 text-red-400 font-bold">
-                          -৳{Number(wth.amount).toLocaleString()}
+                          -৳{formatExactMoneyStr(wth.amount)}
                         </td>
                         <td className="p-2.5">
-                          <span className={`px-1.5 py-0.2 rounded text-[9px] font-bold ${
+                          <span className={`px-1.5 py-0.5 rounded text-[9px] font-bold ${
                             wth.status === 'WITHDRAWAL_COMPLETED'
                               ? 'bg-emerald-500/20 text-emerald-400'
                               : 'bg-yellow-500/20 text-yellow-300'
