@@ -80,7 +80,8 @@ CREATE TABLE IF NOT EXISTS wallets (
     -- Zero-overdraft constraint: Real balance and minor balance cannot drop below zero
     CONSTRAINT chk_balance_minor_non_negative CHECK (balance_minor >= 0),
     CONSTRAINT chk_real_balance_non_negative CHECK (real_balance >= 0),
-    CONSTRAINT chk_bonus_balance_non_negative CHECK (bonus_balance >= 0)
+    CONSTRAINT chk_bonus_balance_non_negative CHECK (bonus_balance >= 0),
+    CONSTRAINT chk_locked_balance_non_negative CHECK (locked_balance >= 0)
 );
 
 CREATE INDEX IF NOT EXISTS idx_wallets_user_currency ON wallets(user_id, currency);
@@ -96,7 +97,7 @@ CREATE TABLE IF NOT EXISTS ledger_entries (
     transaction_id VARCHAR(128) NOT NULL,
     reference_transaction_id VARCHAR(128),
     type VARCHAR(32) NOT NULL,                    -- 'DEBIT', 'CREDIT', 'REVERSAL', 'ADJUSTMENT'
-    balance_target VARCHAR(16) NOT NULL DEFAULT 'REAL', -- 'REAL', 'BONUS'
+    balance_target VARCHAR(16) NOT NULL DEFAULT 'REAL', -- 'REAL', 'BONUS', 'LOCKED'
     amount_minor BIGINT NOT NULL,                 -- Exact integer minor units (scale 4)
     currency VARCHAR(3) NOT NULL,
     before_balance_minor BIGINT NOT NULL,
@@ -106,7 +107,7 @@ CREATE TABLE IF NOT EXISTS ledger_entries (
     audit_metadata JSONB DEFAULT '{}'::jsonb,     -- Masked audit trail (no secrets)
     created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
 
-    CONSTRAINT chk_ledger_balance_target CHECK (balance_target IN ('REAL', 'BONUS')),
+    CONSTRAINT chk_ledger_balance_target CHECK (balance_target IN ('REAL', 'BONUS', 'LOCKED')),
     CONSTRAINT chk_ledger_amount_minor_positive CHECK (amount_minor >= 0),
     CONSTRAINT chk_ledger_balances_non_negative CHECK (before_balance_minor >= 0 AND after_balance_minor >= 0),
     CONSTRAINT uq_ledger_user_transaction UNIQUE (user_id, transaction_id)
@@ -436,6 +437,30 @@ ON wagering_progress_events (source_transaction_id);
 
 CREATE INDEX IF NOT EXISTS wagering_progress_events_requirement_idx
 ON wagering_progress_events (wagering_requirement_id);
+
+-- ----------------------------------------------------------------------------
+-- 15. Payment Requests Table (bKash, Nagad, Rocket, Upay Local Cashier)
+-- ----------------------------------------------------------------------------
+CREATE TABLE IF NOT EXISTS payment_requests (
+    id SERIAL PRIMARY KEY,
+    user_id INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+    wallet_id INTEGER NOT NULL REFERENCES wallets(id),
+    type VARCHAR(32) NOT NULL, -- 'DEPOSIT', 'WITHDRAWAL'
+    method VARCHAR(32) NOT NULL, -- 'BKASH', 'NAGAD', 'ROCKET', 'UPAY', 'USDT'
+    amount NUMERIC(18, 4) NOT NULL,
+    currency VARCHAR(3) NOT NULL DEFAULT 'BDT',
+    sender_number VARCHAR(64),
+    receiver_number VARCHAR(64),
+    trx_id VARCHAR(128) NOT NULL,
+    status VARCHAR(32) NOT NULL DEFAULT 'PENDING', -- 'PENDING', 'APPROVED', 'REJECTED'
+    admin_note TEXT,
+    metadata JSONB,
+    created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+    updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+);
+
+CREATE INDEX IF NOT EXISTS idx_payment_requests_user ON payment_requests(user_id);
+CREATE INDEX IF NOT EXISTS idx_payment_requests_status ON payment_requests(status);
 
 
 

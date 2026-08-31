@@ -17,6 +17,7 @@ import {
   BalanceTargetReconciliationSummary,
   BonusToRealTransferRequest,
   BonusToRealTransferResult,
+  IdempotencyConflictError,
   InsufficientFundsError,
   LedgerBalanceTarget,
   LedgerTransactionRequest,
@@ -26,7 +27,9 @@ import {
   WalletAuditReconciliationResult,
   WalletFrozenError,
   WalletNotFoundError,
-  WalletRecord
+  WalletRecord,
+  WithdrawalReservationRequest,
+  WithdrawalReservationResult
 } from './types';
 import { formatMinorUnits, parseToMinorUnits, validateCurrency } from './money';
 import { maskSensitiveData, safeLog } from '../gateway/masking';
@@ -61,13 +64,14 @@ export class WalletLedgerService {
       currency: SupportedCurrency;
       real_balance?: string | number;
       bonus_balance?: string | number;
+      locked_balance?: string | number;
       balance_minor?: string | number | bigint;
       version: string | number;
       status: 'ACTIVE' | 'FROZEN' | 'CLOSED';
       created_at: Date;
       updated_at: Date;
     }>(
-      `SELECT id, user_id, currency, real_balance, bonus_balance, balance_minor, version, status, created_at, updated_at
+      `SELECT id, user_id, currency, real_balance, bonus_balance, locked_balance, balance_minor, version, status, created_at, updated_at
        FROM wallets
        WHERE user_id = $1 AND currency = $2
        LIMIT 1`,
@@ -95,6 +99,7 @@ export class WalletLedgerService {
       balanceMinor,
       realBalance: row.real_balance !== undefined && row.real_balance !== null ? row.real_balance.toString() : formatMinorUnits(balanceMinor, row.currency),
       bonusBalance: row.bonus_balance !== undefined && row.bonus_balance !== null ? row.bonus_balance.toString() : '0.0000',
+      lockedBalance: row.locked_balance !== undefined && row.locked_balance !== null ? row.locked_balance.toString() : '0.0000',
       version: BigInt(row.version),
       status: row.status,
       createdAt: row.created_at,
@@ -734,11 +739,330 @@ export class WalletLedgerService {
   }
 
   /**
-   * Performs an audit reconciliation between the wallet balances (REAL & BONUS) and sum of ledger entries.
+   * PLAY369 Task 6.1.6: Atomic Withdrawal Funds Reservation
+   * Atomically transfers funds: REAL BALANCE -> LOCKED BALANCE within a single PostgreSQL transaction.
+   * 
+   * Invariants:
+   * 1. Acquires row lock on wallet: `SELECT ... FOR UPDATE`
+   * 2. Integer Minor Units (zero floating-point math)
+   * 3. Atomically debits REAL balance and credits LOCKED balance
+   * 4. Inserts 2 immutable ledger entries (REAL DEBIT and LOCKED CREDIT)
+   * 5. Inserts the PENDING payment_requests record
+   * 6. Records idempotency state
+   * 7. Commits or rolls back atomically
+   */
+  public async reserveWithdrawalFunds(req: WithdrawalReservationRequest): Promise<WithdrawalReservationResult> {
+    // 1. Validation & Input Sanitization
+    if (req.userId === undefined || req.userId === null || String(req.userId).trim() === '') {
+      throw new LedgerValidationError("Valid userId is required for withdrawal reservation", { userId: req.userId });
+    }
+    if (!req.withdrawalId || String(req.withdrawalId).trim() === '') {
+      throw new LedgerValidationError("Deterministic withdrawalId is required", { withdrawalId: req.withdrawalId });
+    }
+    if (!req.amount || String(req.amount).trim() === '') {
+      throw new LedgerValidationError("Withdrawal amount is required", { amount: req.amount });
+    }
+    if (!req.paymentMethod || String(req.paymentMethod).trim() === '') {
+      throw new LedgerValidationError("Payment method is required", { paymentMethod: req.paymentMethod });
+    }
+
+    const normalizedUserId = String(req.userId).trim();
+    const currency = validateCurrency(req.currency);
+    const amountMinor = parseToMinorUnits(req.amount, currency, false);
+
+    if (amountMinor <= 0n) {
+      throw new LedgerValidationError("Withdrawal amount must be strictly greater than zero", { amount: req.amount });
+    }
+
+    const correlationId = req.correlationId || `corr_wdraw_${Date.now()}_${Math.random().toString(36).substring(2, 7)}`;
+    const rootTxId = req.withdrawalId.trim();
+    const idempotencyKey = req.idempotencyKey || this.generateIdempotencyKey(normalizedUserId, currency, `wdraw_res:${rootTxId}`);
+
+    const sanitizedAudit = maskSensitiveData(req.metadata || {});
+
+    // 2. Pre-transaction Idempotency Check (Fast Path)
+    const existingIdemp = await this.db.query<{ response_payload: WithdrawalReservationResult }>(
+      `SELECT idempotency_key, response_payload 
+       FROM idempotency_records 
+       WHERE idempotency_key = $1 
+       LIMIT 1`,
+      [idempotencyKey]
+    );
+
+    if (existingIdemp.rows.length > 0) {
+      const rawPayload = existingIdemp.rows[0].response_payload;
+      const cached = typeof rawPayload === 'string' ? JSON.parse(rawPayload) : rawPayload;
+
+      // Verify that idempotency key was not reused for different parameters
+      if (cached.amount !== undefined && cached.amount !== req.amount) {
+        throw new IdempotencyConflictError(idempotencyKey, {
+          expectedAmount: cached.amount,
+          providedAmount: req.amount
+        });
+      }
+
+      safeLog('info', correlationId, `[Ledger] Idempotent withdrawal reservation returned cached payload: ${rootTxId}`);
+      return {
+        ...cached,
+        isIdempotent: true
+      };
+    }
+
+    // 3. Connect & Begin ACID Transaction
+    const client: ILedgerDbClient = await this.db.connect();
+
+    try {
+      await client.query('BEGIN');
+
+      // 4. Row-Level Locking (SELECT ... FOR UPDATE)
+      const walletRes = await client.query<{
+        id: string | number;
+        user_id: string | number;
+        currency: SupportedCurrency;
+        real_balance?: string | number;
+        bonus_balance?: string | number;
+        locked_balance?: string | number;
+        balance_minor?: string | number | bigint;
+        version: string | number;
+        status: 'ACTIVE' | 'FROZEN' | 'CLOSED';
+      }>(
+        `SELECT id, user_id, currency, real_balance, bonus_balance, locked_balance, balance_minor, version, status
+         FROM wallets
+         WHERE user_id = $1 AND currency = $2
+         FOR UPDATE`,
+        [normalizedUserId, currency]
+      );
+
+      if (walletRes.rows.length === 0) {
+        await client.query('ROLLBACK');
+        throw new WalletNotFoundError(normalizedUserId, currency);
+      }
+
+      const wallet = walletRes.rows[0];
+
+      // 5. Invariant Checks
+      if (wallet.status !== 'ACTIVE') {
+        await client.query('ROLLBACK');
+        throw new WalletFrozenError(normalizedUserId, wallet.status);
+      }
+
+      let beforeRealMinor: bigint;
+      if (wallet.balance_minor !== undefined && wallet.balance_minor !== null && wallet.balance_minor !== '') {
+        beforeRealMinor = BigInt(wallet.balance_minor.toString());
+      } else if (wallet.real_balance !== undefined && wallet.real_balance !== null) {
+        beforeRealMinor = parseToMinorUnits(wallet.real_balance.toString(), currency, true);
+      } else {
+        beforeRealMinor = 0n;
+      }
+
+      const beforeLockedStr = wallet.locked_balance !== undefined && wallet.locked_balance !== null ? wallet.locked_balance.toString() : '0.0000';
+      const beforeLockedMinor = parseToMinorUnits(beforeLockedStr, currency, true);
+
+      // Verify sufficient REAL balance before reservation
+      if (beforeRealMinor < amountMinor) {
+        await client.query('ROLLBACK');
+        safeLog('warn', correlationId, `[Ledger] Insufficient funds for withdrawal reservation: available=${beforeRealMinor}, required=${amountMinor}`);
+        throw new InsufficientFundsError(beforeRealMinor, amountMinor, currency);
+      }
+
+      const afterRealMinor = beforeRealMinor - amountMinor;
+      const afterLockedMinor = beforeLockedMinor + amountMinor;
+
+      const formattedBeforeReal = formatMinorUnits(beforeRealMinor, currency);
+      const formattedAfterReal = formatMinorUnits(afterRealMinor, currency);
+      const formattedBeforeLocked = formatMinorUnits(beforeLockedMinor, currency);
+      const formattedAfterLocked = formatMinorUnits(afterLockedMinor, currency);
+
+      // 6. Update Canonical Wallet Balances (Atomic Update of real_balance, locked_balance, balance_minor)
+      await client.query(
+        `UPDATE wallets
+         SET real_balance = $1,
+             locked_balance = $2,
+             balance_minor = $3,
+             version = version + 1,
+             updated_at = NOW()
+         WHERE id = $4`,
+        [formattedAfterReal, formattedAfterLocked, afterRealMinor.toString(), wallet.id]
+      );
+
+      // 7. Insert Immutable Ledger Entries for BOTH Legs
+      const debitEntryId = `ledg_${Date.now()}_${Math.random().toString(36).substring(2, 9)}_wdeb`;
+      const lockEntryId = `ledg_${Date.now()}_${Math.random().toString(36).substring(2, 9)}_wlock`;
+
+      const debitTxId = `${rootTxId}:WITHDRAWAL_DEBIT`;
+      const lockTxId = `${rootTxId}:WITHDRAWAL_LOCK`;
+
+      // Leg 1: REAL DEBIT
+      await client.query(
+        `INSERT INTO ledger_entries (
+           id, wallet_id, user_id, transaction_id, reference_transaction_id,
+           type, balance_target, amount_minor, currency, before_balance_minor, after_balance_minor,
+           status, correlation_id, audit_metadata
+         )
+         VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14)`,
+        [
+          debitEntryId,
+          wallet.id,
+          normalizedUserId,
+          debitTxId,
+          rootTxId,
+          'DEBIT',
+          'REAL',
+          amountMinor.toString(),
+          currency,
+          beforeRealMinor.toString(),
+          afterRealMinor.toString(),
+          'COMMITTED',
+          correlationId,
+          JSON.stringify({
+            ...sanitizedAudit,
+            leg: 'REAL_DEBIT',
+            targetBalance: 'REAL',
+            category: 'WITHDRAWAL_RESERVATION',
+            withdrawalId: rootTxId,
+            paymentMethod: req.paymentMethod
+          })
+        ]
+      );
+
+      // Leg 2: LOCKED CREDIT
+      await client.query(
+        `INSERT INTO ledger_entries (
+           id, wallet_id, user_id, transaction_id, reference_transaction_id,
+           type, balance_target, amount_minor, currency, before_balance_minor, after_balance_minor,
+           status, correlation_id, audit_metadata
+         )
+         VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14)`,
+        [
+          lockEntryId,
+          wallet.id,
+          normalizedUserId,
+          lockTxId,
+          rootTxId,
+          'CREDIT',
+          'LOCKED',
+          amountMinor.toString(),
+          currency,
+          beforeLockedMinor.toString(),
+          afterLockedMinor.toString(),
+          'COMMITTED',
+          correlationId,
+          JSON.stringify({
+            ...sanitizedAudit,
+            leg: 'LOCKED_CREDIT',
+            targetBalance: 'LOCKED',
+            category: 'WITHDRAWAL_RESERVATION',
+            withdrawalId: rootTxId,
+            paymentMethod: req.paymentMethod
+          })
+        ]
+      );
+
+      // 8. Insert Payment Request Record atomically
+      const paymentReqRes = await client.query<{ id: string | number }>(
+        `INSERT INTO payment_requests (
+           user_id, wallet_id, type, method, amount, currency,
+           receiver_number, trx_id, status, admin_note, metadata, created_at, updated_at
+         )
+         VALUES ($1, $2, 'WITHDRAWAL', $3, $4, $5, $6, $7, 'PENDING', $8, $9, NOW(), NOW())
+         RETURNING id`,
+        [
+          normalizedUserId,
+          wallet.id,
+          req.paymentMethod,
+          req.amount,
+          currency,
+          req.receiverNumber || null,
+          rootTxId,
+          req.adminNote || null,
+          JSON.stringify({
+            ...sanitizedAudit,
+            withdrawalId: rootTxId,
+            debitLedgerEntryId: debitEntryId,
+            lockLedgerEntryId: lockEntryId,
+            correlationId
+          })
+        ]
+      );
+
+      const paymentRequestId = paymentReqRes.rows[0]?.id ?? `pr_${Date.now()}`;
+
+      // 9. Construct Result & Record Single Idempotency Authority
+      const result: WithdrawalReservationResult = {
+        withdrawalId: rootTxId,
+        paymentRequestId,
+        transactionId: rootTxId,
+        status: 'PENDING',
+        amount: req.amount,
+        currency,
+        walletId: wallet.id,
+        beforeRealBalance: formattedBeforeReal,
+        afterRealBalance: formattedAfterReal,
+        beforeLockedBalance: formattedBeforeLocked,
+        afterLockedBalance: formattedAfterLocked,
+        debitLedgerEntryId: debitEntryId,
+        lockLedgerEntryId: lockEntryId,
+        isIdempotent: false,
+        executedAt: new Date().toISOString(),
+        correlationId
+      };
+
+      await client.query(
+        `INSERT INTO idempotency_records (
+           idempotency_key, transaction_id, status_code, response_payload
+         )
+         VALUES ($1, $2, $3, $4)`,
+        [idempotencyKey, rootTxId, 200, JSON.stringify(result)]
+      );
+
+      // 10. COMMIT Transaction
+      await client.query('COMMIT');
+
+      safeLog('info', correlationId, `[Ledger] Withdrawal funds reserved atomically: ${rootTxId}`, {
+        debitEntryId,
+        lockEntryId,
+        paymentRequestId,
+        realAfter: formattedAfterReal,
+        lockedAfter: formattedAfterLocked
+      });
+
+      return result;
+    } catch (err: any) {
+      await client.query('ROLLBACK').catch(() => {});
+
+      if (err.code === '23505') {
+        const recovery = await this.db.query<{ response_payload: WithdrawalReservationResult }>(
+          `SELECT response_payload FROM idempotency_records WHERE idempotency_key = $1 LIMIT 1`,
+          [idempotencyKey]
+        );
+        if (recovery.rows.length > 0) {
+          const rawRec = recovery.rows[0].response_payload;
+          const cachedRec = typeof rawRec === 'string' ? JSON.parse(rawRec) : rawRec;
+          return {
+            ...cachedRec,
+            isIdempotent: true
+          };
+        }
+      }
+
+      safeLog('error', correlationId, `[Ledger] Withdrawal funds reservation failed: ${err.message}`, {
+        code: err.code,
+        name: err.name
+      });
+
+      throw err;
+    } finally {
+      client.release();
+    }
+  }
+
+  /**
+   * Performs an audit reconciliation between the wallet balances (REAL, BONUS, LOCKED) and sum of ledger entries.
    * Invariants:
    * - REAL: wallet.balance_minor === initial_seed + SUM(REAL credits + reversals) - SUM(REAL debits)
    * - BONUS: toMinor(wallet.bonus_balance) === initial_seed + SUM(BONUS credits + reversals) - SUM(BONUS debits)
-   * REAL and BONUS entries are strictly separated so BONUS rewards never cause false REAL discrepancies.
+   * - LOCKED: toMinor(wallet.locked_balance) === initial_seed + SUM(LOCKED credits + reversals) - SUM(LOCKED debits)
+   * REAL, BONUS, and LOCKED entries are strictly separated so rewards or reservations never cause false discrepancies.
    */
   public async auditReconciliation(
     userId: string | number,
@@ -785,6 +1109,25 @@ export class WalletLedgerService {
       [wallet.id]
     );
 
+    // 3. Audit LOCKED ledger entries
+    const lockedRes = await this.db.query<{
+      total_credits: string;
+      total_debits: string;
+      net_minor: string;
+      initial_seed_minor?: string | null;
+      entry_count?: string | number;
+    }>(
+      `SELECT 
+         COALESCE(SUM(CASE WHEN type IN ('CREDIT', 'REVERSAL') THEN amount_minor ELSE 0 END), 0) AS total_credits,
+         COALESCE(SUM(CASE WHEN type = 'DEBIT' THEN amount_minor ELSE 0 END), 0) AS total_debits,
+         COALESCE(SUM(CASE WHEN type IN ('CREDIT', 'REVERSAL') THEN amount_minor ELSE -amount_minor END), 0) AS net_minor,
+         (SELECT before_balance_minor FROM ledger_entries WHERE wallet_id = $1 AND COALESCE(balance_target, 'REAL') = 'LOCKED' AND status = 'COMMITTED' ORDER BY created_at ASC, id ASC LIMIT 1) AS initial_seed_minor,
+         COUNT(*) AS entry_count
+       FROM ledger_entries
+       WHERE wallet_id = $1 AND COALESCE(balance_target, 'REAL') = 'LOCKED' AND status = 'COMMITTED'`,
+      [wallet.id]
+    );
+
     const realWalletMinor = wallet.balanceMinor;
     const realRow = realRes.rows[0];
     const realEntryCount = Number(realRow?.entry_count || 0);
@@ -808,6 +1151,18 @@ export class WalletLedgerService {
     const bonusDiscrepancyMinor = (bonusWalletMinor - expectedBonusMinor).toString();
     const bonusIsReconciled = bonusDiscrepancyMinor === '0';
 
+    const lockedWalletStr = wallet.lockedBalance || '0.0000';
+    const lockedWalletMinor = parseToMinorUnits(lockedWalletStr, wallet.currency, true);
+    const lockedRow = lockedRes.rows[0];
+    const lockedEntryCount = Number(lockedRow?.entry_count || 0);
+    const lockedNetLedgerMinor = BigInt(lockedRow?.net_minor || '0');
+    const lockedSeedMinor = lockedEntryCount > 0 && lockedRow?.initial_seed_minor !== undefined && lockedRow?.initial_seed_minor !== null
+      ? BigInt(lockedRow.initial_seed_minor)
+      : lockedWalletMinor;
+    const expectedLockedMinor = lockedEntryCount > 0 ? lockedSeedMinor + lockedNetLedgerMinor : lockedWalletMinor;
+    const lockedDiscrepancyMinor = (lockedWalletMinor - expectedLockedMinor).toString();
+    const lockedIsReconciled = lockedDiscrepancyMinor === '0';
+
     const realSummary: BalanceTargetReconciliationSummary = {
       isReconciled: realIsReconciled,
       walletBalanceMinor: realWalletMinor.toString(),
@@ -824,6 +1179,14 @@ export class WalletLedgerService {
       discrepancyMinor: bonusDiscrepancyMinor
     };
 
+    const lockedSummary: BalanceTargetReconciliationSummary = {
+      isReconciled: lockedIsReconciled,
+      walletBalanceMinor: lockedWalletMinor.toString(),
+      walletBalanceMajor: lockedWalletStr,
+      computedLedgerNetMinor: lockedNetLedgerMinor.toString(),
+      discrepancyMinor: lockedDiscrepancyMinor
+    };
+
     if (targetBalance === 'BONUS') {
       return {
         isReconciled: bonusIsReconciled,
@@ -832,18 +1195,33 @@ export class WalletLedgerService {
         computedLedgerNetMinor: bonusSummary.computedLedgerNetMinor,
         discrepancyMinor: bonusSummary.discrepancyMinor,
         real: realSummary,
-        bonus: bonusSummary
+        bonus: bonusSummary,
+        locked: lockedSummary
+      };
+    }
+
+    if (targetBalance === 'LOCKED') {
+      return {
+        isReconciled: lockedIsReconciled,
+        walletBalanceMinor: lockedSummary.walletBalanceMinor,
+        walletBalanceMajor: lockedSummary.walletBalanceMajor,
+        computedLedgerNetMinor: lockedSummary.computedLedgerNetMinor,
+        discrepancyMinor: lockedSummary.discrepancyMinor,
+        real: realSummary,
+        bonus: bonusSummary,
+        locked: lockedSummary
       };
     }
 
     return {
-      isReconciled: realIsReconciled && bonusIsReconciled,
+      isReconciled: realIsReconciled && bonusIsReconciled && lockedIsReconciled,
       walletBalanceMinor: realSummary.walletBalanceMinor,
       walletBalanceMajor: realSummary.walletBalanceMajor,
       computedLedgerNetMinor: realSummary.computedLedgerNetMinor,
       discrepancyMinor: realSummary.discrepancyMinor,
       real: realSummary,
-      bonus: bonusSummary
+      bonus: bonusSummary,
+      locked: lockedSummary
     };
   }
 }

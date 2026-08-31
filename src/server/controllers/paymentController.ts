@@ -6,14 +6,28 @@
 
 import { Request, Response } from 'express';
 import { db } from '../../db/index';
-import { paymentRequests, wallets, transactions, users } from '../../db/schema';
-import { eq, desc, sql } from 'drizzle-orm';
+import { paymentRequests, wallets } from '../../db/schema';
+import { eq, desc } from 'drizzle-orm';
 import { PaymentMethodType } from '../types/seamless';
 import { WageringService } from '../services/wageringService';
-import { validatePaymentAmount, fromScale4, toScale4 } from '../utils/paymentAmount';
+import { validatePaymentAmount } from '../utils/paymentAmount';
 import { resolveAuthPaymentUser } from '../utils/paymentAuth';
+import { WalletLedgerService, walletLedgerService as defaultLedgerService } from '../ledger/walletLedgerService';
+import {
+  InsufficientFundsError,
+  WalletFrozenError,
+  WalletNotFoundError,
+  IdempotencyConflictError,
+  LedgerValidationError
+} from '../ledger/types';
 
 export class PaymentController {
+  private ledgerService: WalletLedgerService = defaultLedgerService;
+
+  public setLedgerService(service: WalletLedgerService): void {
+    this.ledgerService = service;
+  }
+
   /**
    * Submit a local deposit request (bKash / Nagad / Rocket)
    * In production, deposit submission creates ONLY a PENDING record.
@@ -129,6 +143,7 @@ export class PaymentController {
   /**
    * Submit a local withdrawal request (bKash / Nagad / Rocket)
    * Authenticated via Firebase ID token and resolved to canonical PostgreSQL user.
+   * PLAY369 Task 6.1.6: Atomic REAL -> LOCKED Reservation via WalletLedgerService.
    */
   async submitWithdrawal(req: Request, res: Response): Promise<void> {
     try {
@@ -137,7 +152,10 @@ export class PaymentController {
         method,
         amount,
         currency = 'BDT',
-        receiverNumber
+        receiverNumber,
+        withdrawalId: requestedWithdrawalId,
+        trxId: requestedTrxId,
+        idempotencyKey: bodyIdempotencyKey
       } = req.body;
 
       // 1. Resolve authoritative authenticated user
@@ -166,19 +184,16 @@ export class PaymentController {
         return;
       }
 
-      let amountMinor: bigint;
       let normalizedAmount: string;
       try {
         const parsed = validatePaymentAmount(amount);
-        amountMinor = parsed.minorUnits;
+        if (parsed.minorUnits <= 0n) {
+          res.status(400).json({ error: 'Withdrawal amount must be greater than zero' });
+          return;
+        }
         normalizedAmount = parsed.decimalString;
       } catch (err: any) {
         res.status(400).json({ error: `Invalid monetary amount: ${err.message}` });
-        return;
-      }
-
-      if (amountMinor <= 0n) {
-        res.status(400).json({ error: 'Withdrawal amount must be greater than zero' });
         return;
       }
 
@@ -195,78 +210,118 @@ export class PaymentController {
         return;
       }
 
-      const walletList = await db
-        .select()
-        .from(wallets)
-        .where(eq(wallets.userId, authUser.id));
+      // Generate or accept deterministic withdrawal reference
+      const withdrawalId = (
+        typeof requestedWithdrawalId === 'string' && requestedWithdrawalId.trim() !== ''
+          ? requestedWithdrawalId.trim()
+          : (typeof requestedTrxId === 'string' && requestedTrxId.trim() !== ''
+              ? requestedTrxId.trim()
+              : `WTH_${method}_${Date.now()}_${authUser.id}_${Math.random().toString(36).substring(2, 7).toUpperCase()}`)
+      );
 
-      const wallet = walletList.find((w) => w.currency === currency) || walletList[0];
+      const idempotencyKey = (
+        (req.headers['idempotency-key'] as string) ||
+        (typeof bodyIdempotencyKey === 'string' && bodyIdempotencyKey.trim() !== '' ? bodyIdempotencyKey.trim() : undefined) ||
+        `idemp:wdraw:${authUser.id}:${currency}:${withdrawalId}`
+      );
 
-      if (!wallet) {
-        res.status(404).json({ error: 'Wallet not found' });
-        return;
-      }
+      const correlationId = (req.headers['x-correlation-id'] as string) || `corr_wth_${Date.now()}_${authUser.id}`;
 
-      const currentBalMinor = toScale4(wallet.realBalance || '0.0000');
-      if (currentBalMinor < amountMinor) {
-        res.status(400).json({ error: 'Insufficient funds for withdrawal' });
-        return;
-      }
-
-      const newBalMinor = currentBalMinor - amountMinor;
-      const newBalStr = fromScale4(newBalMinor);
-
-      // 1. Debit wallet using scale-4 string
-      await db
-        .update(wallets)
-        .set({
-          realBalance: newBalStr,
-          version: sql`${wallets.version} + 1`,
-          updatedAt: new Date()
-        })
-        .where(eq(wallets.id, wallet.id));
-
-      const trxId = `WTH_${method}_${Math.random().toString(36).substring(2, 9).toUpperCase()}`;
-
-      // 2. Insert Payment Request (PENDING) bound to authenticated user
-      const [insertedReq] = await db
-        .insert(paymentRequests)
-        .values({
+      // 2. Perform Atomic Reservation via WalletLedgerService (REAL -> LOCKED)
+      try {
+        const reservation = await this.ledgerService.reserveWithdrawalFunds({
+          withdrawalId,
           userId: authUser.id,
-          walletId: wallet.id,
-          type: 'WITHDRAWAL',
-          method: method as PaymentMethodType,
           amount: normalizedAmount,
-          currency: currency,
+          currency,
+          paymentMethod: method,
           receiverNumber: String(receiverNumber),
-          trxId: trxId,
-          status: 'PENDING',
-          adminNote: 'Queued for Bank/MFS Transfer'
-        })
-        .returning();
+          adminNote: 'Queued for Bank/MFS Transfer',
+          metadata: {
+            method,
+            receiverNumber: String(receiverNumber),
+            senderIp: req.ip,
+            userAgent: req.headers['user-agent']
+          },
+          correlationId,
+          idempotencyKey
+        });
 
-      // 3. Record transaction bound to authenticated user
-      await db.insert(transactions).values({
-        providerId: 'CASHIER_LOCAL',
-        transactionId: trxId,
-        referenceTransactionId: String(insertedReq.id),
-        userId: authUser.id,
-        walletId: wallet.id,
-        gameId: 'CASHIER_WITHDRAWAL',
-        type: 'TIP',
-        amount: normalizedAmount,
-        currency: currency,
-        beforeBalance: fromScale4(currentBalMinor),
-        afterBalance: newBalStr,
-        status: 'PENDING',
-        metadata: { method, receiverNumber }
-      });
+        res.status(reservation.isIdempotent ? 200 : 201).json({
+          success: true,
+          data: {
+            id: reservation.paymentRequestId,
+            userId: authUser.id,
+            walletId: reservation.walletId,
+            type: 'WITHDRAWAL',
+            method: method as PaymentMethodType,
+            amount: normalizedAmount,
+            currency: currency,
+            receiverNumber: String(receiverNumber),
+            trxId: reservation.withdrawalId,
+            status: reservation.status,
+            adminNote: 'Queued for Bank/MFS Transfer',
+            beforeRealBalance: reservation.beforeRealBalance,
+            afterRealBalance: reservation.afterRealBalance,
+            beforeLockedBalance: reservation.beforeLockedBalance,
+            afterLockedBalance: reservation.afterLockedBalance,
+            isIdempotent: reservation.isIdempotent,
+            createdAt: reservation.executedAt
+          },
+          message: 'Withdrawal request submitted successfully and funds reserved'
+        });
+      } catch (ledgerErr: any) {
+        if (ledgerErr instanceof InsufficientFundsError) {
+          res.status(400).json({
+            success: false,
+            error: 'Insufficient funds for withdrawal',
+            code: 'INSUFFICIENT_FUNDS',
+            message: ledgerErr.message
+          });
+          return;
+        }
 
-      res.status(201).json({
-        success: true,
-        data: insertedReq,
-        message: 'Withdrawal request submitted successfully and queued for disbursement'
-      });
+        if (ledgerErr instanceof WalletFrozenError) {
+          res.status(403).json({
+            success: false,
+            error: 'Wallet is frozen or suspended',
+            code: 'WALLET_FROZEN',
+            message: ledgerErr.message
+          });
+          return;
+        }
+
+        if (ledgerErr instanceof WalletNotFoundError) {
+          res.status(404).json({
+            success: false,
+            error: 'Wallet not found',
+            code: 'WALLET_NOT_FOUND',
+            message: ledgerErr.message
+          });
+          return;
+        }
+
+        if (ledgerErr instanceof IdempotencyConflictError) {
+          res.status(409).json({
+            success: false,
+            error: 'Idempotency conflict: transaction already submitted with different parameters',
+            code: 'IDEMPOTENCY_CONFLICT',
+            message: ledgerErr.message
+          });
+          return;
+        }
+
+        if (ledgerErr instanceof LedgerValidationError) {
+          res.status(400).json({
+            success: false,
+            error: ledgerErr.message,
+            code: 'VALIDATION_ERROR'
+          });
+          return;
+        }
+
+        throw ledgerErr;
+      }
     } catch (err: any) {
       console.error('[PaymentController Error]:', err);
       res.status(500).json({ error: err.message || 'Failed to submit withdrawal' });

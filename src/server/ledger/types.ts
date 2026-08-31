@@ -27,7 +27,7 @@ export type LedgerTransactionStatus =
   | 'REJECTED'
   | 'ROLLED_BACK';
 
-export type LedgerBalanceTarget = 'REAL' | 'BONUS';
+export type LedgerBalanceTarget = 'REAL' | 'BONUS' | 'LOCKED';
 
 export interface WalletRecord {
   id: string | number;
@@ -36,6 +36,7 @@ export interface WalletRecord {
   balanceMinor: bigint; // Stored as integer minor units (e.g. 100.5000 BDT = 1005000n minor units)
   realBalance?: string; // Canonical 4-decimal numeric balance (e.g. "100.5000")
   bonusBalance?: string; // Canonical 4-decimal bonus balance (e.g. "50.0000")
+  lockedBalance?: string; // Canonical 4-decimal locked balance (e.g. "0.0000")
   version: bigint;      // Optimistic locking / mutation sequence counter
   status: 'ACTIVE' | 'FROZEN' | 'CLOSED';
   createdAt: Date;
@@ -132,6 +133,59 @@ export interface BonusToRealTransferResult {
   timestamp: string;
 }
 
+export interface WithdrawalReservationRequest {
+  userId: string | number;
+  currency: string;
+  withdrawalId?: string;
+  transactionId?: string;
+  amount?: string;
+  amountMinor?: bigint | number | string;
+  amountMajor?: string | number;
+  paymentMethod?: string;
+  method?: string;
+  receiverNumber?: string;
+  adminNote?: string;
+  idempotencyKey?: string;
+  correlationId?: string;
+  metadata?: Record<string, any>;
+  auditMetadata?: Record<string, any>;
+}
+
+export interface WithdrawalReservationResult {
+  success?: boolean;
+  isIdempotent: boolean;
+  withdrawalId: string;
+  transactionId: string;
+  paymentRequestId: number | string;
+  userId?: string;
+  walletId: number | string;
+  currency: string;
+  paymentMethod?: string;
+  method?: string;
+  receiverNumber?: string;
+  amount: string;
+  amountMinor?: string;
+  amountMajor?: string;
+  beforeRealBalance: string;
+  afterRealBalance: string;
+  beforeLockedBalance: string;
+  afterLockedBalance: string;
+  beforeRealBalanceMinor?: string;
+  afterRealBalanceMinor?: string;
+  beforeLockedBalanceMinor?: string;
+  afterLockedBalanceMinor?: string;
+  realBalanceMajor?: string;
+  lockedBalanceMajor?: string;
+  debitLedgerEntryId: string;
+  lockLedgerEntryId: string;
+  creditEntryId?: string;
+  debitEntryId?: string;
+  status: 'PENDING';
+  correlationId: string;
+  executedAt: string;
+  timestamp?: string;
+}
+
 export interface BalanceTargetReconciliationSummary {
   isReconciled: boolean;
   walletBalanceMinor: string;
@@ -148,6 +202,7 @@ export interface WalletAuditReconciliationResult {
   discrepancyMinor: string;
   real: BalanceTargetReconciliationSummary;
   bonus: BalanceTargetReconciliationSummary;
+  locked?: BalanceTargetReconciliationSummary;
 }
 
 export class LedgerValidationError extends Error {
@@ -158,6 +213,18 @@ export class LedgerValidationError extends Error {
   constructor(message: string, details?: Record<string, any>) {
     super(message);
     this.name = 'LedgerValidationError';
+    this.details = details;
+  }
+}
+
+export class IdempotencyConflictError extends Error {
+  public readonly code: string = 'IDEMPOTENCY_CONFLICT';
+  public readonly statusCode: number = 409;
+  public readonly details?: Record<string, any>;
+
+  constructor(message: string, details?: Record<string, any>) {
+    super(message);
+    this.name = 'IdempotencyConflictError';
     this.details = details;
   }
 }

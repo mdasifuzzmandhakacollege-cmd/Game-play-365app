@@ -51,11 +51,12 @@ export const postgresLedgerPool = new PostgresLedgerPool(process.env.DATABASE_UR
 export const walletLedgerService = new WalletLedgerService(postgresLedgerPool);
 export const walletController = new SeamlessWalletController(walletLedgerService);
 
-// Inject production PostgreSQL WalletLedgerService into AffiliateService, PromotionService, VipService & WageringService
+// Inject production PostgreSQL WalletLedgerService into AffiliateService, PromotionService, VipService, WageringService & paymentController
 AffiliateService.setLedgerService(walletLedgerService);
 PromotionService.setLedgerService(walletLedgerService);
 VipService.setLedgerService(walletLedgerService);
 WageringService.setLedgerService(walletLedgerService);
+paymentController.setLedgerService(walletLedgerService);
 
 // ----------------------------------------------------------------------------
 // 3. B2B Seamless Wallet Routes (Protected by HMAC Validation Middleware)
