@@ -6,6 +6,15 @@ on:
   pull_request:
     branches: [ "main" ]
 
+# Least privilege security permissions: Read-only access to repository contents
+permissions:
+  contents: read
+
+# Concurrency control: Cancel in-progress runs for stale PR commits
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+
 jobs:
   build:
     runs-on: ubuntu-latest

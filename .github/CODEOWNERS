@@ -1,0 +1,29 @@
+# Code Ownership Configuration
+# Defines ownership and review responsibilities across security, database, and platform domains.
+
+# Global default
+*
+
+# CI/CD & Delivery Pipelines
+/.github/
+/.github/workflows/
+
+# Security, Auth & Access Control
+/src/middleware/auth.ts
+/src/lib/firebase-admin.ts
+/firestore.rules
+/firebase-blueprint.json
+
+# Server & Authoritative API Layer
+/server.ts
+/src/server/
+
+# Database & Schema Definitions
+/src/db/
+/drizzle.config.ts
+
+# Configuration & Dependencies
+/package.json
+/package-lock.json
+/tsconfig.json
+/vite.config.ts
