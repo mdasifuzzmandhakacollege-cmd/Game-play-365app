@@ -20,6 +20,7 @@ import { getPromotionDetailsHandler, claimCheckInHandler, spinWheelHandler, conv
 import { WageringService } from './services/wageringService';
 import { createProviderGatewayRouter } from './controllers/providerGatewayController';
 import { createSandboxRouter } from './sandbox';
+import { adminController } from './controllers/adminController';
 import { requireAuth, requireAdmin, getAuthoritativeUserRole, AuthRequest } from '../middleware/auth.js';
 
 
@@ -154,6 +155,13 @@ adminRouter.get('/stats', (req: AuthRequest, res: Response) => {
 adminRouter.get('/requests', (req: AuthRequest, res: Response) => paymentController.getRequests(req, res));
 adminRouter.get('/destination-pool', (req: AuthRequest, res: Response) => paymentGatewayController.getDestinationPool(req, res));
 adminRouter.get('/payment-stats', (req: AuthRequest, res: Response) => paymentGatewayController.getStats(req, res));
+
+// PLAY369 Task A1: Authoritative Admin Read Model Endpoints
+adminRouter.get('/overview', (req: AuthRequest, res: Response) => adminController.getOverview(req, res));
+adminRouter.get('/payments', (req: AuthRequest, res: Response) => adminController.getPayments(req, res));
+adminRouter.get('/wallets', (req: AuthRequest, res: Response) => adminController.getWallets(req, res));
+adminRouter.get('/wagering', (req: AuthRequest, res: Response) => adminController.getWagering(req, res));
+adminRouter.get('/audit', (req: AuthRequest, res: Response) => adminController.getAudit(req, res));
 
 app.use('/api/admin', adminRouter);
 
