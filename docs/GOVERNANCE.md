@@ -1,27 +1,53 @@
 # Repository Governance & Delivery Pipeline
 
-## 1. Overview & Branch Protection Principles
+## 1. Overview & Governance Architecture
 
 To maintain strict production reliability, compliance, and supply-chain integrity across the **PLAY369** platform, all changes must pass through a controlled Pull Request (PR) and Continuous Integration (CI) verification gate before reaching production.
 
-### Core Governance Rules
+### Policy vs. Server-Side Enforcement Distinction
 
-1. **`main` Branch is Protected**:
-   - Direct commits or pushes to the `main` branch are strictly forbidden.
+> [!IMPORTANT]
+> **Policy & Convention vs. GitHub Server-Side Enforcement**:
+> - **Repository Governance Policy (This Document & `.github/` configurations)**: Defines the authoritative engineering rules, code ownership (`CODEOWNERS`), required automated gates, and pull request review workflows for all contributors.
+> - **GitHub Server-Side Enforcement (Repository Settings)**: The `main` branch is only *technically* enforced against direct pushes once the repository administrator enables a **GitHub Ruleset** or **Branch Protection Rule** in the GitHub repository settings UI (requiring status checks to pass and PR reviews before merging).
+> - Until server-side branch protection rules are activated in GitHub repository settings, all contributors must strictly adhere to this governance policy via disciplined PR-driven workflows.
+
+---
+
+## 2. Core Repository Governance Rules
+
+1. **`main` Branch Protection Policy**:
+   - Direct commits and direct pushes to the `main` branch are strictly prohibited by repository policy.
    - All production deployments are sourced strictly from verified commits on `main`.
 
 2. **Branching Strategy**:
    - All work must be developed in dedicated feature, bugfix, or chore branches (`feat/*`, `fix/*`, `chore/*`, `sec/*`).
-   - Short-lived branches with clear commit history are required.
+   - Short-lived branches with clear, linear commit history are required.
 
-3. **Mandatory Pull Request Reviews & Quality Gates**:
+3. **Mandatory Pull Request Workflow & Quality Gates**:
    - Every merge into `main` must occur via a Pull Request.
    - Pull Requests require passing all CI verification gates across all supported Node.js runtimes (Node 20.x and 22.x).
    - Zero bypass of failing automated tests or security audits.
 
 ---
 
-## 2. Automated CI Verification Gates
+## 3. GitHub Server-Side Ruleset Configuration Guide
+
+To enable server-side technical enforcement on GitHub:
+1. Navigate to **GitHub Repository Settings** $\rightarrow$ **Rules** $\rightarrow$ **Rulesets** (or **Branches** $\rightarrow$ **Branch protection rules**).
+2. Target branch: `main` (or default branch).
+3. Enable enforcement rules:
+   - **Restrict deletions**: Enabled.
+   - **Require a pull request before merging**: Enabled (Require review from Code Owners).
+   - **Require status checks to pass before merging**:
+     - `build (20.x)`
+     - `build (22.x)`
+   - **Block force pushes**: Enabled.
+   - **Require linear history**: Recommended.
+
+---
+
+## 4. Automated CI Verification Gates
 
 Every Pull Request and commit to `main` triggers automated verification executing the following fail-closed steps:
 
@@ -34,7 +60,7 @@ Every Pull Request and commit to `main` triggers automated verification executin
 
 ---
 
-## 3. Pull Request Protocol & Checklist
+## 5. Pull Request Protocol & Checklist
 
 When opening a Pull Request, engineers must fill out the standard PR template (`.github/pull_request_template.md`), addressing:
 - **Change Summary**: Clear description of functional or technical modifications.
@@ -47,17 +73,19 @@ When opening a Pull Request, engineers must fill out the standard PR template (`
 
 ---
 
-## 4. Code Ownership & Review Boundaries
+## 6. Code Ownership & Review Boundaries
 
-Code ownership is mapped via `.github/CODEOWNERS` to ensure critical paths receive appropriate oversight:
-- **Server & API Controllers**: `/server.ts`, `/src/server/`, `/src/controllers/`
-- **Security & Middleware**: `/src/middleware/`, `/src/lib/firebase-admin.ts`, `/firestore.rules`
-- **Database & Schemas**: `/src/db/`, `/drizzle/`
-- **CI / CD Pipelines**: `/.github/workflows/`
+Code ownership is mapped via `.github/CODEOWNERS` with registered repository owner `@mdasifuzzmandhakacollege-cmd` to ensure critical paths receive mandatory review:
+- **Global Catch-All**: `*`
+- **CI / CD Pipelines**: `/.github/`, `/.github/workflows/`
+- **Security & Access Control**: `/src/middleware/auth.ts`, `/src/lib/firebase-admin.ts`, `/firestore.rules`, `/firebase-blueprint.json`
+- **Server & API Controllers**: `/server.ts`, `/src/server/`
+- **Database & Schemas**: `/src/db/`, `/drizzle.config.ts`
+- **Configuration & Dependencies**: `/package.json`, `/package-lock.json`, `/tsconfig.json`, `/vite.config.ts`, `/.github/CODEOWNERS`
 
 ---
 
-## 5. Emergency Hotfix Procedure
+## 7. Emergency Hotfix Procedure
 
 In the event of a critical production incident:
 1. Create a `hotfix/<incident-id>` branch from the latest stable `main` commit.
@@ -65,3 +93,4 @@ In the event of a critical production incident:
 3. Open an expedited PR adhering to the same CI verification gates.
 4. Verify all tests and builds pass.
 5. Merge into `main` and trigger release validation according to `docs/PRODUCTION_READINESS.md`.
+
