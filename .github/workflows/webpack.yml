@@ -26,6 +26,13 @@ jobs:
     - name: Install dependencies
       run: npm install
 
+    - name: Dependency Security Audit (Report All, Fail on High/Critical)
+      run: |
+        echo "=== Full Supply-Chain Dependency Audit Report ==="
+        npm audit || true
+        echo "=== Enforcing Zero High/Critical Security Gate ==="
+        npm audit --audit-level=high
+
     - name: Type check & Lint (Fail Closed)
       run: npm run lint
 
