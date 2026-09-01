@@ -26,8 +26,11 @@ jobs:
     - name: Install dependencies
       run: npm install
 
-    - name: Type check & Lint
+    - name: Type check & Lint (Fail Closed)
       run: npm run lint
+
+    - name: Run CI Security & Regression Test Gate (Fail Closed)
+      run: npm test
 
     - name: Build project (Vite + Server)
       run: npm run build
