@@ -283,48 +283,59 @@ class ErrorReportingService {
     callback: (errors: SystemErrorRecord[]) => void,
     maxLimit: number = 30
   ): Unsubscribe {
-    const errorsCollection = collection(db, COLLECTION_NAME);
-    const q = query(errorsCollection, orderBy('timestamp', 'desc'), limit(maxLimit));
+    // If unauthenticated, immediately deliver local cached errors and subscribe locally
+    if (!auth.currentUser) {
+      callback(this.localErrors);
+      return this.onLocalErrorsChange(callback);
+    }
 
-    return onSnapshot(
-      q,
-      (snapshot) => {
-        const errorList: SystemErrorRecord[] = snapshot.docs.map((docSnap) => {
-          const data = docSnap.data();
-          return {
-            id: docSnap.id,
-            name: data.name || 'SystemError',
-            message: data.message || '',
-            stack: data.stack || '',
-            endpoint: data.endpoint || '',
-            method: data.method || 'POST',
-            statusCode: data.statusCode || 500,
-            source: data.source || 'API_FETCH',
-            context: data.context || {},
-            userId: data.userId || 'anonymous',
-            userEmail: data.userEmail || '',
-            userAgent: data.userAgent || '',
-            url: data.url || '',
-            timestamp: data.timestamp || Date.now(),
-            timeLabel: data.timeLabel || '',
-            severity: data.severity || 'HIGH',
-            status: data.status || 'NEW',
-            resolvedAt: data.resolvedAt
-          } as SystemErrorRecord;
-        });
+    try {
+      const errorsCollection = collection(db, COLLECTION_NAME);
+      const q = query(errorsCollection, orderBy('timestamp', 'desc'), limit(maxLimit));
 
-        // Merge with local list for instantaneous responsive UI
-        if (errorList.length > 0) {
-          this.localErrors = errorList;
-          this.saveCachedErrors();
+      return onSnapshot(
+        q,
+        (snapshot) => {
+          const errorList: SystemErrorRecord[] = snapshot.docs.map((docSnap) => {
+            const data = docSnap.data();
+            return {
+              id: docSnap.id,
+              name: data.name || 'SystemError',
+              message: data.message || '',
+              stack: data.stack || '',
+              endpoint: data.endpoint || '',
+              method: data.method || 'POST',
+              statusCode: data.statusCode || 500,
+              source: data.source || 'API_FETCH',
+              context: data.context || {},
+              userId: data.userId || 'anonymous',
+              userEmail: data.userEmail || '',
+              userAgent: data.userAgent || '',
+              url: data.url || '',
+              timestamp: data.timestamp || Date.now(),
+              timeLabel: data.timeLabel || '',
+              severity: data.severity || 'HIGH',
+              status: data.status || 'NEW',
+              resolvedAt: data.resolvedAt
+            } as SystemErrorRecord;
+          });
+
+          // Merge with local list for instantaneous responsive UI
+          if (errorList.length > 0) {
+            this.localErrors = errorList;
+            this.saveCachedErrors();
+          }
+          callback(errorList.length > 0 ? errorList : this.localErrors);
+        },
+        (_error) => {
+          // Graceful fallback to local cache without spamming console
+          callback(this.localErrors);
         }
-        callback(errorList.length > 0 ? errorList : this.localErrors);
-      },
-      (error) => {
-        console.warn('[SystemErrors] Snapshot listener fallback to local cache:', error.message);
-        callback(this.localErrors);
-      }
-    );
+      );
+    } catch {
+      callback(this.localErrors);
+      return this.onLocalErrorsChange(callback);
+    }
   }
 
   /**

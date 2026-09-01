@@ -77,6 +77,13 @@ export const formatScale4String = (val: string | number | null | undefined): str
   return fromScale4(toScale4(val));
 };
 
+export const maskEmail = (email: string | null | undefined): string | null => {
+  if (!email || !email.includes('@')) return null;
+  const [user, domain] = email.split('@');
+  if (user.length <= 2) return `${user[0]}***@${domain}`;
+  return `${user[0]}***${user.slice(-1)}@${domain}`;
+};
+
 export interface PaginationParams {
   page?: number;
   limit?: number;
@@ -736,7 +743,8 @@ export class AdminOpsService {
           id: w.id,
           userId: w.userId,
           username: w.username || `User_${w.userId}`,
-          email: w.userEmail || null,
+          email: w.userEmail ? maskEmail(w.userEmail) : null,
+          emailMasked: w.userEmail ? maskEmail(w.userEmail) : null,
           userStatus: w.userStatus || 'ACTIVE',
           currency: w.currency,
           realBalance: fromScale4(realMinor),
@@ -784,6 +792,7 @@ export class AdminOpsService {
     status?: string;
     userId?: number;
     search?: string;
+    released?: string | boolean;
   }): Promise<PaginatedResult<any>> {
     try {
       const database = AdminOpsService.getDb();
@@ -822,6 +831,10 @@ export class AdminOpsService {
       if (params.userId) {
         filtered = filtered.filter((r) => r.userId === Number(params.userId));
       }
+      if (params.released !== undefined && params.released !== '') {
+        const isRel = String(params.released).toLowerCase() === 'true' || String(params.released).toUpperCase() === 'RELEASED';
+        filtered = filtered.filter((r) => Boolean(r.isReleased) === isRel);
+      }
       if (params.search) {
         const query = params.search.toLowerCase().trim();
         filtered = filtered.filter((r) =>
@@ -842,9 +855,15 @@ export class AdminOpsService {
       let totalBonusGrantedMinor = 0n;
       let totalTargetTurnoverMinor = 0n;
       let totalCompletedTurnoverMinor = 0n;
+      let totalRemainingTurnoverMinor = 0n;
       const activeUserIds = new Set<number>();
 
       for (const r of filtered) {
+        const targetMinor = toScale4(r.targetTurnoverAmount);
+        const completedMinor = toScale4(r.completedTurnoverAmount);
+        const remainingMinor = targetMinor > completedMinor ? targetMinor - completedMinor : 0n;
+        totalRemainingTurnoverMinor += remainingMinor;
+
         if (r.status === 'ACTIVE' && !r.isReleased) {
           activeCount++;
           activeUserIds.add(r.userId);
@@ -855,8 +874,8 @@ export class AdminOpsService {
         }
 
         totalBonusGrantedMinor += toScale4(r.bonusAmountGranted);
-        totalTargetTurnoverMinor += toScale4(r.targetTurnoverAmount);
-        totalCompletedTurnoverMinor += toScale4(r.completedTurnoverAmount);
+        totalTargetTurnoverMinor += targetMinor;
+        totalCompletedTurnoverMinor += completedMinor;
       }
 
       const sanitizedData = pagedData.map((r) => {
@@ -871,7 +890,8 @@ export class AdminOpsService {
           id: r.id,
           userId: r.userId,
           username: r.username || `User_${r.userId}`,
-          userEmail: r.userEmail || null,
+          userEmail: r.userEmail ? maskEmail(r.userEmail) : null,
+          emailMasked: r.userEmail ? maskEmail(r.userEmail) : null,
           promoName: r.promoName,
           bonusAmountGranted: formatScale4String(r.bonusAmountGranted),
           requiredMultiplier: r.requiredMultiplier,
@@ -880,7 +900,7 @@ export class AdminOpsService {
           remainingTurnoverAmount: fromScale4(remainingMinor),
           progressPercent: Math.min(100, progressPercent),
           status: r.status,
-          isReleased: r.isReleased,
+          isReleased: Boolean(r.isReleased),
           isWithdrawalBlocked: r.status === 'ACTIVE' && !r.isReleased,
           releasedAt: r.releasedAt,
           releaseTransactionId: r.releaseTransactionId,
@@ -907,6 +927,7 @@ export class AdminOpsService {
           totalBonusGranted: fromScale4(totalBonusGrantedMinor),
           totalTargetTurnover: fromScale4(totalTargetTurnoverMinor),
           totalCompletedTurnover: fromScale4(totalCompletedTurnoverMinor),
+          totalRemainingTurnover: fromScale4(totalRemainingTurnoverMinor),
         },
         data: sanitizedData,
       };

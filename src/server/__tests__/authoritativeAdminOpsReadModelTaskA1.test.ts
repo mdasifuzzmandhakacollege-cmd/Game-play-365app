@@ -593,8 +593,10 @@ export async function runAdminOpsTaskA1Tests() {
 
 // Execute tests if run directly
 if (process.argv[1]?.includes('authoritativeAdminOpsReadModelTaskA1.test.ts')) {
-  runAdminOpsTaskA1Tests().catch((err) => {
-    console.error('Fatal test runner error:', err);
-    process.exit(1);
-  });
+  runAdminOpsTaskA1Tests()
+    .then(() => process.exit(0))
+    .catch((err) => {
+      console.error('Fatal test runner error:', err);
+      process.exit(1);
+    });
 }

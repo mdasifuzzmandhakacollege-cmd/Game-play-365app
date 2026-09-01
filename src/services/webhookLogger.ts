@@ -18,7 +18,8 @@ import {
   onSnapshot,
   Unsubscribe
 } from 'firebase/firestore';
-import { db } from '../lib/firebase';
+import { onAuthStateChanged } from 'firebase/auth';
+import { db, auth } from '../lib/firebase';
 import { WebhookLog, PaymentProviderId } from '../server/types/paymentGateway';
 import { handleFirestoreError, OperationType } from './firebaseFirestoreService';
 import { soundEngine } from './soundEngine';
@@ -60,7 +61,28 @@ class WebhookLoggerService {
 
   constructor() {
     this.loadFromCache();
-    this.initFirestoreListener();
+    this.setupAuthSync();
+  }
+
+  /**
+   * Listen to Firebase auth state to attach Firestore listener only when authenticated
+   */
+  private setupAuthSync(): void {
+    try {
+      onAuthStateChanged(auth, (user) => {
+        if (user) {
+          this.initFirestoreListener();
+        } else {
+          if (this.unsubscribeFirestore) {
+            this.unsubscribeFirestore();
+            this.unsubscribeFirestore = null;
+          }
+          this.isListeningFirestore = false;
+        }
+      });
+    } catch {
+      // Fallback silently if auth listener fails
+    }
   }
 
   /**
@@ -119,6 +141,7 @@ class WebhookLoggerService {
    */
   private initFirestoreListener(): void {
     if (this.isListeningFirestore) return;
+    if (!auth.currentUser) return;
 
     try {
       const logsCollection = collection(db, COLLECTION_NAME);
@@ -148,12 +171,12 @@ class WebhookLoggerService {
           }
         },
         (error) => {
-          console.warn('Firestore webhook_logs onSnapshot error, operating in local-resilient mode:', error.message);
+          // Graceful fallback to local cache without loud console warnings
           this.isListeningFirestore = false;
         }
       );
-    } catch (error) {
-      console.warn('Could not attach Firestore onSnapshot for webhook_logs:', error);
+    } catch {
+      this.isListeningFirestore = false;
     }
   }
 

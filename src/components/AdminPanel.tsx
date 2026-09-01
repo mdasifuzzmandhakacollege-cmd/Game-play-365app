@@ -48,6 +48,7 @@ import {
 import { useAuth } from '../contexts/AuthContext';
 import { useWalletGame } from '../contexts/WalletGameContext';
 import { AdminPaymentOperationsView } from './AdminPaymentOperationsView';
+import { AdminWalletWageringMonitoringView } from './AdminWalletWageringMonitoringView';
 import { seamlessEngine } from '../services/simulatedWalletEngine';
 import { notificationService } from '../services/notificationService';
 import { soundEngine } from '../services/soundEngine';
@@ -192,7 +193,7 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({ onStateMutated, onClose,
       return () => clearTimeout(timer);
     }
   }, [roleVerifying, isAuthorized, redirectCountdown, handleRedirect]);
-  const [activeSubTab, setActiveSubTab] = useState<'authoritative_ops' | 'automated_gateway' | 'deposits' | 'withdrawals' | 'gateways' | 'users' | 'api_guide'>('authoritative_ops');
+  const [activeSubTab, setActiveSubTab] = useState<'authoritative_ops' | 'authoritative_wallet_wagering' | 'automated_gateway' | 'deposits' | 'withdrawals' | 'gateways' | 'users' | 'api_guide'>('authoritative_ops');
   const [statusFilter, setStatusFilter] = useState<'ALL' | 'PENDING' | 'APPROVED' | 'REJECTED'>('ALL');
   const [searchQuery, setSearchQuery] = useState('');
   const [copiedId, setCopiedId] = useState<string | null>(null);
@@ -601,6 +602,22 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({ onStateMutated, onClose,
         </button>
 
         <button
+          id="tab-authoritative-wallet-wagering-btn"
+          onClick={() => {
+            soundEngine.playClick();
+            setActiveSubTab('authoritative_wallet_wagering');
+          }}
+          className={`px-4 py-2.5 rounded-xl font-bold transition-all flex items-center space-x-2 cursor-pointer ${
+            activeSubTab === 'authoritative_wallet_wagering'
+              ? 'bg-gradient-to-r from-amber-400 to-emerald-400 text-slate-950 font-black shadow-lg shadow-amber-500/25'
+              : 'text-slate-400 hover:text-white'
+          }`}
+        >
+          <Coins className="w-4 h-4 text-amber-400" />
+          <span>ওয়ালেট ও ওয়েজারিং মনিটরিং (Wallets & Wagering)</span>
+        </button>
+
+        <button
           onClick={() => {
             soundEngine.playClick();
             setActiveSubTab('automated_gateway');
@@ -694,6 +711,11 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({ onStateMutated, onClose,
       {/* 4. SUBTAB: POSTGRESQL AUTHORITATIVE PAYMENT OPERATIONS VIEW (READ-ONLY) */}
       {activeSubTab === 'authoritative_ops' && (
         <AdminPaymentOperationsView />
+      )}
+
+      {/* 4.1 SUBTAB: POSTGRESQL AUTHORITATIVE WALLET & WAGERING MONITORING (READ-ONLY) */}
+      {activeSubTab === 'authoritative_wallet_wagering' && (
+        <AdminWalletWageringMonitoringView />
       )}
 
       {/* 5. SUBTAB 0: FULLY AUTOMATED PAYMENT GATEWAY & POOL HUB */}

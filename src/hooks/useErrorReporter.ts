@@ -6,6 +6,8 @@
  */
 
 import { useEffect, useState, useCallback, useRef } from 'react';
+import { onAuthStateChanged } from 'firebase/auth';
+import { auth } from '../lib/firebase';
 import {
   errorReportingService,
   SystemErrorRecord,
@@ -36,15 +38,27 @@ export function useErrorReporter(): UseErrorReporterReturn {
   useEffect(() => {
     isMountedRef.current = true;
 
-    // 1. Subscribe to real-time Firestore SystemErrors collection
-    const unsubscribeFirestore = errorReportingService.subscribeToSystemErrors((liveErrors) => {
-      if (isMountedRef.current) {
-        setErrors(liveErrors);
-        if (liveErrors.length > 0) {
-          setLastReportedError(liveErrors[0]);
-        }
+    let unsubscribeFirestore: (() => void) | null = null;
+
+    const setupFirestoreSub = () => {
+      if (unsubscribeFirestore) {
+        unsubscribeFirestore();
       }
-    }, 40);
+      unsubscribeFirestore = errorReportingService.subscribeToSystemErrors((liveErrors) => {
+        if (isMountedRef.current) {
+          setErrors(liveErrors);
+          if (liveErrors.length > 0) {
+            setLastReportedError(liveErrors[0]);
+          }
+        }
+      }, 40);
+    };
+
+    // 1. Initial subscription and listen to Auth state changes
+    setupFirestoreSub();
+    const unsubscribeAuth = onAuthStateChanged(auth, () => {
+      setupFirestoreSub();
+    });
 
     // 2. Global Unhandled Window Error Listener
     const handleGlobalError = (event: ErrorEvent) => {
@@ -100,7 +114,10 @@ export function useErrorReporter(): UseErrorReporterReturn {
 
     return () => {
       isMountedRef.current = false;
-      unsubscribeFirestore();
+      if (unsubscribeFirestore) {
+        unsubscribeFirestore();
+      }
+      unsubscribeAuth();
       unsubscribeEngine();
       window.removeEventListener('error', handleGlobalError);
       window.removeEventListener('unhandledrejection', handleUnhandledRejection);

@@ -129,7 +129,8 @@ export class AdminController {
         limit = '20',
         status,
         userId,
-        search
+        search,
+        released
       } = req.query;
 
       const result = await AdminOpsService.getWagering({
@@ -138,6 +139,7 @@ export class AdminController {
         status: status ? String(status) : undefined,
         userId: userId ? Number(userId) : undefined,
         search: search ? String(search) : undefined,
+        released: released !== undefined ? String(released) : undefined,
       });
 
       res.status(200).json({

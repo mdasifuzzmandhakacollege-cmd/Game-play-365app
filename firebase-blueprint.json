@@ -175,6 +175,31 @@
         "createdAt": { "type": "string", "format": "date-time" }
       },
       "required": ["id", "provider", "eventId", "signature", "signatureValid", "processed", "createdAt"]
+    },
+    "SystemError": {
+      "title": "SystemError",
+      "description": "System exceptions, API failures and runtime error telemetry",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string", "maxLength": 128 },
+        "name": { "type": "string", "maxLength": 100 },
+        "message": { "type": "string", "maxLength": 2000 },
+        "stack": { "type": "string", "maxLength": 10000 },
+        "endpoint": { "type": "string", "maxLength": 255 },
+        "method": { "type": "string", "maxLength": 20 },
+        "statusCode": { "type": "number" },
+        "source": { "type": "string", "maxLength": 50 },
+        "userId": { "type": "string", "maxLength": 128 },
+        "userEmail": { "type": "string", "maxLength": 255 },
+        "userAgent": { "type": "string", "maxLength": 500 },
+        "url": { "type": "string", "maxLength": 500 },
+        "timestamp": { "type": "number" },
+        "timeLabel": { "type": "string", "maxLength": 50 },
+        "severity": { "type": "string", "enum": ["CRITICAL", "HIGH", "MEDIUM", "LOW"] },
+        "status": { "type": "string", "enum": ["NEW", "INVESTIGATING", "RESOLVED"] },
+        "resolvedAt": { "type": "number" }
+      },
+      "required": ["id", "message", "timestamp", "severity", "status"]
     }
   },
   "firestore": {
@@ -213,6 +238,10 @@
     "/webhook_logs/{webhookId}": {
       "schema": { "$ref": "#/entities/WebhookLog" },
       "description": "Incoming webhook payloads intercepted and logged for audit tracking and inspector replay"
+    },
+    "/SystemErrors/{errorId}": {
+      "schema": { "$ref": "#/entities/SystemError" },
+      "description": "Runtime system exceptions and API failure telemetry logs"
     }
   }
 }
