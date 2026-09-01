@@ -504,6 +504,7 @@ export class AdminOpsService {
     type?: string;
     status?: string;
     method?: string;
+    currency?: string;
     userId?: number;
     search?: string;
   }): Promise<PaginatedResult<any>> {
@@ -532,9 +533,12 @@ export class AdminOpsService {
           updatedAt: paymentRequests.updatedAt,
           username: users.username,
           userEmail: users.email,
+          walletLockedBalance: wallets.lockedBalance,
+          walletRealBalance: wallets.realBalance,
         })
         .from(paymentRequests)
         .leftJoin(users, eq(paymentRequests.userId, users.id))
+        .leftJoin(wallets, eq(paymentRequests.walletId, wallets.id))
         .orderBy(desc(paymentRequests.createdAt));
 
       // Apply in-memory filtering for flexible criteria
@@ -549,6 +553,9 @@ export class AdminOpsService {
       if (params.method) {
         filtered = filtered.filter((r) => r.method.toUpperCase() === params.method!.toUpperCase());
       }
+      if (params.currency) {
+        filtered = filtered.filter((r) => r.currency.toUpperCase() === params.currency!.toUpperCase());
+      }
       if (params.userId) {
         filtered = filtered.filter((r) => r.userId === Number(params.userId));
       }
@@ -559,7 +566,10 @@ export class AdminOpsService {
           (r.senderNumber && r.senderNumber.toLowerCase().includes(query)) ||
           (r.receiverNumber && r.receiverNumber.toLowerCase().includes(query)) ||
           (r.username && r.username.toLowerCase().includes(query)) ||
-          (r.userEmail && r.userEmail.toLowerCase().includes(query))
+          (r.userEmail && r.userEmail.toLowerCase().includes(query)) ||
+          (r.method && r.method.toLowerCase().includes(query)) ||
+          String(r.id).includes(query) ||
+          String(r.userId).includes(query)
         );
       }
 
@@ -591,24 +601,31 @@ export class AdminOpsService {
       }
 
       // Format monetary values as exact decimal strings
-      const sanitizedData = pagedData.map((item) => ({
-        id: item.id,
-        userId: item.userId,
-        username: item.username || `User_${item.userId}`,
-        userEmail: item.userEmail || null,
-        walletId: item.walletId,
-        type: item.type,
-        method: item.method,
-        amount: formatScale4String(item.amount),
-        currency: item.currency,
-        senderNumber: item.senderNumber,
-        receiverNumber: item.receiverNumber,
-        trxId: item.trxId,
-        status: item.status,
-        adminNote: item.adminNote,
-        createdAt: item.createdAt,
-        updatedAt: item.updatedAt,
-      }));
+      const sanitizedData = pagedData.map((item) => {
+        const lockedBal = item.walletLockedBalance ? formatScale4String(item.walletLockedBalance) : '0.0000';
+        return {
+          id: item.id,
+          userId: item.userId,
+          username: item.username || `User_${item.userId}`,
+          userEmail: item.userEmail || null,
+          walletId: item.walletId,
+          type: item.type,
+          method: item.method,
+          amount: formatScale4String(item.amount),
+          currency: item.currency,
+          senderNumber: item.senderNumber,
+          receiverNumber: item.receiverNumber,
+          senderNumberMasked: item.senderNumber ? (item.senderNumber.length > 6 ? item.senderNumber.slice(0, 3) + '****' + item.senderNumber.slice(-4) : item.senderNumber) : null,
+          receiverNumberMasked: item.receiverNumber ? (item.receiverNumber.length > 6 ? item.receiverNumber.slice(0, 3) + '****' + item.receiverNumber.slice(-4) : item.receiverNumber) : null,
+          trxId: item.trxId,
+          status: item.status,
+          adminNote: item.adminNote,
+          walletLockedBalance: lockedBal,
+          withdrawalLockedAmount: item.type === 'WITHDRAWAL' ? lockedBal : '0.0000',
+          createdAt: item.createdAt,
+          updatedAt: item.updatedAt,
+        };
+      });
 
       return {
         source: AUTHORITATIVE_SOURCE_TAG,

@@ -50,6 +50,7 @@ export class AdminController {
         type,
         status,
         method,
+        currency,
         userId,
         search
       } = req.query;
@@ -60,6 +61,7 @@ export class AdminController {
         type: type ? String(type) : undefined,
         status: status ? String(status) : undefined,
         method: method ? String(method) : undefined,
+        currency: currency ? String(currency) : undefined,
         userId: userId ? Number(userId) : undefined,
         search: search ? String(search) : undefined,
       });

@@ -42,10 +42,12 @@ import {
   Loader2,
   ArrowLeft,
   AlertOctagon,
-  KeyRound
+  KeyRound,
+  Database
 } from 'lucide-react';
 import { useAuth } from '../contexts/AuthContext';
 import { useWalletGame } from '../contexts/WalletGameContext';
+import { AdminPaymentOperationsView } from './AdminPaymentOperationsView';
 import { seamlessEngine } from '../services/simulatedWalletEngine';
 import { notificationService } from '../services/notificationService';
 import { soundEngine } from '../services/soundEngine';
@@ -190,7 +192,7 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({ onStateMutated, onClose,
       return () => clearTimeout(timer);
     }
   }, [roleVerifying, isAuthorized, redirectCountdown, handleRedirect]);
-  const [activeSubTab, setActiveSubTab] = useState<'automated_gateway' | 'deposits' | 'withdrawals' | 'gateways' | 'users' | 'api_guide'>('automated_gateway');
+  const [activeSubTab, setActiveSubTab] = useState<'authoritative_ops' | 'automated_gateway' | 'deposits' | 'withdrawals' | 'gateways' | 'users' | 'api_guide'>('authoritative_ops');
   const [statusFilter, setStatusFilter] = useState<'ALL' | 'PENDING' | 'APPROVED' | 'REJECTED'>('ALL');
   const [searchQuery, setSearchQuery] = useState('');
   const [copiedId, setCopiedId] = useState<string | null>(null);
@@ -586,6 +588,21 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({ onStateMutated, onClose,
         <button
           onClick={() => {
             soundEngine.playClick();
+            setActiveSubTab('authoritative_ops');
+          }}
+          className={`px-4 py-2.5 rounded-xl font-bold transition-all flex items-center space-x-2 cursor-pointer ${
+            activeSubTab === 'authoritative_ops'
+              ? 'bg-gradient-to-r from-emerald-400 to-teal-400 text-slate-950 font-black shadow-lg shadow-emerald-500/25'
+              : 'text-slate-400 hover:text-white'
+          }`}
+        >
+          <Database className="w-4 h-4 text-emerald-400" />
+          <span>PostgreSQL পেমেন্ট অপারেশনস (Authoritative Ops)</span>
+        </button>
+
+        <button
+          onClick={() => {
+            soundEngine.playClick();
             setActiveSubTab('automated_gateway');
           }}
           className={`px-4 py-2.5 rounded-xl font-bold transition-all flex items-center space-x-2 cursor-pointer ${
@@ -674,7 +691,12 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({ onStateMutated, onClose,
         </button>
       </div>
 
-      {/* 4. SUBTAB 0: FULLY AUTOMATED PAYMENT GATEWAY & POOL HUB */}
+      {/* 4. SUBTAB: POSTGRESQL AUTHORITATIVE PAYMENT OPERATIONS VIEW (READ-ONLY) */}
+      {activeSubTab === 'authoritative_ops' && (
+        <AdminPaymentOperationsView />
+      )}
+
+      {/* 5. SUBTAB 0: FULLY AUTOMATED PAYMENT GATEWAY & POOL HUB */}
       {activeSubTab === 'automated_gateway' && (
         <div className="space-y-6">
           {/* Top Quick Stats Grid */}
