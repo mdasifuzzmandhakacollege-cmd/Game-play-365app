@@ -15,7 +15,7 @@
  * 7. Fail-closed behavior on database error.
  */
 
-import { requireAdmin, AuthRequest } from '../../middleware/auth.js';
+import { requireAdmin, getAuthoritativeUserRole, AuthRequest } from '../../middleware/auth.js';
 import { adminController } from '../controllers/adminController.js';
 import { AdminOpsService, AUTHORITATIVE_SOURCE_TAG, toScale4, fromScale4, sumDecimalStrings } from '../services/adminOpsService.js';
 import fs from 'fs';
