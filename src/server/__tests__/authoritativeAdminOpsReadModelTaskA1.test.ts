@@ -16,6 +16,7 @@
  */
 
 import { requireAdmin, getAuthoritativeUserRole, AuthRequest } from '../../middleware/auth.js';
+import { setupHermeticAuthAndDb } from './mockAuthAndDbAdapters.js';
 import { adminController } from '../controllers/adminController.js';
 import { AdminOpsService, AUTHORITATIVE_SOURCE_TAG, toScale4, fromScale4, sumDecimalStrings } from '../services/adminOpsService.js';
 import fs from 'fs';
@@ -285,6 +286,9 @@ export async function runAdminOpsTaskA1Tests() {
   console.log('================================================================');
   console.log('🛡️ PLAY369 TASK A1: AUTHORITATIVE ADMIN DATA READ MODEL TESTS');
   console.log('================================================================\n');
+
+  // Initialize hermetic in-memory auth & firestore adapters (zero GCP / ADC dependency)
+  setupHermeticAuthAndDb();
 
   // Set mock DB client for unit testing the service/controller layer
   const mockDb = createMockDb();

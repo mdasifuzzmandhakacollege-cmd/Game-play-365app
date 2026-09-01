@@ -13,6 +13,7 @@
  */
 
 import { requireAdmin, requireAuth, getAuthoritativeUserRole, AuthRequest } from '../../middleware/auth.js';
+import { setupHermeticAuthAndDb } from './mockAuthAndDbAdapters.js';
 import { adminController } from '../controllers/adminController.js';
 import {
   AdminOpsService,
@@ -213,14 +214,86 @@ export async function runTaskA4CiSecurityGateTests(): Promise<{ passed: number; 
   passed = 0;
   failed = 0;
 
+  // Initialize hermetic in-memory auth & firestore adapters (zero GCP / ADC dependency)
+  const hermeticAdapters = setupHermeticAuthAndDb();
+
   // Set mock DB client for unit testing
   const mockDb = createMockDb();
   AdminOpsService.setDbClient(mockDb);
 
   // --------------------------------------------------------------------------
-  // SECTION 1: Unauthorized Admin Access Protection
+  // SECTION 1: Unauthorized Admin Access Protection & Hermetic Isolation
   // --------------------------------------------------------------------------
-  console.log('--- [1/6] Unauthorized Admin Access Protection ---');
+  console.log('--- [1/6] Unauthorized Admin Access Protection & Hermetic CI Isolation ---');
+
+  await assert('Hermetic CI Auth/DB Isolation Invariant: zero dependence on GOOGLE_APPLICATION_CREDENTIALS or Firebase secrets', async () => {
+    // 1. Explicitly ensure environment credentials are deleted/empty
+    const savedCredentials = process.env.GOOGLE_APPLICATION_CREDENTIALS;
+    const savedProject = process.env.GCLOUD_PROJECT;
+    delete process.env.GOOGLE_APPLICATION_CREDENTIALS;
+    delete process.env.GCLOUD_PROJECT;
+
+    try {
+      // 2. Ensure mock adapters are active
+      const { auth: hermeticAuth, db: hermeticDb } = setupHermeticAuthAndDb();
+
+      // 3. Test requireAuth with missing token (401)
+      const reqMissing: any = { headers: {} };
+      const resMissing = mockResponse();
+      let nextMissing = false;
+      await requireAuth(reqMissing, resMissing, () => { nextMissing = true; });
+      if (nextMissing || resMissing.statusCode !== 401) {
+        throw new Error(`requireAuth failed to reject missing token with 401 (got ${resMissing.statusCode})`);
+      }
+
+      // 4. Test requireAuth with invalid/malformed token (401)
+      const reqInvalid: any = { headers: { authorization: 'Bearer corrupted_invalid_token_99' } };
+      const resInvalid = mockResponse();
+      let nextInvalid = false;
+      await requireAuth(reqInvalid, resInvalid, () => { nextInvalid = true; });
+      if (nextInvalid || resInvalid.statusCode !== 401) {
+        throw new Error(`requireAuth failed to reject invalid token with 401 (got ${resInvalid.statusCode})`);
+      }
+
+      // 5. Test requireAuth with valid player token (200 / next)
+      const reqValid: any = { headers: { authorization: 'Bearer mock_player_token' } };
+      const resValid = mockResponse();
+      let nextValid = false;
+      await requireAuth(reqValid, resValid, () => { nextValid = true; });
+      if (!nextValid || !reqValid.user || reqValid.user.role !== 'PLAYER') {
+        throw new Error('requireAuth failed to decode valid token in hermetic isolation');
+      }
+
+      // 6. Test requireAdmin role resolution and rejection without credentials
+      // Standard player token => 403 Forbidden
+      const reqPlayer: any = { headers: { authorization: 'Bearer mock_player_token' } };
+      const resPlayer = mockResponse();
+      let nextPlayer = false;
+      await requireAdmin(reqPlayer, resPlayer, () => { nextPlayer = true; });
+      if (nextPlayer || resPlayer.statusCode !== 403) {
+        throw new Error(`requireAdmin failed to reject standard player with 403 (got ${resPlayer.statusCode})`);
+      }
+
+      // Privileged admin token => next() called with isAuthorizedAdmin
+      const reqAdmin: any = { headers: { authorization: 'Bearer mock_admin_token' } };
+      const resAdmin = mockResponse();
+      let nextAdmin = false;
+      await requireAdmin(reqAdmin, resAdmin, () => { nextAdmin = true; });
+      if (!nextAdmin || !reqAdmin.isAuthorizedAdmin || reqAdmin.userRole !== 'ADMIN') {
+        throw new Error('requireAdmin failed to authorize admin token in hermetic isolation');
+      }
+
+      // 7. Test Firestore role fallback via in-memory DB without GCP credentials
+      hermeticDb.setDocument('admins', 'hermetic_admin_user_test', { role: 'OPERATOR', active: true });
+      const roleFromDb = await getAuthoritativeUserRole({ uid: 'hermetic_admin_user_test' } as any);
+      if (roleFromDb !== 'OPERATOR') {
+        throw new Error(`Expected role 'OPERATOR' from in-memory DB, got: ${roleFromDb}`);
+      }
+    } finally {
+      if (savedCredentials) process.env.GOOGLE_APPLICATION_CREDENTIALS = savedCredentials;
+      if (savedProject) process.env.GCLOUD_PROJECT = savedProject;
+    }
+  });
 
   await assert('requireAdmin rejects missing Authorization header with 401 UNAUTHENTICATED', async () => {
     const req: any = { headers: {} };

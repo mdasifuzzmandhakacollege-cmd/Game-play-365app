@@ -19,6 +19,7 @@
  */
 
 import { requireAdmin, AuthRequest } from '../../middleware/auth.js';
+import { setupHermeticAuthAndDb } from './mockAuthAndDbAdapters.js';
 import { adminController } from '../controllers/adminController.js';
 import { AdminOpsService, AUTHORITATIVE_SOURCE_TAG, toScale4, fromScale4, formatScale4String } from '../services/adminOpsService.js';
 import fs from 'fs';
@@ -171,6 +172,9 @@ export async function runTaskA2TestSuite() {
   console.log('\n================================================================');
   console.log('  PLAY369 Task A2 Test Suite: Authoritative Payment Operations');
   console.log('================================================================\n');
+
+  // Initialize hermetic in-memory auth & firestore adapters (zero GCP / ADC dependency)
+  setupHermeticAuthAndDb();
 
   setupMockPostgresDb();
 

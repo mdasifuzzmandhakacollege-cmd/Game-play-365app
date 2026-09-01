@@ -19,6 +19,7 @@
  */
 
 import { requireAdmin, getAuthoritativeUserRole, AuthRequest } from '../../middleware/auth.js';
+import { setupHermeticAuthAndDb } from './mockAuthAndDbAdapters.js';
 import { adminController } from '../controllers/adminController.js';
 import { AdminOpsService, AUTHORITATIVE_SOURCE_TAG, toScale4, fromScale4, formatScale4String } from '../services/adminOpsService.js';
 import fs from 'fs';
@@ -200,6 +201,9 @@ export async function runAuthoritativeWalletWageringTaskA3Tests() {
   console.log('\n===============================================================');
   console.log('🧪 PLAY369 TASK A3: AUTHORITATIVE WALLET & WAGERING TEST SUITE');
   console.log('===============================================================\n');
+
+  // Initialize hermetic in-memory auth & firestore adapters (zero GCP / ADC dependency)
+  setupHermeticAuthAndDb();
 
   setupMockPostgresDb();
 

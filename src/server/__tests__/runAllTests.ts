@@ -2,11 +2,15 @@ import { runAdminOpsTaskA1Tests } from './authoritativeAdminOpsReadModelTaskA1.t
 import { runTaskA2TestSuite } from './authoritativePaymentOperationsTaskA2.test.js';
 import { runAuthoritativeWalletWageringTaskA3Tests } from './authoritativeWalletWageringTaskA3.test.js';
 import { runTaskA4CiSecurityGateTests } from './ciSecurityRegressionGateTaskA4.test.js';
+import { setupHermeticAuthAndDb } from './mockAuthAndDbAdapters.js';
 
 export async function runAllVerificationSuites(): Promise<void> {
   console.log('╔══════════════════════════════════════════════════════════════════════════════╗');
   console.log('║               PLAY369 CI AUTOMATED VERIFICATION & SECURITY GATE             ║');
   console.log('╚══════════════════════════════════════════════════════════════════════════════╝\n');
+
+  // Initialize hermetic test adapters (zero GCP / ADC / secret requirement)
+  setupHermeticAuthAndDb();
 
   const startTime = Date.now();
   const results: { name: string; status: 'PASSED' | 'FAILED'; error?: any }[] = [];
